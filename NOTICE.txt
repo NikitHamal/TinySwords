@@ -1,0 +1,4 @@
+Tiny Swords RTS - Realm War is a local HTML5 fan/game prototype built from the Tiny Swords free asset pack uploaded by the user.
+
+Original asset pack: Tiny Swords by Pixel Frog.
+Review the original itch.io page/license before redistributing or publishing.
