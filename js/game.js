@@ -316,7 +316,7 @@
       for (let i = 0; i < 150; i++) {
         const p = this.randomLandPoint(190);
         if (!p || this.occupiedByBase(p.x, p.y, 280) || this.tooCloseResource(p.x, p.y, 34)) continue;
-        this.decor.push({ id: gid++, kind: choose(['bush1','bush2','bush3','bush4','rock1','rock2','rock3','rock4']), x: p.x, y: p.y, scale: .18 + Math.random() * .15, front: false });
+        this.decor.push({ id: gid++, kind: choose(['bush1','bush2','bush3','bush4','rock1','rock2','rock3','rock4']), x: p.x, y: p.y, scale: .6 + Math.random() * .3, front: false });
       }
       this.addWaterDetails();
     }
@@ -394,7 +394,7 @@
         const y = 120 + Math.random() * (WORLD_H - 240);
         if (!this.isWater(x, y)) continue;
         const kind = choose(['waterRock1','waterRock2','waterRock3','waterRock4','cloud1','cloud2','cloud3']);
-        const scale = kind.startsWith('cloud') ? .22 + Math.random() * .18 : .20 + Math.random() * .16;
+        const scale = kind.startsWith('cloud') ? .8 + Math.random() * .6 : .5 + Math.random() * .3;
         this.decor.push({ id: gid++, kind, x, y, scale, water: true, front: false });
       }
     }
@@ -1387,44 +1387,95 @@
       this.drawShoreLines(sx, sy, ex, ey);
     }
     drawGrassGround(tx, ty, x, y) {
-      ctx.fillStyle = '#87bd62';
-      ctx.fillRect(x, y, TILE + 1, TILE + 1);
+      const img = assets.tileGrass;
+      if (img) {
+        // Draw the CENTER tile (1, 1) and randomly flip to break up grid repetition
+        ctx.save();
+        ctx.translate(x + TILE/2, y + TILE/2);
+        ctx.scale(rngHash(tx, ty, 1) > 0.5 ? 1 : -1, rngHash(tx, ty, 2) > 0.5 ? 1 : -1);
+        ctx.drawImage(img, 64, 64, 64, 64, -TILE/2, -TILE/2, TILE + 1, TILE + 1);
+        ctx.restore();
+      } else {
+        ctx.fillStyle = '#87bd62';
+        ctx.fillRect(x, y, TILE + 1, TILE + 1);
+      }
+      
       const n = rngHash(tx, ty, 1200);
-      if (n < .20) { ctx.fillStyle = 'rgba(231, 238, 130, .13)'; ctx.fillRect(x + 10, y + 12, 32, 4); }
-      if (n > .70) { ctx.fillStyle = 'rgba(48, 103, 65, .11)'; ctx.fillRect(x + 16, y + 48, 30, 5); }
-      ctx.fillStyle = 'rgba(220, 239, 143, .13)';
-      for (let i = 0; i < 5; i++) {
-        const px = x + 6 + Math.floor(rngHash(tx + i, ty, 1210) * 52);
-        const py = y + 6 + Math.floor(rngHash(tx, ty + i, 1211) * 52);
-        ctx.fillRect(px, py, 2 + (i % 2), 2);
+      if (!img) {
+        if (n < .20) { ctx.fillStyle = 'rgba(231, 238, 130, .13)'; ctx.fillRect(x + 10, y + 12, 32, 4); }
+        if (n > .70) { ctx.fillStyle = 'rgba(48, 103, 65, .11)'; ctx.fillRect(x + 16, y + 48, 30, 5); }
       }
     }
 
     drawWaterTile(tx, ty, x, y) {
-      ctx.fillStyle = '#47aaa6';
-      ctx.fillRect(x, y, TILE + 1, TILE + 1);
-      const n = rngHash(tx, ty, 1800);
-      if (n < .18) { ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(x + 12 + Math.floor(n * 18), y + 18, 28, 3); }
-      if (n > .72) { ctx.fillStyle = 'rgba(30,86,93,.16)'; ctx.fillRect(x + 8, y + 44, 42, 5); }
+      const img = assets.water;
+      if (img) {
+        ctx.drawImage(img, 0, 0, 64, 64, x, y, TILE + 1, TILE + 1);
+      } else {
+        ctx.fillStyle = '#47aaa6';
+        ctx.fillRect(x, y, TILE + 1, TILE + 1);
+      }
     }
+    
     drawShoreLines(sx, sy, ex, ey) {
       if (!this.landMap) return;
       const cols = this.landCols, rows = this.landRows;
       const landAt = (tx, ty) => tx >= 0 && ty >= 0 && tx < cols && ty < rows && this.landMap[ty * cols + tx] === 1;
+      const img = assets.tileGrass;
+      
       for (let ty = sy; ty <= ey; ty++) for (let tx = sx; tx <= ex; tx++) {
+        // Draw shorelines ON THE LAND TILES!
         if (!landAt(tx, ty)) continue;
         const x = tx * TILE, y = ty * TILE;
+        
+        // n means there is water above (not land)
         const n = !landAt(tx, ty - 1), so = !landAt(tx, ty + 1), w = !landAt(tx - 1, ty), e = !landAt(tx + 1, ty);
+        
         if (!(n || so || w || e)) continue;
-        ctx.fillStyle = 'rgba(52, 112, 80, .58)';
-        if (so) ctx.fillRect(x, y + TILE - 8, TILE + 1, 8);
-        if (e) ctx.fillRect(x + TILE - 8, y, 8, TILE + 1);
-        if (w) ctx.fillRect(x, y, 8, TILE + 1);
-        if (n) { ctx.fillStyle = 'rgba(202, 235, 151, .44)'; ctx.fillRect(x, y, TILE + 1, 5); }
-        ctx.fillStyle = 'rgba(232, 252, 185, .44)';
-        if (so) ctx.fillRect(x + 6, y + TILE - 2, TILE - 12, 2);
-        if (e) ctx.fillRect(x + TILE - 2, y + 8, 2, TILE - 16);
-        if (w) ctx.fillRect(x, y + 8, 2, TILE - 16);
+        
+        if (img) {
+          // Autotile logic based on standard 3x3 layout
+          let srcX = -1, srcY = -1;
+          
+          if (n && w) { srcX = 0; srcY = 0; }
+          else if (n && e) { srcX = 128; srcY = 0; }
+          else if (so && w) { srcX = 0; srcY = 128; }
+          else if (so && e) { srcX = 128; srcY = 128; }
+          else if (n) { srcX = 64; srcY = 0; }
+          else if (so) { srcX = 64; srcY = 128; }
+          else if (w) { srcX = 0; srcY = 64; }
+          else if (e) { srcX = 128; srcY = 64; }
+          
+          if (srcX !== -1) {
+            // 1. Draw solid water base to clear the inner grass
+            if (assets.water) {
+              ctx.drawImage(assets.water, 0, 0, 64, 64, x, y, TILE + 1, TILE + 1);
+            } else {
+              ctx.fillStyle = '#47aaa6';
+              ctx.fillRect(x, y, TILE + 1, TILE + 1);
+            }
+            
+            // 2. Draw the correctly sliced foam tile for this specific edge!
+            if (assets.waterFoam) {
+              const foam = assets.waterFoam;
+              const frames = 16;
+              const frame = Math.floor(this.time * 6) % frames;
+              const fX = (frame * 192) + srcX;
+              const fY = srcY;
+              ctx.drawImage(foam, fX, fY, 64, 64, x, y, TILE + 1, TILE + 1);
+            }
+            
+            // 3. Draw edge overlay ON TOP. The transparent parts will show the foam!
+            ctx.drawImage(img, srcX, srcY, 64, 64, x, y, TILE + 1, TILE + 1);
+          }
+        } else {
+          // Fallback legacy solid drawing
+          ctx.fillStyle = 'rgba(52, 112, 80, .58)';
+          if (n) ctx.fillRect(x, y, TILE + 1, 8);
+          if (so) ctx.fillRect(x, y + TILE - 8, TILE + 1, 8);
+          if (w) ctx.fillRect(x, y, 8, TILE + 1);
+          if (e) ctx.fillRect(x + TILE - 8, y, 8, TILE + 1);
+        }
       }
     }
     drawWorldEntities() {
@@ -1453,14 +1504,14 @@
       const img = assets[d.kind];
       if (!img) return;
       const w = img.width * d.scale, h = img.height * d.scale;
-      if (!d.water) this.drawShadow(d.x, d.y + 4, Math.min(30, w * .20), 6);
+      if (!d.water) this.drawShadow(d.x, d.y + 4, Math.min(22, w * .15), 5);
       ctx.globalAlpha = d.water && d.kind.startsWith('cloud') ? .86 : 1;
       ctx.drawImage(img, d.x - w / 2, d.y - h + 8, w, h);
       ctx.globalAlpha = 1;
     }
     drawResource(r) {
       const img = assets[r.sprite];
-      const scale = r.depleted ? .34 : r.type === 'tree' ? .30 : r.type === 'gold' ? .43 : .38;
+      const scale = r.depleted ? .45 : r.type === 'tree' ? .45 : r.type === 'gold' ? .55 : .48;
       const moving = r.type === 'food' && Math.hypot(r.vx || 0, r.vy || 0) > 6;
       const sprite = moving ? assets.sheepMove : img;
       const bob = r.type === 'food' ? Math.sin(this.time * 2 + r.bob) * 2 : 0;
