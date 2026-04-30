@@ -183,6 +183,7 @@ Game.prototype.drawResource = function(r) {
   }
   const bob = r.type === 'food' && r.animal ? Math.sin(this.time * 2 + r.bob) * 1.8 : 0;
   this.drawShadow(r.x, r.y + 4, r.type === 'tree' ? 19 : r.r * .8, 7);
+  
   if (sprite) {
     let frameW = sprite.width, frameH = sprite.height, fps = 0, scale = .5;
     if (r.type === 'tree') { frameW = 192; frameH = 256; fps = r.depleted ? 0 : 4.0; scale = 0.65 * SPRITE_BOOST; }
@@ -192,7 +193,28 @@ Game.prototype.drawResource = function(r) {
     const frames = Math.max(1, Math.floor(sprite.width / frameW));
     const fr = fps ? Math.floor(this.time * fps + r.bob) % frames : 0;
     const w = frameW * scale, h = frameH * scale;
+    
+    ctx.save();
+    if (r.flash > 0) {
+      ctx.globalAlpha = 1;
+      // When sheep or resource flashes red on hit
+      ctx.filter = `brightness(1.5) sepia(1) hue-rotate(-50deg) saturate(3) opacity(${0.7 + r.flash * 0.3})`;
+    }
+    
     ctx.drawImage(sprite, fr * frameW, 0, frameW, frameH, r.x - w / 2, r.y - h + 14 + bob, w, h);
+    
+    if (r.flash > 0) ctx.filter = 'none';
+    
+    // Draw gold shine overlay
+    if (r.type === 'gold') {
+      const hlSprite = assets[r.sprite + '_hl'];
+      if (hlSprite) {
+        ctx.globalAlpha = (Math.sin(this.time * 1.5 + r.bob) + 1) * 0.5 * 0.85;
+        ctx.drawImage(hlSprite, fr * frameW, 0, frameW, frameH, r.x - w / 2, r.y - h + 14 + bob, w, h);
+      }
+    }
+    
+    ctx.restore();
   } else { ctx.fillStyle = r.type === 'gold' ? '#e6ca59' : '#6fa75a'; ctx.fillRect(r.x - r.r, r.y - r.r, r.r * 2, r.r * 2); }
   if (this.selected.includes(r)) this.drawSelectionCircle(r.x, r.y, r.r + 8, '#f5d37d');
 };
@@ -222,13 +244,18 @@ Game.prototype.drawUnit = function(u) {
   const def = UNITS[u.type];
   let anim = 'idle';
   if (u.order === 'move' || u.order === 'attackMove' || u.order === 'garrison' || u.carry) anim = 'run';
-  if (u.order === 'attack' && u.target && dist(u, u.target) <= def.range + 8) anim = 'attack';
-  if (u.type === 'worker' && ((u.order === 'harvest' && !u.carry && u.gather > 0) || u.huntSwing > 0)) anim = u.target && u.target.type === 'gold' ? 'mine' : 'chop';
+  if (u.order === 'attack' && u.target) anim = dist(u, u.target) > def.range + 8 ? 'run' : 'attack';
+  if (u.type === 'worker' && u.order === 'harvest' && !u.carry) anim = (u.gather > 0 || u.huntSwing > 0) ? (u.target && u.target.type === 'gold' ? 'mine' : 'chop') : 'run';
+  if (u.type === 'worker' && u.order === 'repair') anim = dist2(u.x, u.y, u.target.x, u.target.y + u.target.h * 0.4) <= 40 * 40 ? 'build' : 'run';
+  if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= def.range + 8) anim = 'fight';
+
   let key = `u_${f.key}_${u.type}_${anim}`;
   if (u.type === 'worker') {
     if (u.carry) key = `u_${f.key}_worker_carry${u.carry.type[0].toUpperCase()}${u.carry.type.slice(1)}`;
     else if (anim === 'mine') key = `u_${f.key}_worker_mine`;
     else if (anim === 'chop') key = `u_${f.key}_worker_chop`;
+    else if (anim === 'build') key = `u_${f.key}_worker_build`;
+    else if (anim === 'fight') key = `u_${f.key}_worker_fight`;
     else key = `u_${f.key}_worker_${anim === 'run' ? 'run' : 'idle'}`;
   }
   const img = assets[key] || assets[`u_${f.key}_${u.type}_idle`];

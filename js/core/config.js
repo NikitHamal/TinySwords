@@ -112,6 +112,12 @@ const IMAGE_PATHS = {
   gold4: BASE + 'Terrain/Resources/Gold/Gold Stones/Gold Stone 4.png',
   gold5: BASE + 'Terrain/Resources/Gold/Gold Stones/Gold Stone 5.png',
   gold6: BASE + 'Terrain/Resources/Gold/Gold Stones/Gold Stone 6.png',
+  gold1_hl: BASE + 'Terrain/Resources/Gold/Gold Stones/Gold Stone 1_Highlight.png',
+  gold2_hl: BASE + 'Terrain/Resources/Gold/Gold Stones/Gold Stone 2_Highlight.png',
+  gold3_hl: BASE + 'Terrain/Resources/Gold/Gold Stones/Gold Stone 3_Highlight.png',
+  gold4_hl: BASE + 'Terrain/Resources/Gold/Gold Stones/Gold Stone 4_Highlight.png',
+  gold5_hl: BASE + 'Terrain/Resources/Gold/Gold Stones/Gold Stone 5_Highlight.png',
+  gold6_hl: BASE + 'Terrain/Resources/Gold/Gold Stones/Gold Stone 6_Highlight.png',
   sheepIdle: BASE + 'Terrain/Resources/Meat/Sheep/Sheep_Idle.png',
   sheepMove: BASE + 'Terrain/Resources/Meat/Sheep/Sheep_Move.png',
   sheepGrass: BASE + 'Terrain/Resources/Meat/Sheep/Sheep_Grass.png',
@@ -164,6 +170,8 @@ for (const f of FACTIONS) {
   IMAGE_PATHS[`u_${f.key}_worker_run`] = `${BASE}Units/${uf}/Pawn/Pawn_Run.png`;
   IMAGE_PATHS[`u_${f.key}_worker_chop`] = `${BASE}Units/${uf}/Pawn/Pawn_Interact Axe.png`;
   IMAGE_PATHS[`u_${f.key}_worker_mine`] = `${BASE}Units/${uf}/Pawn/Pawn_Interact Pickaxe.png`;
+  IMAGE_PATHS[`u_${f.key}_worker_build`] = `${BASE}Units/${uf}/Pawn/Pawn_Interact Hammer.png`;
+  IMAGE_PATHS[`u_${f.key}_worker_fight`] = `${BASE}Units/${uf}/Pawn/Pawn_Interact Knife.png`;
   IMAGE_PATHS[`u_${f.key}_worker_carryWood`] = `${BASE}Units/${uf}/Pawn/Pawn_Run Wood.png`;
   IMAGE_PATHS[`u_${f.key}_worker_carryGold`] = `${BASE}Units/${uf}/Pawn/Pawn_Run Gold.png`;
   IMAGE_PATHS[`u_${f.key}_worker_carryFood`] = `${BASE}Units/${uf}/Pawn/Pawn_Run Meat.png`;

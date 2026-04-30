@@ -131,6 +131,25 @@ Game.prototype.updateUnits = function(dt) {
 };
 
 Game.prototype.updateWorker = function(u, dt) {
+  if (u.order === 'repair') {
+    const b = u.target;
+    if (!b || b.dead || (b.build >= 1 && b.hp >= b.maxHp)) { u.order = 'idle'; u.target = null; return; }
+    if (this.moveToward(u, b.x, b.y + b.h * 0.4, dt, 36)) {
+      u.face = b.x >= u.x ? 1 : -1;
+      if (Math.random() < dt * 2) this.effects.push({ kind: 'dust', x: u.x + (Math.random() - .5) * 10, y: u.y, time: .3, max: .3 });
+      
+      if (b.build < 1) {
+        b.build = Math.min(1, b.build + dt / b.buildTime * 1.5);
+        b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt / b.buildTime * 1.35);
+        if (b.build >= 1 && b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} constructed.`, 1.4); this.sfx.build(); u.order = 'idle'; }
+      } else if (b.hp < b.maxHp) {
+        b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt * 0.05);
+        if (b.hp >= b.maxHp) { u.order = 'idle'; this.toast(`${BUILDINGS[b.type].label} fully repaired.`, 1.4); }
+      }
+    }
+    return;
+  }
+
   if (u.order === 'harvest') {
     const res = u.target;
     if (!res || res.dead || res.amount <= 0) { u.carry = null; u.order = 'idle'; u.target = null; u.gather = 0; return; }
@@ -146,20 +165,22 @@ Game.prototype.updateWorker = function(u, dt) {
     }
 
     if (res.type === 'food' && res.animal) {
-      const strikeRange = res.r + 13;
-      if (!this.moveToward(u, res.x, res.y, dt, strikeRange)) return;
-      u.face = res.x >= u.x ? 1 : -1;
-      u.gather += dt;
-      if (u.gather >= .55) {
-        u.gather = 0;
-        u.huntSwing = .42;
-        this.strikeAnimal(u, res);
-      }
+      const strikeRange = res.r + 18;
+      if (this.moveToward(u, res.x, res.y, dt, strikeRange)) {
+        u.face = res.x >= u.x ? 1 : -1;
+        u.gather += dt;
+        if (u.gather >= .55) {
+          u.gather = 0;
+          u.huntSwing = .42;
+          this.strikeAnimal(u, res);
+        }
+      } else u.gather = 0;
       return;
     }
 
-    if (this.moveToward(u, res.x, res.y, dt, res.r + 8)) {
+    if (this.moveToward(u, res.x, res.y, dt, res.r + 26)) {
       u.gather += dt;
+      u.face = res.x >= u.x ? 1 : -1;
       const gatherTime = res.type === 'tree' ? 1.35 : res.type === 'gold' ? 1.6 : .82;
       if (u.gather >= gatherTime) {
         const amount = res.type === 'gold' ? 12 : res.type === 'food' ? 10 : 14;
@@ -172,6 +193,8 @@ Game.prototype.updateWorker = function(u, dt) {
           this.effects.push({ kind: 'dust', x: res.x, y: res.y, time: .65, max: .65 });
         }
       }
+    } else {
+      u.gather = 0;
     }
     return;
   }
@@ -183,6 +206,7 @@ Game.prototype.strikeAnimal = function(u, res) {
   if (!res || res.dead || !res.animal) return;
   res.animalHp -= 11;
   res.panic = 2.4;
+  res.flash = 1;
   const dx = res.x - u.x, dy = res.y - u.y;
   const d = Math.hypot(dx, dy) || 1;
   res.vx += dx / d * 58;

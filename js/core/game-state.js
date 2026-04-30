@@ -3,7 +3,7 @@ class Game {
   constructor() {
     this.sfx = new SoundBank();
     this.camera = { x: 700, y: 720, zoom: 0.84, targetZoom: 0.84 };
-    this.pointer = { x: 0, y: 0, wx: 0, wy: 0, down: false, dragging: false, startX: 0, startY: 0, startWx: 0, startWy: 0 };
+    this.pointer = { x: VIEW_W / 2, y: VIEW_H / 2, wx: 0, wy: 0, down: false, dragging: false, startX: 0, startY: 0, startWx: 0, startWy: 0, inside: false };
     this.paused = false;
     this.fast = false;
     this.uiDirty = true;

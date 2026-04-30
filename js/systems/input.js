@@ -45,6 +45,12 @@ Game.prototype.bindEvents = function() {
       }
       this.pointer.down = false; this.pointer.dragging = false;
     });
+    canvas.addEventListener('mouseenter', () => this.pointer.inside = true);
+    canvas.addEventListener('mouseleave', () => {
+      this.pointer.inside = false;
+      this.pointer.down = false;
+      this.pointer.dragging = false;
+    });
     canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); this.updatePointer(e); this.contextOrder(this.pointer.wx, this.pointer.wy); });
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
@@ -228,8 +234,17 @@ Game.prototype.contextOrder = function(x, y) {
     if (!ownUnits.length) return;
     if (target && target.entity === 'building' && target.faction === 0 && target.type === 'tower') {
       this.garrisonArchers(ownUnits.filter(u => u.type === 'archer'), target);
-      return;
     }
+    if (target && target.entity === 'building' && target.faction === 0 && (target.build < 1 || target.hp < target.maxHp)) {
+      const workers = ownUnits.filter(u => u.type === 'worker');
+      if (workers.length) {
+        for (const u of workers) { u.order = 'repair'; u.target = target; u.goal = null; }
+        this.sfx.click();
+        this.toast(`${workers.length} worker(s) moving to build/repair.`, 1.4);
+        return;
+      }
+    }
+    if (target && target.entity === 'building' && target.faction === 0 && target.type === 'tower') return;
     if (target && target.entity === 'resource') {
       const workers = ownUnits.filter(u => u.type === 'worker');
       for (const u of workers) this.orderHarvest(u, target);

@@ -7,10 +7,12 @@ Game.prototype.updateCamera = function(dt) {
     if (keys.has('d') || keys.has('arrowright')) dx += sp;
     if (keys.has('w') || keys.has('arrowup')) dy -= sp;
     if (keys.has('s') || keys.has('arrowdown')) dy += sp;
-    if (this.pointer.x < margin) dx -= sp * .75;
-    if (this.pointer.x > VIEW_W - margin) dx += sp * .75;
-    if (this.pointer.y < margin) dy -= sp * .75;
-    if (this.pointer.y > VIEW_H - margin) dy += sp * .75;
+    if (this.pointer.inside) {
+      if (this.pointer.x < margin) dx -= sp * .75;
+      if (this.pointer.x > VIEW_W - margin) dx += sp * .75;
+      if (this.pointer.y < margin) dy -= sp * .75;
+      if (this.pointer.y > VIEW_H - margin) dy += sp * .75;
+    }
     this.camera.x = clamp(this.camera.x + dx, 0, WORLD_W - VIEW_W / this.camera.zoom);
     this.camera.y = clamp(this.camera.y + dy, 0, WORLD_H - VIEW_H / this.camera.zoom);
     this.camera.zoom += (this.camera.targetZoom - this.camera.zoom) * Math.min(1, dt * 8);
@@ -67,6 +69,7 @@ Game.prototype.passiveHeal = function(b, dt) {
 
 Game.prototype.updateResources = function(dt) {
     for (const r of this.resources) {
+      r.flash = Math.max(0, (r.flash || 0) - dt * 3.5);
       if (r.dead || r.type !== 'food' || r.amount <= 0) continue;
       r.wander -= dt;
       if (r.wander <= 0) {
@@ -103,6 +106,26 @@ Game.prototype.updateUnits = function(dt) {
 };
 
 Game.prototype.updateWorker = function(u, dt) {
+    if (u.order === 'repair') {
+      const b = u.target;
+      if (!b || b.dead || (b.build >= 1 && b.hp >= b.maxHp)) { u.order = 'idle'; u.target = null; return; }
+      if (this.moveToward(u, b.x, b.y + b.h * 0.4, dt, 36)) {
+        u.face = b.x >= u.x ? 1 : -1;
+        // The worker is now hammering! Handled in world-renderer
+        if (Math.random() < dt * 2) this.effects.push({ kind: 'dust', x: u.x + (Math.random() - .5) * 10, y: u.y, time: .3, max: .3 });
+        
+        // Actually repair/build it over time
+        if (b.build < 1) {
+          b.build = Math.min(1, b.build + dt / b.buildTime * 1.5);
+          b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt / b.buildTime * 1.35);
+          if (b.build >= 1 && b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} constructed.`, 1.4); this.sfx.build(); u.order = 'idle'; }
+        } else if (b.hp < b.maxHp) {
+          b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt * 0.05);
+          if (b.hp >= b.maxHp) { u.order = 'idle'; this.toast(`${BUILDINGS[b.type].label} fully repaired.`, 1.4); }
+        }
+      }
+      return;
+    }
     if (u.order === 'harvest') {
       const res = u.target;
       if (!res || res.dead || res.amount <= 0) { u.carry = null; u.order = 'idle'; u.target = null; return; }
