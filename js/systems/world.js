@@ -247,6 +247,10 @@ Game.prototype.addBuilding = function(fid, type, x, y, complete = false) {
     cd: Math.random(), garrison: [], dead: false, flash: 0, aiIntent: null
   };
   this.buildings.push(b);
+  if (complete && type === 'tower') {
+      const u = this.addUnit(fid, 'archer', x, y);
+      this.finishGarrison(u, b);
+  }
   this.uiDirty = true;
   return b;
 };
@@ -285,6 +289,7 @@ Game.prototype.spawnFaction = function(f) {
   this.addBuilding(f.id, 'house', b.x - 210, b.y + 84, true);
   this.addBuilding(f.id, 'house', b.x + 205, b.y + 92, true);
   this.addBuilding(f.id, 'barracks', b.x - 160, b.y - 190, true);
+  this.addBuilding(f.id, 'tower', b.x + 160, b.y + 200, true); // Add initial tower!
   if (f.ai) this.addBuilding(f.id, 'archery', b.x + 185, b.y - 176, true);
   for (let i = 0; i < (f.ai ? 6 : 5); i++) this.addUnit(f.id, 'worker', b.x + (Math.random() - .5) * 180, b.y + 175 + Math.random() * 100);
   for (let i = 0; i < (f.ai ? 5 : 3); i++) this.addUnit(f.id, i % 3 === 0 ? 'archer' : 'warrior', b.x + 135 + Math.random() * 115, b.y + (Math.random() - .5) * 155);

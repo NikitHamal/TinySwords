@@ -235,7 +235,23 @@ Game.prototype.drawBuilding = function(b) {
   if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
   if (b.rally && b.faction === 0 && this.selected.includes(b)) this.drawRallyFlag(b.rally.x, b.rally.y, faction(b.faction).color);
   if (b.type === 'tower' && b.garrison.length) {
-    ctx.fillStyle = '#fff4b8'; ctx.font = '14px monospace'; ctx.fillText(`x${b.garrison.length}`, b.x + 20, b.y - b.h * .75);
+    const fKey = faction(b.faction).key;
+    const archerImg = assets[`u_${fKey}_archer_idle`];
+    if (archerImg) {
+      const scale = UNITS['archer'].scale * SPRITE_BOOST;
+      const fw = UNITS['archer'].fw;
+      const fh = UNITS['archer'].fh;
+      const w = fw * scale;
+      const h = fh * scale;
+      // Animate archer slightly
+      const frames = Math.max(1, Math.floor(archerImg.width / fw));
+      const fr = Math.floor(this.time * 4) % frames;
+      
+      // Draw archer on top of tower
+      ctx.drawImage(archerImg, fr * fw, 0, fw, fh, b.x - w / 2 + 2, b.y - b.h + 20, w, h);
+    }
+    ctx.fillStyle = '#fff4b8'; ctx.font = 'bold 12px monospace'; 
+    ctx.fillText(`${b.garrison.length}/2`, b.x - 10, b.y - b.h * .75);
   }
 };
 
@@ -246,7 +262,7 @@ Game.prototype.drawUnit = function(u) {
   if (u.order === 'move' || u.order === 'attackMove' || u.order === 'garrison' || u.carry) anim = 'run';
   if (u.order === 'attack' && u.target) anim = dist(u, u.target) > def.range + 8 ? 'run' : 'attack';
   if (u.type === 'worker' && u.order === 'harvest' && !u.carry) anim = (u.gather > 0 || u.huntSwing > 0) ? (u.target && u.target.type === 'gold' ? 'mine' : 'chop') : 'run';
-  if (u.type === 'worker' && u.order === 'repair') anim = dist2(u.x, u.y, u.target.x, u.target.y + u.target.h * 0.4) <= 40 * 40 ? 'build' : 'run';
+  if (u.type === 'worker' && u.order === 'repair') anim = dist2(u.x, u.y, u.target.x, u.target.y) <= Math.pow(Math.hypot(u.target.w/2, u.target.h/2) + u.r + 8, 2) ? 'build' : 'run';
   if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= def.range + 8) anim = 'fight';
 
   let key = `u_${f.key}_${u.type}_${anim}`;

@@ -235,13 +235,15 @@ Game.prototype.separate = function(u, dt) {
     let sx = 0, sy = 0;
     for (const v of this.units) {
       if (v === u || v.dead || v.garrisoned) continue;
-      const min = u.r + v.r + 3;
+      let min = u.r + v.r + 3;
+      if (u.type === 'worker' && v.type === 'worker' && u.order === 'harvest' && v.order === 'harvest' && u.target && u.target === v.target) {
+        min = u.r + 2; // Allow workers to pack tightly around the same resource
+      }
       const dx = u.x - v.x, dy = u.y - v.y;
       const d2 = dx * dx + dy * dy;
       if (d2 > 0 && d2 < min * min) { const d = Math.sqrt(d2); sx += dx / d * (min - d); sy += dy / d * (min - d); }
     }
     u.x += sx * dt * 2.2; u.y += sy * dt * 2.2;
-  
 };
 
 Game.prototype.attackTarget = function(u, target) {

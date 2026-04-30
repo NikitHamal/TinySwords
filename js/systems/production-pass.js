@@ -131,17 +131,24 @@ Game.prototype.updateUnits = function(dt) {
 };
 
 Game.prototype.updateWorker = function(u, dt) {
-  if (u.order === 'repair') {
-    const b = u.target;
-    if (!b || b.dead || (b.build >= 1 && b.hp >= b.maxHp)) { u.order = 'idle'; u.target = null; return; }
-    if (this.moveToward(u, b.x, b.y + b.h * 0.4, dt, 36)) {
-      u.face = b.x >= u.x ? 1 : -1;
-      if (Math.random() < dt * 2) this.effects.push({ kind: 'dust', x: u.x + (Math.random() - .5) * 10, y: u.y, time: .3, max: .3 });
+    if (u.order === 'repair') {
+      const b = u.target;
+      if (!b || b.dead || (b.build >= 1 && b.hp >= b.maxHp)) { u.order = 'idle'; u.target = null; return; }
+      if (this.moveToward(u, b.x, b.y, dt, Math.hypot(b.w/2, b.h/2) + u.r + 4)) {
+        u.face = b.x >= u.x ? 1 : -1;
+        if (Math.random() < dt * 2) this.effects.push({ kind: 'dust', x: u.x + (Math.random() - .5) * 10, y: u.y, time: .3, max: .3 });
       
       if (b.build < 1) {
         b.build = Math.min(1, b.build + dt / b.buildTime * 1.5);
         b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt / b.buildTime * 1.35);
-        if (b.build >= 1 && b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} constructed.`, 1.4); this.sfx.build(); u.order = 'idle'; }
+        if (b.build >= 1) { 
+          if (b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} constructed.`, 1.4); this.sfx.build(); }
+          u.order = 'idle'; 
+          if (b.type === 'tower') {
+            const archer = this.addUnit(b.faction, 'archer', b.x, b.y);
+            this.finishGarrison(archer, b);
+          }
+        }
       } else if (b.hp < b.maxHp) {
         b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt * 0.05);
         if (b.hp >= b.maxHp) { u.order = 'idle'; this.toast(`${BUILDINGS[b.type].label} fully repaired.`, 1.4); }
@@ -156,7 +163,7 @@ Game.prototype.updateWorker = function(u, dt) {
     if (u.carry) {
       const drop = this.nearestDropoff(u.faction, u.x, u.y);
       if (!drop) { u.order = 'idle'; return; }
-      if (this.moveToward(u, drop.x, drop.y + 36, dt, 26)) {
+      if (this.moveToward(u, drop.x, drop.y, dt, Math.hypot(drop.w/2, drop.h/2) + u.r + 4)) {
         addRes(this.factions[u.faction], u.carry.type, u.carry.amount);
         u.carry = null; u.gather = 0;
         if (res && !res.dead && res.amount > 0) u.order = 'harvest';
@@ -165,8 +172,9 @@ Game.prototype.updateWorker = function(u, dt) {
     }
 
     if (res.type === 'food' && res.animal) {
-      const strikeRange = res.r + 18;
-      if (this.moveToward(u, res.x, res.y, dt, strikeRange)) {
+      const strikeRange = res.r + 6;
+      this.moveToward(u, res.x, res.y, dt, strikeRange);
+      if (dist2(u.x, u.y, res.x, res.y) <= (strikeRange + 22) * (strikeRange + 22)) {
         u.face = res.x >= u.x ? 1 : -1;
         u.gather += dt;
         if (u.gather >= .55) {
@@ -178,7 +186,8 @@ Game.prototype.updateWorker = function(u, dt) {
       return;
     }
 
-    if (this.moveToward(u, res.x, res.y, dt, res.r + 26)) {
+    this.moveToward(u, res.x, res.y, dt, res.r + 6);
+    if (dist2(u.x, u.y, res.x, res.y) <= (res.r + 26) * (res.r + 26)) {
       u.gather += dt;
       u.face = res.x >= u.x ? 1 : -1;
       const gatherTime = res.type === 'tree' ? 1.35 : res.type === 'gold' ? 1.6 : .82;
@@ -212,20 +221,17 @@ Game.prototype.strikeAnimal = function(u, res) {
   res.vx += dx / d * 58;
   res.vy += dy / d * 58;
   this.effects.push({ kind: 'hit', x: res.x, y: res.y - 18, time: .18, max: .18 });
-  if (res.animalHp <= 0) this.convertAnimalToMeat(res);
+  if (res.animalHp <= 0) {
+    res.dead = true;
+    res.amount = 0;
+    u.carry = { type: 'food', amount: 14 };
+    u.gather = 0;
+    this.effects.push({ kind: 'dust', x: res.x, y: res.y, time: .65, max: .65 });
+  }
 };
 
 Game.prototype.convertAnimalToMeat = function(res) {
-  res.animal = false;
-  res.sprite = 'meat';
-  res.amount = Math.max(36, res.max || 42);
-  res.max = res.amount;
-  res.r = 14;
-  res.vx = 0;
-  res.vy = 0;
-  res.wander = 999;
-  res.panic = 0;
-  this.effects.push({ kind: 'dust', x: res.x, y: res.y, time: .42, max: .42 });
+  // Deprecated: Workers now carry the meat immediately when the sheep dies
 };
 
 Game.prototype.attackTarget = function(u, target) {
@@ -244,7 +250,13 @@ Game.prototype.updateBuildings = function(dt) {
     if (b.build < 1) {
       b.build = Math.min(1, b.build + dt / b.buildTime);
       b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt / b.buildTime * .9);
-      if (b.build >= 1 && b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} completed.`, 1.4); this.sfx.build(); }
+      if (b.build >= 1) {
+        if (b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} completed.`, 1.4); this.sfx.build(); }
+        if (b.type === 'tower') {
+          const u = this.addUnit(b.faction, 'archer', b.x, b.y);
+          this.finishGarrison(u, b);
+        }
+      }
       continue;
     }
     if (b.queue.length) {
