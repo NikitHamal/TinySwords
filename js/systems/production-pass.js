@@ -74,11 +74,15 @@ Game.prototype.moveToward = function(u, x, y, dt, stop = 6) {
     }
     if (!found) {
       u.stuck = (u.stuck || 0) + dt;
-      if (u.lastWaterBounce <= 0) {
-        this.effects.push({ kind: 'splash', x: u.x, y: u.y + 10, time: .42, max: .42 });
-        u.lastWaterBounce = .65;
+      if (u.stuck > .4) {
+        u.pathProbe = (u.pathProbe || 0) + 1;
+        const nudgeAngle = (u.pathProbe * 2.39996) % (Math.PI * 2);
+        const nudgeR = u.r + 20 + Math.random() * 30;
+        const gx = u.x + Math.cos(nudgeAngle) * nudgeR;
+        const gy = u.y + Math.sin(nudgeAngle) * nudgeR;
+        if (!this.isWater(gx, gy)) { u.x = gx; u.y = gy; }
+        else this.nudgeUnitToLand(u);
       }
-      if (u.stuck > .55) { u.pathProbe = (u.pathProbe || 0) + 1; this.nudgeUnitToLand(u); }
       return false;
     }
   } else u.stuck = 0;
@@ -104,7 +108,15 @@ Game.prototype.updateResources = function(dt) {
     }
     const nx = r.x + r.vx * dt;
     const ny = r.y + r.vy * dt;
-    if (!this.isWater(nx, ny) && !this.occupiedByBase(nx, ny, 90)) { r.x = nx; r.y = ny; }
+    if (!this.isWater(nx, ny) && !this.occupiedByBase(nx, ny, 90)) {
+      let blocked = false;
+      for (const res of this.resources) {
+        if (res === r || res.dead || res.amount <= 0) continue;
+        if (dist2(nx, ny, res.x, res.y) < (r.r + res.r) * (r.r + res.r) * .7) { blocked = true; break; }
+      }
+      if (!blocked) { r.x = nx; r.y = ny; }
+      else { r.vx *= -0.65; r.vy *= -0.65; r.wander = .25; }
+    }
     else { r.vx *= -0.65; r.vy *= -0.65; r.wander = .25; }
     r.vx *= r.panic > 0 ? .992 : .985;
     r.vy *= r.panic > 0 ? .992 : .985;
@@ -143,7 +155,7 @@ Game.prototype.updateWorker = function(u, dt) {
         b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt / b.buildTime * 1.35);
         if (b.build >= 1) { 
           if (b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} constructed.`, 1.4); this.sfx.build(); }
-          u.order = 'idle'; 
+          u.order = 'idle'; u.target = null;
           if (b.type === 'tower') {
             const archer = this.addUnit(b.faction, 'archer', b.x, b.y);
             this.finishGarrison(archer, b);
@@ -151,7 +163,7 @@ Game.prototype.updateWorker = function(u, dt) {
         }
       } else if (b.hp < b.maxHp) {
         b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt * 0.05);
-        if (b.hp >= b.maxHp) { u.order = 'idle'; this.toast(`${BUILDINGS[b.type].label} fully repaired.`, 1.4); }
+        if (b.hp >= b.maxHp) { u.order = 'idle'; u.target = null; this.toast(`${BUILDINGS[b.type].label} fully repaired.`, 1.4); }
       }
     }
     return;
@@ -162,11 +174,12 @@ Game.prototype.updateWorker = function(u, dt) {
     if (!res || res.dead || res.amount <= 0) { u.carry = null; u.order = 'idle'; u.target = null; u.gather = 0; return; }
     if (u.carry) {
       const drop = this.nearestDropoff(u.faction, u.x, u.y);
-      if (!drop) { u.order = 'idle'; return; }
+      if (!drop) { u.order = 'idle'; u.target = null; return; }
       if (this.moveToward(u, drop.x, drop.y, dt, Math.hypot(drop.w/2, drop.h/2) + u.r + 4)) {
         addRes(this.factions[u.faction], u.carry.type, u.carry.amount);
         u.carry = null; u.gather = 0;
-        if (res && !res.dead && res.amount > 0) u.order = 'harvest';
+        if (res && !res.dead && res.amount > 0) { u.order = 'harvest'; }
+        else { u.order = 'idle'; u.target = null; this.autoGather(u); }
       }
       return;
     }
@@ -208,7 +221,7 @@ Game.prototype.updateWorker = function(u, dt) {
     return;
   }
   this.updateFighter(u, dt);
-  if (u.order === 'idle' && this.factions[u.faction].ai) this.autoGather(u);
+  if (u.order === 'idle') this.autoGather(u);
 };
 
 Game.prototype.strikeAnimal = function(u, res) {
@@ -288,10 +301,25 @@ Game.prototype.updateAI = function(dt) {
 
 Game.prototype.aiThink = function(f) {
   this.aiEconomyEmergency(f);
-  this.setAutoWorkerOrders(f.id);
   this.aiBuild(f);
   this.aiTrain(f);
   this.aiTactics(f);
+  this.reassignIdleWorkers(f.id);
+};
+
+Game.prototype.autoGather = function(u) {
+  const f = this.factions[u.faction];
+  const need = f.res.wood < 180 ? 'tree' : f.res.gold < 160 ? 'gold' : f.res.food < 4 ? 'food' : choose(['tree', 'gold', 'food']);
+  const r = this.nearestResource(u.x, u.y, need, 1200) || this.nearestResource(u.x, u.y, null, 2000);
+  if (r) this.orderHarvest(u, r);
+};
+
+Game.prototype.reassignIdleWorkers = function(fid) {
+  for (const u of this.units) {
+    if (u.faction === fid && u.type === 'worker' && u.order === 'idle' && !u.dead && !u.garrisoned) {
+      this.autoGather(u);
+    }
+  }
 };
 
 Game.prototype.aiEconomyEmergency = function(f) {

@@ -51,12 +51,12 @@ const RESOURCES = {
 };
 
 const BUILDINGS = {
-  castle: { label: 'Castle', file: 'Castle.png', scale: 0.38, w: 138, h: 106, hp: 1200, pop: 12, cost: { wood: 280, gold: 160, food: 0 }, time: 32, trains: ['worker', 'warrior'], key: 'C', icon: 'iconCastle' },
-  house: { label: 'House', file: 'House1.png', scale: 0.38, w: 58, h: 52, hp: 260, pop: 8, cost: { wood: 70, gold: 15, food: 0 }, time: 12, trains: [], key: 'H', icon: 'iconHouse' },
-  barracks: { label: 'Barracks', file: 'Barracks.png', scale: 0.35, w: 76, h: 68, hp: 520, pop: 0, cost: { wood: 145, gold: 85, food: 0 }, time: 22, trains: ['warrior', 'lancer'], key: 'R', icon: 'iconBarracks' },
-  archery: { label: 'Archery', file: 'Archery.png', scale: 0.35, w: 76, h: 68, hp: 440, pop: 0, cost: { wood: 120, gold: 95, food: 0 }, time: 20, trains: ['archer'], key: 'A', icon: 'iconArchery' },
-  tower: { label: 'Tower', file: 'Tower.png', scale: 0.36, w: 46, h: 76, hp: 640, pop: 0, cost: { wood: 110, gold: 115, food: 0 }, time: 20, trains: [], key: 'T', icon: 'iconTower', tower: true, range: 360, garrisonCap: 2 },
-  monastery: { label: 'Monastery', file: 'Monastery.png', scale: 0.32, w: 78, h: 90, hp: 420, pop: 0, cost: { wood: 120, gold: 165, food: 0 }, time: 24, trains: ['monk'], key: 'M', icon: 'iconMonastery' }
+  castle: { label: 'Castle', file: 'Castle.png', scale: 0.44, w: 160, h: 120, hp: 1200, pop: 12, cost: { wood: 280, gold: 160, food: 0 }, time: 32, trains: ['worker', 'warrior'], key: 'C', icon: 'iconCastle' },
+  house: { label: 'House', file: 'House1.png', scale: 0.44, w: 68, h: 58, hp: 260, pop: 8, cost: { wood: 70, gold: 15, food: 0 }, time: 12, trains: [], key: 'H', icon: 'iconHouse' },
+  barracks: { label: 'Barracks', file: 'Barracks.png', scale: 0.40, w: 88, h: 78, hp: 520, pop: 0, cost: { wood: 145, gold: 85, food: 0 }, time: 22, trains: ['warrior', 'lancer'], key: 'R', icon: 'iconBarracks' },
+  archery: { label: 'Archery', file: 'Archery.png', scale: 0.40, w: 88, h: 78, hp: 440, pop: 0, cost: { wood: 120, gold: 95, food: 0 }, time: 20, trains: ['archer'], key: 'A', icon: 'iconArchery' },
+  tower: { label: 'Tower', file: 'Tower.png', scale: 0.42, w: 52, h: 86, hp: 640, pop: 0, cost: { wood: 110, gold: 115, food: 0 }, time: 20, trains: [], key: 'T', icon: 'iconTower', tower: true, range: 360, garrisonCap: 2 },
+  monastery: { label: 'Monastery', file: 'Monastery.png', scale: 0.38, w: 90, h: 100, hp: 420, pop: 0, cost: { wood: 120, gold: 165, food: 0 }, time: 24, trains: ['monk'], key: 'M', icon: 'iconMonastery' }
 };
 
 const UNITS = {

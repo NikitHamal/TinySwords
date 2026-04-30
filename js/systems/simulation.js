@@ -81,7 +81,15 @@ Game.prototype.updateResources = function(dt) {
       }
       const nx = r.x + r.vx * dt;
       const ny = r.y + r.vy * dt;
-      if (!this.isWater(nx, ny) && !this.occupiedByBase(nx, ny, 90)) { r.x = nx; r.y = ny; }
+      if (!this.isWater(nx, ny) && !this.occupiedByBase(nx, ny, 90)) {
+        let blocked = false;
+        for (const res of this.resources) {
+          if (res === r || res.dead || res.amount <= 0) continue;
+          if (dist2(nx, ny, res.x, res.y) < (r.r + res.r) * (r.r + res.r) * .7) { blocked = true; break; }
+        }
+        if (!blocked) { r.x = nx; r.y = ny; }
+        else { r.vx *= -0.6; r.vy *= -0.6; r.wander = .4; }
+      }
       else { r.vx *= -0.6; r.vy *= -0.6; r.wander = .4; }
       r.vx *= .985; r.vy *= .985;
     }
@@ -155,7 +163,7 @@ Game.prototype.updateWorker = function(u, dt) {
       return;
     }
     this.updateFighter(u, dt);
-    if (u.order === 'idle' && this.factions[u.faction].ai) this.autoGather(u);
+    if (u.order === 'idle') this.autoGather(u);
   
 };
 
@@ -360,7 +368,7 @@ Game.prototype.nearestDropoff = function(fid, x, y) {
 Game.prototype.autoGather = function(u) {
     const f = this.factions[u.faction];
     const need = f.res.wood < 180 ? 'tree' : f.res.gold < 160 ? 'gold' : f.res.food < 4 ? 'food' : choose(['tree', 'gold', 'food']);
-    const r = this.nearestResource(u.x, u.y, need, 900) || this.nearestResource(u.x, u.y, null, 1400);
+    const r = this.nearestResource(u.x, u.y, need, 1200) || this.nearestResource(u.x, u.y, null, 2000);
     if (r) this.orderHarvest(u, r);
   
 };
