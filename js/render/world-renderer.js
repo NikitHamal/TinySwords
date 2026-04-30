@@ -185,7 +185,7 @@ Game.prototype.drawResource = function(r) {
   this.drawShadow(r.x, r.y + 4, r.type === 'tree' ? 19 : r.r * .8, 7);
   if (sprite) {
     let frameW = sprite.width, frameH = sprite.height, fps = 0, scale = .5;
-    if (r.type === 'tree') { frameW = 192; frameH = 192; fps = r.depleted ? 0 : 4.0; scale = 0.65 * SPRITE_BOOST; }
+    if (r.type === 'tree') { frameW = 192; frameH = 256; fps = r.depleted ? 0 : 4.0; scale = 0.65 * SPRITE_BOOST; }
     else if (r.type === 'food' && r.animal) { frameW = 128; frameH = 128; fps = moving ? 6 : 2.5; scale = .50 * SPRITE_BOOST; }
     else if (r.type === 'food') { frameW = 64; frameH = 64; fps = 0; scale = .78 * SPRITE_BOOST; }
     else if (r.type === 'gold') { frameW = 128; frameH = 128; scale = .56 * SPRITE_BOOST; }
