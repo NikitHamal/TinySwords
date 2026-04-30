@@ -26,6 +26,33 @@ Game.prototype.orderMoveFormation = function(units, x, y, attackMove) {
   this.effects.push({ kind: attackMove ? 'attack' : 'move', x: land.x, y: land.y, time: .7, max: .7 });
 };
 
+Game.prototype.isBlocked = function(x, y, u) {
+  if (this.isWater(x, y)) return true;
+  const r = u ? u.r || 8 : 8;
+  const rect = { x: x - r, y: y - r, w: r * 2, h: r * 2 };
+  
+  for (const b of this.buildings) {
+    if (b.dead || b.build < 0.1) continue;
+    const brect = { x: b.x - b.w / 2, y: b.y - b.h / 2, w: b.w, h: b.h };
+    if (rectsOverlap(rect, brect)) return true;
+  }
+  
+  for (const res of this.resources) {
+    if (res.dead || res.amount <= 0 || res.animal) continue;
+    const resRect = { x: res.x - res.r * 0.7, y: res.y - res.r * 0.7, w: res.r * 1.4, h: res.r * 1.4 };
+    if (rectsOverlap(rect, resRect) && (!u || u.target !== res)) return true;
+  }
+  
+  for (const d of this.decor) {
+    if (d.sky || d.water) continue;
+    const dr = d.kind.startsWith('bush') ? 16 : 12;
+    const dRect = { x: d.x - dr, y: d.y - dr, w: dr * 2, h: dr * 2 };
+    if (rectsOverlap(rect, dRect)) return true;
+  }
+  
+  return false;
+};
+
 Game.prototype.moveToward = function(u, x, y, dt, stop = 6) {
   const dx = x - u.x, dy = y - u.y;
   const d = Math.hypot(dx, dy);
@@ -35,7 +62,7 @@ Game.prototype.moveToward = function(u, x, y, dt, stop = 6) {
   let nx = u.x + dx / d * step;
   let ny = u.y + dy / d * step;
 
-  if (this.isWater(nx, ny)) {
+  if (this.isBlocked(nx, ny, u)) {
     const angle = Math.atan2(dy, dx);
     let found = false;
     const bias = (u.pathProbe || 0) % 2 ? -1 : 1;
@@ -43,7 +70,7 @@ Game.prototype.moveToward = function(u, x, y, dt, stop = 6) {
       const a = angle + turn;
       const tx = u.x + Math.cos(a) * step;
       const ty = u.y + Math.sin(a) * step;
-      if (!this.isWater(tx, ty)) { nx = tx; ny = ty; found = true; break; }
+      if (!this.isBlocked(tx, ty, u)) { nx = tx; ny = ty; found = true; break; }
     }
     if (!found) {
       u.stuck = (u.stuck || 0) + dt;

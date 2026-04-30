@@ -33,7 +33,7 @@ Game.prototype.drawTerrain = function() {
     if (tx < 0 || ty < 0 || tx >= cols || ty >= rows || !this.landMap || this.landMap[ty * cols + tx] !== 1) continue;
     this.drawGrassGround(tx, ty, tx * TILE, ty * TILE);
   }
-  this.drawShoreLines(sx, sy, ex, ey);
+  // this.drawShoreLines(sx, sy, ex, ey);
 };
 
 Game.prototype.landAtTile = function(tx, ty) {
@@ -62,15 +62,15 @@ Game.prototype.drawGrassGround = function(tx, ty, x, y) {
   if (edge.edge && assets.waterFoam) {
     const foamFrame = Math.floor(this.time * 5.4 + rngHash(tx, ty, 619) * 16) % 16;
     ctx.globalAlpha = .68;
-    ctx.drawImage(assets.waterFoam, foamFrame * 192 + edge.sx, edge.sy, 64, 64, x, y, TILE + 1, TILE + 1);
+    ctx.drawImage(assets.waterFoam, foamFrame * 192 + edge.sx, edge.sy, 64, 64, x, y, TILE, TILE);
     ctx.globalAlpha = 1;
   }
 
   if (img) {
-    ctx.drawImage(img, edge.sx, edge.sy, 64, 64, x, y, TILE + 1, TILE + 1);
+    ctx.drawImage(img, edge.sx, edge.sy, 64, 64, x, y, TILE, TILE);
   } else {
     ctx.fillStyle = '#87bd62';
-    ctx.fillRect(x, y, TILE + 1, TILE + 1);
+    ctx.fillRect(x, y, TILE, TILE);
   }
 
   if (!edge.edge) {
@@ -82,8 +82,8 @@ Game.prototype.drawGrassGround = function(tx, ty, x, y) {
 
 Game.prototype.drawWaterTile = function(tx, ty, x, y) {
   const img = assets.water;
-  if (img) ctx.drawImage(img, 0, 0, 64, 64, x, y, TILE + 1, TILE + 1);
-  else { ctx.fillStyle = '#47aaa6'; ctx.fillRect(x, y, TILE + 1, TILE + 1); }
+  if (img) ctx.drawImage(img, 0, 0, 64, 64, x, y, TILE, TILE);
+  else { ctx.fillStyle = '#47aaa6'; ctx.fillRect(x, y, TILE, TILE); }
 
   const phase = this.time * 1.35 + tx * .73 + ty * .41;
   const shimmer = (Math.sin(phase) + 1) * .5;
@@ -123,7 +123,7 @@ Game.prototype.drawShoreLines = function(sx, sy, ex, ey) {
 Game.prototype.drawWorldEntities = function() {
   const drawables = [];
   const inView = (x, y, pad = 180) => x > this.camera.x - pad && y > this.camera.y - pad && x < this.camera.x + VIEW_W / this.camera.zoom + pad && y < this.camera.y + VIEW_H / this.camera.zoom + pad;
-  for (const d of this.decor) if (inView(d.x, d.y, d.sky ? 360 : 100)) drawables.push({ y: d.sky ? d.y - 900 : d.y + (d.front ? 6 : -18), kind: 'decor', item: d });
+  for (const d of this.decor) if (inView(d.x, d.y, d.sky ? 360 : 100)) drawables.push({ y: d.sky ? d.y + 900000 : d.y + (d.front ? 6 : -18), kind: 'decor', item: d });
   for (const r of this.resources) if (!r.dead && inView(r.x, r.y, 130)) drawables.push({ y: r.y + (r.type === 'tree' ? -10 : 0), kind: 'resource', item: r });
   for (const b of this.buildings) if (!b.dead && inView(b.x, b.y, 280)) drawables.push({ y: b.y + b.h * .34, kind: 'building', item: b });
   for (const u of this.units) if (!u.dead && !u.garrisoned && inView(u.x, u.y, 140)) drawables.push({ y: u.y, kind: 'unit', item: u });
