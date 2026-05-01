@@ -382,7 +382,11 @@ const IMAGE_PATHS = {
   redArrow: BASE + 'Units/Red Units/Archer/Arrow.png',
   yellowArrow: BASE + 'Units/Yellow Units/Archer/Arrow.png',
   purpleArrow: BASE + 'Units/Purple Units/Archer/Arrow.png',
-  blackArrow: BASE + 'Units/Black Units/Archer/Arrow.png'
+  blackArrow: BASE + 'Units/Black Units/Archer/Arrow.png',
+  cursorSelect: BASE + 'UI Elements/UI Elements/Cursors/Cursor_04.png',
+  cursorAction: BASE + 'UI Elements/UI Elements/Cursors/Cursor_02.png',
+  uiBarBase: BASE + 'UI Elements/UI Elements/Bars/SmallBar_Base.png',
+  uiBarFill: BASE + 'UI Elements/UI Elements/Bars/SmallBar_Fill.png'
 };
 
 Object.assign(IMAGE_PATHS, ICON_PATHS);
@@ -468,7 +472,7 @@ function getBuildingDisplayRect(typeOrBuilding, x, y, pad = 0) {
   return { x: bx - def.w / 2 - pad, y: by - def.h / 2 - pad, w: def.w + pad * 2, h: def.h + pad * 2 };
 }
 
-function isAlive(e) { return e && !e.dead && e.hp > 0; }
+function isAlive(e) { return e && !e.dead && (e.entity === 'resource' ? (e.amount > 0 || e.depleted) : (e.entity === 'decor' || (!e.entity && e.kind && !e.hp)) ? true : e.hp > 0); }
 function faction(id) { return FACTIONS[id]; }
 function fmtCost(cost) {
   return `W${cost.wood || 0} G${cost.gold || 0}${cost.food ? ` F${cost.food}` : ''}`;

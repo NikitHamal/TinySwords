@@ -192,6 +192,10 @@ Game.prototype.drawDecor = function(d) {
   if (!d.water && !d.sky && shadow[0] > 0) this.drawLandShadow(d.x, d.y, shadow[0] * Math.max(.85, d.scale), shadow[1]);
   const alpha = d.sky ? .82 : 1;
   this.drawSpriteFrameAnchored(img, sx, 0, fw, fh, d.x + drift, baseY, scale, spec.baseline || fh, { alpha });
+  if (this.selected.includes(d)) {
+    const sr = Math.max(14, (spec.fw || 64) * scale * .28);
+    this.drawSelectionCircle(d.x, d.y, sr, '#f5d37d');
+  }
 };
 
 Game.prototype.drawHuntAnimal = function(r, moving) {
@@ -322,7 +326,7 @@ Game.prototype.drawBuilding = function(b) {
   if (b.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${b.flash * .25})`; ctx.fillRect(b.x - b.w / 2, b.y - b.h, b.w, b.h); }
   if (b.build < 1) this.drawProgress(b.x, metrics.barY + 10, b.build, '#e8c965');
   if (b.hp < b.maxHp || b.build < 1) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
-  if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
+  if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color, true);
   if (b.rally && b.faction === 0 && this.selected.includes(b)) this.drawRallyFlag(b.rally.x, b.rally.y, faction(b.faction).color);
   if (b.type === 'tower' && b.garrison.length) {
     const fKey = faction(b.faction).key;
@@ -430,11 +434,62 @@ Game.prototype.drawEffect = function(e) {
 };
 
 Game.prototype.drawSelectionCircle = function(x, y, r, color) {
-  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([8, 5]); ctx.beginPath(); ctx.ellipse(x, y + 4, r, r * .48, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  if (assets.cursorSelect) {
+    const w = r * 2.2, h = r * 1.5;
+    const cw = 42, ch = 42; // Source size for corners
+    // Ensure corners don't overlap by limiting their dest size
+    const dw = Math.min(32, w / 2 - 1);
+    const dh = Math.min(32, h / 2 - 1);
+    const left = x - w/2;
+    const right = x + w/2;
+    const top = y - h/2 + 4;
+    const bottom = y + h/2 + 4;
+    
+    // Top-left
+    ctx.drawImage(assets.cursorSelect, 0, 0, cw, ch, left, top, dw, dh);
+    // Top-right
+    ctx.drawImage(assets.cursorSelect, 128 - cw, 0, cw, ch, right - dw, top, dw, dh);
+    // Bottom-left
+    ctx.drawImage(assets.cursorSelect, 0, 128 - ch, cw, ch, left, bottom - dh, dw, dh);
+    // Bottom-right
+    ctx.drawImage(assets.cursorSelect, 128 - cw, 128 - ch, cw, ch, right - dw, bottom - dh, dw, dh);
+  } else {
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([8, 5]); ctx.beginPath(); ctx.ellipse(x, y + 4, r, r * .48, 0, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  }
 };
 
-Game.prototype.drawSelectionRect = function(x, y, w, h, color) {
-  ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([7, 5]); ctx.strokeRect(x - w / 2 - 6, y - h / 2 - 10, w + 12, h + 16); ctx.setLineDash([]);
+Game.prototype.drawSelectionRect = function(x, y, w, h, color, footprintOnly = false) {
+  if (assets.cursorSelect) {
+    const cw = 42, ch = 42;
+    const padding = 4;
+    
+    let left, right, top, bottom;
+    if (footprintOnly) {
+      // Draw around the base of the building, not the entire height
+      const footprintH = h * 0.45;
+      left = x - w/2 - padding;
+      right = x + w/2 + padding;
+      top = y + h/2 - footprintH - padding;
+      bottom = y + h/2 + padding;
+    } else {
+      left = x - w/2 - padding;
+      right = x + w/2 + padding;
+      top = y - h/2 - padding;
+      bottom = y + h/2 + padding;
+    }
+    
+    const boxW = right - left;
+    const boxH = bottom - top;
+    const dw = Math.min(32, boxW / 2 - 1);
+    const dh = Math.min(32, boxH / 2 - 1);
+    
+    ctx.drawImage(assets.cursorSelect, 0, 0, cw, ch, left, top, dw, dh);
+    ctx.drawImage(assets.cursorSelect, 128 - cw, 0, cw, ch, right - dw, top, dw, dh);
+    ctx.drawImage(assets.cursorSelect, 0, 128 - ch, cw, ch, left, bottom - dh, dw, dh);
+    ctx.drawImage(assets.cursorSelect, 128 - cw, 128 - ch, cw, ch, right - dw, bottom - dh, dw, dh);
+  } else {
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.setLineDash([7, 5]); ctx.strokeRect(x - w / 2 - 6, y - h / 2 - 10, w + 12, h + 16); ctx.setLineDash([]);
+  }
 };
 
 Game.prototype.drawTowerRange = function(b) {
@@ -459,12 +514,30 @@ Game.prototype.drawTowerRange = function(b) {
 
 Game.prototype.drawHpBar = function(x, y, pct, fid, width = 58) {
   pct = clamp(pct, 0, 1);
-  ctx.fillStyle = 'rgba(0,0,0,.45)';
-  ctx.fillRect(x - width / 2, y, width, 5);
-  ctx.fillStyle = '#3a1b1e';
-  ctx.fillRect(x - width / 2 + 1, y + 1, width - 2, 3);
-  ctx.fillStyle = pct > .6 ? '#8ce37a' : pct > .3 ? '#f3d36a' : '#ff7070';
-  ctx.fillRect(x - width / 2 + 1, y + 1, (width - 2) * pct, 3);
+  if (assets.uiBarBase && assets.uiBarFill) {
+    const w = width, h = 12;
+    ctx.drawImage(assets.uiBarBase, x - w / 2, y, w, h);
+    
+    // Draw fill relative to pct. SmallBar_Fill is 64x64, but we stretch it to fit the inside of the base
+    const fillWidth = Math.max(0.1, (w - 6) * pct); // 3px padding on each side
+    if (fillWidth > 0) {
+      // The fill image has transparent edges or is a block, we draw it over the bar base
+      // Color tint the fill depending on pct? We could draw it, then use source-atop to color it.
+      ctx.save();
+      ctx.drawImage(assets.uiBarFill, x - w / 2 + 3, y + 2, fillWidth, h - 4);
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.fillStyle = pct > .6 ? '#8ce37a' : pct > .3 ? '#f3d36a' : '#ff7070';
+      ctx.fillRect(x - w / 2 + 3, y + 2, fillWidth, h - 4);
+      ctx.restore();
+    }
+  } else {
+    ctx.fillStyle = 'rgba(0,0,0,.45)';
+    ctx.fillRect(x - width / 2, y, width, 5);
+    ctx.fillStyle = '#3a1b1e';
+    ctx.fillRect(x - width / 2 + 1, y + 1, width - 2, 3);
+    ctx.fillStyle = pct > .6 ? '#8ce37a' : pct > .3 ? '#f3d36a' : '#ff7070';
+    ctx.fillRect(x - width / 2 + 1, y + 1, (width - 2) * pct, 3);
+  }
 };
 
 Game.prototype.drawProgress = function(x, y, pct, color) {

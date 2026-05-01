@@ -60,7 +60,7 @@ Game.prototype.generateWorld = function() {
       const y = cy + Math.sin(a) * r + (Math.random() - .5) * 104;
       if (!this.isSafeLand(x, y, 42) || this.occupiedByBase(x, y, 180) || this.tooCloseResource(x, y, kind === 'tree' ? 54 : 64)) continue;
       if (kind === 'decor') {
-        this.decor.push({ id: gid++, kind: choose(naturalDecor), x, y, scale: .54 + Math.random() * .24, front: false });
+        this.decor.push({ id: gid++, entity: 'decor', kind: choose(naturalDecor), x, y, scale: .54 + Math.random() * .24, front: false, dead: false });
       } else this.addResource(kind, x, y);
       made++;
     }
@@ -96,7 +96,7 @@ Game.prototype.generateWorld = function() {
   for (let i = 0; i < decorCount; i++) {
     const p = this.randomLandPoint(260);
     if (!p || !this.isSafeLand(p.x, p.y, 34) || this.occupiedByBase(p.x, p.y, 330) || this.tooCloseResource(p.x, p.y, 38)) continue;
-    this.decor.push({ id: gid++, kind: choose(naturalDecor), x: p.x, y: p.y, scale: .52 + Math.random() * .30, front: false });
+    this.decor.push({ id: gid++, entity: 'decor', kind: choose(naturalDecor), x: p.x, y: p.y, scale: .52 + Math.random() * .30, front: false, dead: false });
   }
 
   this.addWaterDetails();
@@ -218,7 +218,7 @@ Game.prototype.addWaterDetails = function() {
     if (!nearShore && Math.random() < .64) continue;
     const kind = choose(nearShoreProps, rngHash(Math.floor(x / 43), Math.floor(y / 43), 555));
     const scale = kind === 'rubberDuck' ? .36 : .50 + Math.random() * .24;
-    this.decor.push({ id: gid++, kind, x, y, scale, water: true, front: false, drift: Math.random() * Math.PI * 2 });
+    this.decor.push({ id: gid++, entity: 'decor', kind, x, y, scale, water: true, front: false, drift: Math.random() * Math.PI * 2, dead: false });
   }
 
   for (let i = 0; i < Math.round(32 * (WORLD_W * WORLD_H) / (8200 * 6000) * graphicsScale); i++) {
@@ -226,7 +226,7 @@ Game.prototype.addWaterDetails = function() {
     const y = 170 + Math.random() * (WORLD_H - 340);
     if (!this.isWater(x, y)) continue;
     const kind = choose(clouds, rngHash(Math.floor(x / 113), Math.floor(y / 97), 777));
-    this.decor.push({ id: gid++, kind, x, y, scale: .22 + Math.random() * .11, sky: true, water: true, front: false, drift: Math.random() * Math.PI * 2, speed: .8 + Math.random() * .8 });
+    this.decor.push({ id: gid++, entity: 'decor', kind, x, y, scale: .22 + Math.random() * .11, sky: true, water: true, front: false, drift: Math.random() * Math.PI * 2, speed: .8 + Math.random() * .8, dead: false });
   }
 };
 
@@ -339,7 +339,7 @@ Game.prototype.addBuilding = function(fid, type, x, y, complete = false) {
     id: gid++, entity: 'building', faction: fid, type, x, y,
     w: def.w, h: def.h, r: Math.max(def.w, def.h) * .46,
     hp: complete ? def.hp : Math.max(12, Math.min(def.hp, def.hp * .28)), maxHp: def.hp,
-    build: complete ? 1 : 0, buildTime: def.time, queue: [], rally: { x: x, y: y + 190 },
+    build: complete ? 1 : 0, buildTime: def.time, queue: [], rally: (def.trains && def.trains.length) ? { x: x, y: y + 190 } : null,
     sprite: type === 'house' ? choose(['house','house2','house3']) : type,
     cd: Math.random(), garrison: [], dead: false, flash: 0, aiIntent: null
   };

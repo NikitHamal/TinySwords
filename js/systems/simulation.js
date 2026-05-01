@@ -2136,6 +2136,33 @@ Game.prototype.orderHarvest = function(u, res, preferredRole = null) {
   u.returning = false;
 };
 
+Game.prototype.assignWorkerToResource = function(res) {
+  if (!res || res.dead || res.amount <= 0) return;
+  // find nearest idle worker
+  const workers = this.units.filter(u => u.faction === 0 && u.type === 'worker' && !u.dead);
+  if (!workers.length) { this.toast('No workers available.', 1.4); return; }
+  
+  // Try idle workers first, then closest
+  let best = null, bd = Infinity;
+  for (const u of workers) {
+    if (u.order !== 'idle') continue;
+    const d = dist2(u.x, u.y, res.x, res.y);
+    if (d < bd) { bd = d; best = u; }
+  }
+  if (!best) {
+    for (const u of workers) {
+      const d = dist2(u.x, u.y, res.x, res.y);
+      if (d < bd) { bd = d; best = u; }
+    }
+  }
+  
+  if (best) {
+    this.orderHarvest(best, res);
+    this.toast(`Worker dispatched to ${res.animal ? 'hunt' : res.type}.`, 1.4);
+    this.effects.push({ kind: 'move', x: res.x, y: res.y, time: .5, max: .5 });
+  }
+};
+
 Game.prototype.assignBuildersTo = function(b, fid, maxBuilders = 2, preferSelected = false) {
   if (!b || b.dead) return 0;
   const selected = preferSelected ? this.selected.filter(u => u.entity === 'unit' && u.faction === fid && u.type === 'worker' && !u.dead) : [];
@@ -2276,6 +2303,10 @@ Game.prototype.updateWorker = function(u, dt) {
       }
     } else {
       u.gather = 0;
+      if (u.stuck > 2.5 || u.trafficJam > 2.5) {
+        u.order = 'idle';
+        u.target = null;
+      }
     }
     return;
   }

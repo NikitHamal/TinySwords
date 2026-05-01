@@ -171,7 +171,7 @@ Game.prototype.applySavePayload = function(payload) {
   if (Array.isArray(payload.units)) this.units = hydrate(payload.units);
   if (Array.isArray(payload.resources)) this.resources = hydrate(payload.resources);
   if (Array.isArray(payload.decor)) this.decor = hydrate(payload.decor);
-  const all = [...this.units, ...this.buildings, ...this.resources];
+  const all = [...this.units, ...this.buildings, ...this.resources, ...this.decor];
   const lookup = new Map(all.map(e => [e.id, e]));
   const resolveTargets = (arr, sourceArr) => {
     for (let i = 0; i < arr.length; i++) {

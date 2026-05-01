@@ -29,7 +29,7 @@ Game.prototype.bindEvents = function() {
             this.dragBuilding.y = this.pointer.wy + this.dragBuilding.offsetY;
             this.pointer.dragging = false;
           }
-        } else this.pointer.dragging = dx + dy > 8;
+        } else this.pointer.dragging = dx + dy > 16;
       }
     });
     canvas.addEventListener('mousedown', (e) => {
@@ -208,7 +208,7 @@ Game.prototype.tryPlace = function(type, x, y) {
 Game.prototype.clickSelect = function(add) {
     const e = this.pickEntity(this.pointer.wx, this.pointer.wy);
     if (!e) { if (!add) this.select([]); return; }
-    if (e.entity === 'resource') { this.select([e]); return; }
+    if (e.entity === 'resource' || e.entity === 'decor' || (!e.entity && e.kind)) { this.select([e]); return; }
     if (e.faction === 0) {
       if (add) {
         const set = new Set(this.selected);
@@ -250,14 +250,33 @@ Game.prototype.pickEntity = function(x, y) {
       const b = this.buildings[i];
       if (!b.dead && Math.abs(x - b.x) <= b.w * .62 && Math.abs(y - b.y) <= b.h * .62) return b;
     }
+    for (let i = this.decor.length - 1; i >= 0; i--) {
+      const d = this.decor[i];
+      if (d.dead || d.sky || d.water) continue;
+      const ds = DECOR_SPECS[d.kind] || {};
+      const dw = (ds.fw || 64) * (d.scale || 1) * .55;
+      const dh = (ds.fh || 64) * (d.scale || 1) * .55;
+      const dcy = d.y - ((ds.baseline || ds.fh || 64) * (d.scale || 1) - dh) * .35;
+      if (dist2(x, y, d.x, dcy) <= Math.max(dw, dh) * Math.max(dw, dh)) return d;
+    }
     for (let i = this.resources.length - 1; i >= 0; i--) {
       const r = this.resources[i];
-      if (r.dead || r.amount <= 0) continue;
+      if (r.dead) continue;
+      if (r.amount <= 0 && !r.depleted) continue;
       const spec = getResourceVisualSpec(r);
       const visualCenterY = r.y - ((spec.baseline || spec.fh || 0) * (spec.scale || 1)) * .48;
       const visualRadius = Math.max(r.r + 10, Math.min(58, (spec.fh || r.r * 2) * (spec.scale || 1) * .38));
       if (dist2(x, y, r.x, r.y) <= (r.r + 9) * (r.r + 9)
         || dist2(x, y, r.x, visualCenterY) <= visualRadius * visualRadius) return r;
+    }
+    for (let i = this.decor.length - 1; i >= 0; i--) {
+      const d = this.decor[i];
+      if (d.dead || d.sky || d.water) continue;
+      const ds = DECOR_SPECS[d.kind] || {};
+      const dw = (ds.fw || 64) * (d.scale || 1) * .55;
+      const dh = (ds.fh || 64) * (d.scale || 1) * .55;
+      const dcy = d.y - ((ds.baseline || ds.fh || 64) * (d.scale || 1) - dh) * .35;
+      if (dist2(x, y, d.x, dcy) <= Math.max(dw, dh) * Math.max(dw, dh)) return d;
     }
     return null;
 
@@ -268,7 +287,7 @@ Game.prototype.contextOrder = function(x, y) {
     const target = this.pickEntity(x, y);
     const ownBuildings = this.selected.filter(e => e.entity === 'building' && e.faction === 0 && e.build >= 1);
     const ownUnits = this.selected.filter(e => e.entity === 'unit' && e.faction === 0 && !e.garrisoned);
-    if (ownBuildings.length && (!target || target.entity !== 'resource')) {
+    if (ownBuildings.length && (!target || (target.entity !== 'resource' && target.entity !== 'decor' && !(target.kind && !target.entity)))) {
       const rally = this.nearestLandPoint(x, y, 320) || { x, y };
       for (const b of ownBuildings) b.rally = { x: rally.x, y: rally.y };
       this.effects.push({ kind: 'flag', x: rally.x, y: rally.y, time: 1.2, max: 1.2 });
@@ -293,6 +312,11 @@ Game.prototype.contextOrder = function(x, y) {
       const workers = ownUnits.filter(u => u.type === 'worker');
       for (const u of workers) this.orderHarvest(u, target);
       if (workers.length) this.toast(`${workers.length} worker(s) harvesting ${target.type === 'tree' ? 'wood' : target.type}.`, 1.4);
+      return;
+    }
+    if (target && (target.entity === 'decor' || (!target.entity && target.kind))) {
+      this.orderMoveFormation(ownUnits, x, y, false);
+      this.sfx.click();
       return;
     }
     if (target && target.faction !== undefined && target.faction !== 0) {
@@ -414,7 +438,7 @@ Game.prototype.bindEvents = function() {
           this.dragBuilding.y = this.pointer.wy + this.dragBuilding.offsetY;
           this.pointer.dragging = false;
         }
-      } else this.pointer.dragging = dx + dy > 8;
+      } else this.pointer.dragging = dx + dy > 16;
     }
   });
   canvas.addEventListener('mousedown', (e) => {
@@ -516,12 +540,20 @@ Game.prototype.contextOrder = function(x, y) {
   const target = this.pickEntity(x, y);
   const ownBuildings = this.selected.filter(e => e.entity === 'building' && e.faction === 0 && e.build >= 1);
   const ownUnits = this.selected.filter(e => e.entity === 'unit' && e.faction === 0 && !e.dead);
-  if (ownBuildings.length && (!target || target.entity !== 'resource')) {
-    const rally = this.nearestLandPoint(x, y, 320) || { x, y };
-    for (const b of ownBuildings) b.rally = { x: rally.x, y: rally.y };
-    this.effects.push({ kind: 'flag', x: rally.x, y: rally.y, time: 1.2, max: 1.2 });
-    this.toast('Rally flag set.', 1.1); this.sfx.click();
-  }
+    if (ownBuildings.length && (!target || (target.entity !== 'resource' && target.entity !== 'decor' && !(target.kind && !target.entity)))) {
+      const rally = this.nearestLandPoint(x, y, 320) || { x, y };
+      let setRally = false;
+      for (const b of ownBuildings) {
+        if (BUILDINGS[b.type].trains && BUILDINGS[b.type].trains.length) {
+          b.rally = { x: rally.x, y: rally.y };
+          setRally = true;
+        }
+      }
+      if (setRally) {
+        this.effects.push({ kind: 'flag', x: rally.x, y: rally.y, time: 1.2, max: 1.2 });
+        this.toast('Rally flag set.', 1.1); this.sfx.click();
+      }
+    }
   if (!ownUnits.length) return;
   if (target && target.entity === 'building' && target.faction === 0 && (target.build < 1 || target.hp < target.maxHp)) {
     const workers = ownUnits.filter(u => u.type === 'worker');
@@ -534,6 +566,11 @@ Game.prototype.contextOrder = function(x, y) {
     const workers = ownUnits.filter(u => u.type === 'worker');
     for (const u of workers) this.orderHarvest(u, target);
     if (workers.length) this.toast(`${workers.length} worker(s) harvesting ${target.type === 'tree' ? 'wood' : target.type}.`, 1.4);
+    return;
+  }
+  if (target && (target.entity === 'decor' || (!target.entity && target.kind))) {
+    this.orderMoveFormation(ownUnits, x, y, false);
+    this.sfx.click();
     return;
   }
   if (target && target.faction !== undefined && target.faction !== 0) {
@@ -598,7 +635,7 @@ Game.prototype.bindEvents = function() {
           this.dragBuilding.y = this.pointer.wy + this.dragBuilding.offsetY;
           this.pointer.dragging = false;
         }
-      } else this.pointer.dragging = dx + dy > 8;
+      } else this.pointer.dragging = dx + dy > 16;
     }
   });
   canvas.addEventListener('mousedown', (e) => {
@@ -751,7 +788,7 @@ Game.prototype.bindEvents = function() {
           this.dragBuilding.y = this.pointer.wy + this.dragBuilding.offsetY;
           this.pointer.dragging = false;
         }
-      } else this.pointer.dragging = dx + dy > 8;
+      } else this.pointer.dragging = dx + dy > 16;
     }
   });
   canvas.addEventListener('mousedown', (e) => {
