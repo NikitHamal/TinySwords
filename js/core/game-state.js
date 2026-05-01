@@ -1,23 +1,34 @@
 // Game state container. Behavior lives in the systems files.
 class Game {
-  constructor() {
+  constructor(worldRecord = null) {
+    this.worldRecord = worldRecord || TinySwordsStorage.createWorld('Quick Realm', DEFAULT_WORLD_SETTINGS);
+    this.worldSettings = applyWorldSettings((this.worldRecord && this.worldRecord.settings) || DEFAULT_WORLD_SETTINGS);
+    this.worldSeed = (this.worldRecord && (this.worldRecord.seed || this.worldRecord.settings?.seed)) || this.worldSettings.seed || 'tinyswords';
     this.sfx = new SoundBank();
-    this.camera = { x: 700, y: 720, zoom: 0.84, targetZoom: 0.84 };
+    this.camera = { x: 700, y: 720, zoom: 1.0, targetZoom: 1.0 };
     this.pointer = { x: VIEW_W / 2, y: VIEW_H / 2, wx: 0, wy: 0, down: false, dragging: false, startX: 0, startY: 0, startWx: 0, startWy: 0, inside: false };
     this.paused = false;
     this.fast = false;
+    this.running = true;
     this.uiDirty = true;
     this.uiTimer = 0;
     this.time = 0;
     this.toastTimer = 0;
+    this.autosaveTimer = 30;
+    this.lastSavedGameTime = 0;
     this.selected = [];
     this.placing = null;
     this.aiTick = 0;
     this.lastFrame = 0;
-    this.reset();
+    withSeededRandom(this.worldSeed, () => this.reset());
+    if (this.worldRecord && this.worldRecord.state) this.applySavePayload(this.worldRecord.state);
     this.bindEvents();
     this.buildStaticMenus();
-    this.toast('Scout, build, gather, train, and conquer. Press H for help.', 5);
-  
+    this.toast('Scout, build, gather, train, save your realm, and conquer. Press H for help.', 5);
+  }
+
+  destroy() {
+    this.running = false;
+    this.saveToWorldRecord && this.saveToWorldRecord('autosave');
   }
 }

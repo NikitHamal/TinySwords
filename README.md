@@ -14,6 +14,22 @@ Node-only option, no install required:
 node -e "const http=require('http'),fs=require('fs'),path=require('path');const root=process.cwd();const mime={'.html':'text/html','.js':'application/javascript','.css':'text/css','.png':'image/png'};http.createServer((req,r)=>{let u=req.url==='/'?'/index.html':decodeURI(req.url.split('?')[0]);let f=path.join(root,u);if(!f.startsWith(root)||!fs.existsSync(f)){r.writeHead(404);return r.end('not found')}r.writeHead(200,{'Content-Type':mime[path.extname(f)]||'application/octet-stream'});fs.createReadStream(f).pipe(r)}).listen(8080,()=>console.log('http://localhost:8080'))"
 ```
 
+
+## Production pass in this build
+
+This build adds the requested production shell and simulation upgrades:
+
+- Front title screen with a pixel-art styled background, game title, Continue, Single Player, and Settings.
+- Single Player world manager with unlimited browser-local world slots, named or unnamed worlds, seed, world size, difficulty, rival count, resource density, graphics, and autosave settings.
+- Generating/loading screen with staged progress messages before entering a world.
+- Save/load system backed by `localStorage`, including Ctrl+S/manual Save, autosave, Menu return save, world metadata, entity state, resources, buildings, units, camera, AI state, and selection restoration.
+- Larger scalable worlds via size presets: Standard, Large, and Massive. Faction bases normalize to the selected world dimensions.
+- Pathfinding v2: coarse A* grid over terrain with dynamic blockers, path caching per unit, nearest-walkable fallbacks, and steering fallback for local avoidance.
+- AI tactics v2: threat response, tower garrisoning, repair response, staging, retreats for wounded units, strategic target scoring, raids, and difficulty-scaled aggression.
+- Performance scaling: unit/resource/building spatial buckets, cached minimap terrain, dynamic navigation invalidation, and reduced O(n²) wildlife collision checks.
+- Bug fixes around world startup, rally/order path clearing, save-safe target references, stale path invalidation, and world generation settings.
+
+
 ## What changed in this pass
 
 - Removed the previously generated `assets/Imported Free Pixel Pack` folder and removed all code references to that pack.

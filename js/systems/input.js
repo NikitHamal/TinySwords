@@ -11,6 +11,7 @@ Game.prototype.bindEvents = function() {
       if (e.key === 'Escape') this.cancelModes();
       if (e.key === '0') this.selectUnits(this.units.filter(u => u.faction === 0 && !u.garrisoned));
       if (e.ctrlKey && e.key.toLowerCase() === 'a') { e.preventDefault(); this.selectUnits(this.units.filter(u => u.faction === 0 && u.type !== 'worker' && !u.garrisoned)); }
+      if (e.ctrlKey && e.key.toLowerCase() === 's') { e.preventDefault(); this.saveToWorldRecord && this.saveToWorldRecord('manual'); }
       if (/^[1-9]$/.test(e.key)) this.activateHotkey(e.key);
     });
     window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
@@ -55,7 +56,7 @@ Game.prototype.bindEvents = function() {
     canvas.addEventListener('wheel', (e) => {
       e.preventDefault();
       const before = screenToWorld(this, this.pointer.x, this.pointer.y);
-      this.camera.targetZoom = clamp(this.camera.targetZoom * (e.deltaY < 0 ? 1.09 : 0.92), 0.55, 1.15);
+      this.camera.targetZoom = clamp(this.camera.targetZoom * (e.deltaY < 0 ? 1.09 : 0.92), 0.72, 1.32);
       this.camera.zoom = this.camera.targetZoom;
       this.camera.x = clamp(before.x - this.pointer.x / this.camera.zoom, 0, WORLD_W - VIEW_W / this.camera.zoom);
       this.camera.y = clamp(before.y - this.pointer.y / this.camera.zoom, 0, WORLD_H - VIEW_H / this.camera.zoom);
@@ -234,7 +235,7 @@ Game.prototype.contextOrder = function(x, y) {
     if (target && target.entity === 'building' && target.faction === 0 && (target.build < 1 || target.hp < target.maxHp)) {
       const workers = ownUnits.filter(u => u.type === 'worker');
       if (workers.length) {
-        for (const u of workers) { u.order = 'repair'; u.target = target; u.goal = null; }
+        for (const u of workers) { this.clearUnitPath && this.clearUnitPath(u); u.order = 'repair'; u.target = target; u.goal = null; }
         this.sfx.click();
         this.toast(`${workers.length} worker(s) moving to build/repair.`, 1.4);
         return;
@@ -265,6 +266,7 @@ Game.prototype.orderAttack = function(u, target, attackMove) {
 
 Game.prototype.orderHarvest = function(u, res) {
     if (u.type !== 'worker') return;
+    this.clearUnitPath && this.clearUnitPath(u);
     u.order = 'harvest'; u.target = res; u.goal = null; u.gather = 0; u.hold = false;
   
 };
@@ -276,6 +278,7 @@ Game.prototype.garrisonArchers = function(archers, tower, silent = false) {
       if (!a || a.dead || a.type !== 'archer' || a.garrisoned || a.faction !== tower.faction) continue;
       const queuedForTower = this.units.filter(u => u.order === 'garrison' && u.target === tower && !u.dead && !u.garrisoned).length;
       if (tower.garrison.length + queuedForTower >= BUILDINGS.tower.garrisonCap) break;
+      this.clearUnitPath && this.clearUnitPath(a);
       a.order = 'garrison';
       a.target = tower;
       a.goal = { x: tower.x, y: tower.y + 42 };

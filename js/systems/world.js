@@ -7,23 +7,36 @@ Game.prototype.reset = function() {
   this.decor = [];
   this.projectiles = [];
   this.effects = [];
+  this.navVersion = 1;
+  this.pathGrid = null;
+  this.resourceBuckets = new Map();
   this.factions = FACTIONS.map((f) => ({
     ...f,
-    res: f.ai ? { wood: 520, gold: 430, food: 12 } : { wood: 500, gold: 390, food: 10 },
+    res: (() => {
+      const diff = DIFFICULTY_PRESETS[this.worldSettings?.difficulty || 'normal'] || DIFFICULTY_PRESETS.normal;
+      const mult = f.ai ? diff.aiResourceMult : 1;
+      return f.ai
+        ? { wood: Math.round(520 * mult), gold: Math.round(430 * mult), food: Math.round(12 * mult) }
+        : { wood: 500, gold: 390, food: 10 };
+    })(),
     alive: true,
     aiState: {
       timer: 0,
       buildTimer: 0,
-      attackTimer: 9 + Math.random() * 10,
+      attackTimer: (DIFFICULTY_PRESETS[this.worldSettings?.difficulty || 'normal'] || DIFFICULTY_PRESETS.normal).aiAttackDelay + Math.random() * 10,
       rallyAngle: Math.random() * Math.PI * 2,
       expansion: 0,
       squadGoal: null,
+      squadMode: 'stage',
+      lastTargetId: null,
       economyBias: Math.random()
     },
     underAttack: 0
   }));
   this.generateWorld();
-  for (const f of this.factions) this.spawnFaction(f);
+  for (const f of this.factions) if (f.id === 0 || f.ai) this.spawnFaction(f);
+  this.markNavDirty && this.markNavDirty();
+  this.buildMinimapTerrainCache && this.buildMinimapTerrainCache();
   this.camera.x = clamp(this.factions[0].base.x - VIEW_W / this.camera.zoom / 2, 0, WORLD_W - VIEW_W / this.camera.zoom);
   this.camera.y = clamp(this.factions[0].base.y - VIEW_H / this.camera.zoom / 2, 0, WORLD_H - VIEW_H / this.camera.zoom);
 };
@@ -33,7 +46,9 @@ Game.prototype.generateWorld = function() {
   this.decor.length = 0;
   this.generateTerrain();
 
-  const worldScale = (WORLD_W * WORLD_H) / (8200 * 6000);
+  const densityScale = RESOURCE_DENSITY_PRESETS[this.worldSettings?.resourceDensity || 'normal'] || 1;
+  const graphicsScale = getGraphicsDensityMultiplier(this.worldSettings || {});
+  const worldScale = (WORLD_W * WORLD_H) / (8200 * 6000) * densityScale * graphicsScale;
   const naturalDecor = NATURAL_DECOR_KINDS;
 
   const addRing = (kind, cx, cy, count, minR, maxR, arc = Math.PI * 2, start = 0) => {
@@ -77,7 +92,7 @@ Game.prototype.generateWorld = function() {
     }
   }
 
-  const decorCount = Math.round(220 * worldScale);
+  const decorCount = Math.round(185 * worldScale);
   for (let i = 0; i < decorCount; i++) {
     const p = this.randomLandPoint(260);
     if (!p || !this.isSafeLand(p.x, p.y, 34) || this.occupiedByBase(p.x, p.y, 330) || this.tooCloseResource(p.x, p.y, 38)) continue;
@@ -190,11 +205,12 @@ Game.prototype.randomLandPoint = function(margin = 0) {
 };
 
 Game.prototype.addWaterDetails = function() {
+  const graphicsScale = getGraphicsDensityMultiplier(this.worldSettings || {});
   if (!this.landMap) return;
   const nearShoreProps = ['waterRock1','waterRock2','waterRock3','waterRock4','rubberDuck'];
   const clouds = ['cloud1','cloud2','cloud3','cloud4','cloud5','cloud6','cloud7','cloud8'];
 
-  for (let i = 0; i < Math.round(135 * (WORLD_W * WORLD_H) / (8200 * 6000)); i++) {
+  for (let i = 0; i < Math.round(110 * (WORLD_W * WORLD_H) / (8200 * 6000) * graphicsScale); i++) {
     const x = 100 + Math.random() * (WORLD_W - 200);
     const y = 100 + Math.random() * (WORLD_H - 200);
     if (!this.isWater(x, y)) continue;
@@ -205,7 +221,7 @@ Game.prototype.addWaterDetails = function() {
     this.decor.push({ id: gid++, kind, x, y, scale, water: true, front: false, drift: Math.random() * Math.PI * 2 });
   }
 
-  for (let i = 0; i < Math.round(42 * (WORLD_W * WORLD_H) / (8200 * 6000)); i++) {
+  for (let i = 0; i < Math.round(32 * (WORLD_W * WORLD_H) / (8200 * 6000) * graphicsScale); i++) {
     const x = 170 + Math.random() * (WORLD_W - 340);
     const y = 170 + Math.random() * (WORLD_H - 340);
     if (!this.isWater(x, y)) continue;
@@ -217,6 +233,43 @@ Game.prototype.addWaterDetails = function() {
 Game.prototype.pruneInvalidWorldObjects = function() {
   this.resources = this.resources.filter(r => !this.isWater(r.x, r.y));
   this.decor = this.decor.filter(d => d.water ? this.isWater(d.x, d.y) : this.isSafeLand(d.x, d.y, 18));
+  this.resources = this.resources.filter((r, idx, arr) => {
+    const footprint = getResourceFootprint(r);
+    for (let i = 0; i < idx; i++) {
+      const other = arr[i];
+      const min = footprint + getResourceFootprint(other) + 6;
+      if (dist2(r.x, r.y, other.x, other.y) < min * min) return false;
+    }
+    return true;
+  });
+  this.clearOverlapsAroundStructures();
+};
+
+Game.prototype.clearOverlapsAroundStructures = function() {
+  if (!this.buildings || !this.buildings.length) return;
+  const keepResource = (r) => {
+    const fp = getResourceFootprint(r);
+    for (const b of this.buildings) {
+      if (b.dead) continue;
+      const padX = b.w * .5 + fp + 12;
+      const padY = b.h * .5 + fp + 18;
+      if (Math.abs(r.x - b.x) < padX && Math.abs(r.y - b.y) < padY) return false;
+    }
+    return true;
+  };
+  this.resources = this.resources.filter(keepResource);
+  this.decor = this.decor.filter((d) => {
+    if (d.sky || d.water || PASSABLE_DECOR.has(d.kind)) return true;
+    const spec = DECOR_SPECS[d.kind] || {};
+    const radius = Math.max(10, ((spec.shadow && spec.shadow[0]) || 14) * (d.scale || 1));
+    for (const b of this.buildings) {
+      if (b.dead) continue;
+      const padX = b.w * .5 + radius + 10;
+      const padY = b.h * .5 + radius + 16;
+      if (Math.abs(d.x - b.x) < padX && Math.abs(d.y - b.y) < padY) return false;
+    }
+    return true;
+  });
 };
 
 Game.prototype.isSafeLand = function(x, y, radius = 28) {
@@ -238,7 +291,7 @@ Game.prototype.chooseAnimalKind = function(x, y) {
 
 Game.prototype.addResource = function(type, x, y) {
   x = clamp(x, 90, WORLD_W - 90); y = clamp(y, 90, WORLD_H - 90);
-  if (!this.isSafeLand(x, y, type === 'tree' ? 30 : 24)) return null;
+  if (!this.isSafeLand(x, y, type === 'tree' ? 36 : 26)) return null;
   const animalKind = type === 'food' ? this.chooseAnimalKind(x, y) : null;
   const animalDef = animalKind ? HUNT_ANIMALS[animalKind] : null;
   const amount = type === 'tree'
@@ -260,6 +313,8 @@ Game.prototype.addResource = function(type, x, y) {
     animalMaxHp: animalDef ? animalDef.hp : (type === 'food' ? 28 : 0), animalState: 'idle', animalDir: dirSeed < .25 ? 0 : dirSeed < .5 ? 1 : dirSeed < .75 ? 2 : 3,
     panic: 0, hurtTimer: 0, claimedBy: null, face: Math.random() < .5 ? -1 : 1, flash: 0
   };
+  const clearance = getResourceFootprint(res) + 8;
+  if (this.tooCloseResource(x, y, clearance, res)) return null;
   this.resources.push(res);
   return res;
 };
@@ -268,9 +323,13 @@ Game.prototype.occupiedByBase = function(x, y, radius) {
   return FACTIONS.some(f => dist2(x, y, f.base.x, f.base.y) < radius * radius);
 };
 
-Game.prototype.tooCloseResource = function(x, y, radius) {
-  const rr = radius * radius;
-  return this.resources.some(r => !r.dead && dist2(x, y, r.x, r.y) < rr);
+Game.prototype.tooCloseResource = function(x, y, radius, candidate = null) {
+  const rr = Math.max(0, radius);
+  return this.resources.some(r => {
+    if (r.dead || r === candidate) return false;
+    const min = rr + getResourceFootprint(r);
+    return dist2(x, y, r.x, r.y) < min * min;
+  });
 };
 
 Game.prototype.addBuilding = function(fid, type, x, y, complete = false) {
@@ -284,6 +343,8 @@ Game.prototype.addBuilding = function(fid, type, x, y, complete = false) {
     cd: Math.random(), garrison: [], dead: false, flash: 0, aiIntent: null
   };
   this.buildings.push(b);
+  this.clearOverlapsAroundStructures();
+  this.markNavDirty && this.markNavDirty();
   this.uiDirty = true;
   return b;
 };
@@ -297,7 +358,7 @@ Game.prototype.addUnit = function(fid, type, x, y) {
     order: 'idle', target: null, goal: null, attackMove: false,
     cd: Math.random() * .5, anim: Math.random() * 4, face: 1, carry: null, gather: 0,
     selected: false, dead: false, flash: 0, garrisoned: null, hold: false,
-    stuck: 0, lastWaterBounce: 0, pathProbe: 0, huntSwing: 0
+    stuck: 0, lastWaterBounce: 0, pathProbe: 0, path: null, pathGoal: null, pathIndex: 0, pathVersion: 0, pathRetry: 0, huntSwing: 0
   };
   this.units.push(u);
   return u;
@@ -326,5 +387,6 @@ Game.prototype.spawnFaction = function(f) {
   if (f.ai) this.addBuilding(f.id, 'archery', b.x + 185, b.y - 176, true);
   for (let i = 0; i < (f.ai ? 6 : 5); i++) this.addUnit(f.id, 'worker', b.x + (Math.random() - .5) * 180, b.y + 175 + Math.random() * 100);
   for (let i = 0; i < (f.ai ? 5 : 3); i++) this.addUnit(f.id, i % 3 === 0 ? 'archer' : 'warrior', b.x + 135 + Math.random() * 115, b.y + (Math.random() - .5) * 155);
+  this.clearOverlapsAroundStructures();
   this.setAutoWorkerOrders(f.id);
 };

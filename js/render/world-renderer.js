@@ -202,7 +202,7 @@ Game.prototype.drawHuntAnimal = function(r, moving) {
   let key = spec[anim] || spec.idle;
   if (!moving && !hurt && r.animalKind === 'sheep' && rngHash(r.id, 3, 66) > .82) key = 'sheepGrass';
   const img = assets[key] || assets[spec.idle];
-  const shadow = assets[spec.shadowKey];
+  const shadow = spec.useSpriteShadow === true && spec.shadowKey ? assets[spec.shadowKey] : null;
   const bob = Math.sin(this.time * (moving ? 5 : 2) + r.bob) * (moving ? 1.1 : .8);
   const baseY = r.y + bob;
   if (!img) return false;
@@ -234,10 +234,11 @@ Game.prototype.drawHuntAnimal = function(r, moving) {
 
   ctx.save();
   if (r.flash > 0) ctx.filter = `brightness(1.55) sepia(1) hue-rotate(-50deg) saturate(3) opacity(${0.75 + r.flash * 0.25})`;
-  this.drawSpriteFrameAnchored(img, fr * fw, row * fh, fw, fh, r.x, baseY, spec.scale, spec.baseline, {});
+  const flip = (spec.flipByFacing || rows === 1) ? (r.face || 1) : 1;
+  this.drawSpriteFrameAnchored(img, fr * fw, row * fh, fw, fh, r.x, baseY, spec.scale, spec.baseline, { flip });
   if (r.flash > 0) ctx.filter = 'none';
   ctx.restore();
-  if (this.selected.includes(r)) this.drawSelectionCircle(r.x, r.y, r.r + 8, '#f5d37d');
+  if (this.selected.includes(r)) { const p = getResourceInteractionPoint(r); this.drawSelectionCircle(p.x, p.y, getResourceFootprint(r) + 8, '#f5d37d'); }
   return true;
 };
 
@@ -254,7 +255,7 @@ Game.prototype.drawResource = function(r) {
   const bob = 0;
   const baseY = r.y + bob;
   const shadow = spec.shadow || [r.r * .8, 5];
-  this.drawLandShadow(r.x, r.y, shadow[0], shadow[1]);
+  if (shouldDrawResourceGroundShadow(r)) this.drawLandShadow(r.x, r.y, shadow[0], shadow[1]);
   if (sprite) {
     const fw = spec.fw, fh = spec.fh;
     const frames = Math.max(1, Math.floor(sprite.width / fw));
@@ -276,22 +277,49 @@ Game.prototype.drawResource = function(r) {
     ctx.fillStyle = r.type === 'gold' ? '#e6ca59' : '#6fa75a';
     ctx.fillRect(r.x - r.r, r.y - r.r, r.r * 2, r.r * 2);
   }
-  if (this.selected.includes(r)) this.drawSelectionCircle(r.x, r.y, r.r + 8, '#f5d37d');
+  if (this.selected.includes(r)) { const p = getResourceInteractionPoint(r); this.drawSelectionCircle(p.x, p.y, getResourceFootprint(r) + 8, '#f5d37d'); }
+};
+
+Game.prototype.getBuildingDrawMetrics = function(b) {
+  const def = BUILDINGS[b.type];
+  const img = assets[`b_${faction(b.faction).key}_${b.sprite || b.type}`] || assets[`b_${faction(b.faction).key}_${b.type}`];
+  if (!img) {
+    return {
+      img: null,
+      w: b.w,
+      h: b.h,
+      drawY: b.y - b.h / 2,
+      barY: b.y - b.h * 1.02
+    };
+  }
+  const w = img.width * def.scale * SPRITE_BOOST;
+  const h = img.height * def.scale * SPRITE_BOOST;
+  const drawY = b.y - h + b.h * .46;
+  return {
+    img,
+    w,
+    h,
+    drawY,
+    barY: drawY - 8
+  };
 };
 
 Game.prototype.drawBuilding = function(b) {
   const def = BUILDINGS[b.type];
-  const img = assets[`b_${faction(b.faction).key}_${b.sprite || b.type}`] || assets[`b_${faction(b.faction).key}_${b.type}`];
+  const metrics = this.getBuildingDrawMetrics ? this.getBuildingDrawMetrics(b) : (() => {
+    const fallbackImg = assets[`b_${faction(b.faction).key}_${b.sprite || b.type}`] || assets[`b_${faction(b.faction).key}_${b.type}`];
+    return { img: fallbackImg, w: b.w, h: b.h, drawY: b.y - b.h / 2, barY: b.y - b.h * 1.02 };
+  })();
+  const img = metrics.img;
   this.drawShadow(b.x, b.y + b.h * .18, b.w * .50, b.h * .18);
   if (img) {
-    const w = img.width * def.scale * SPRITE_BOOST, h = img.height * def.scale * SPRITE_BOOST;
     ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1;
-    ctx.drawImage(img, b.x - w / 2, b.y - h + b.h * .46, w, h);
+    ctx.drawImage(img, b.x - metrics.w / 2, metrics.drawY, metrics.w, metrics.h);
     ctx.globalAlpha = 1;
   } else { ctx.fillStyle = faction(b.faction).color; ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
   if (b.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${b.flash * .25})`; ctx.fillRect(b.x - b.w / 2, b.y - b.h, b.w, b.h); }
-  if (b.build < 1) this.drawProgress(b.x, b.y - b.h * .65, b.build, '#e8c965');
-  this.drawHpBar(b.x, b.y - b.h * .88, b.hp / b.maxHp, b.faction);
+  if (b.build < 1) this.drawProgress(b.x, metrics.barY + 10, b.build, '#e8c965');
+  if (b.hp < b.maxHp || b.build < 1) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
   if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
   if (b.rally && b.faction === 0 && this.selected.includes(b)) this.drawRallyFlag(b.rally.x, b.rally.y, faction(b.faction).color);
   if (b.type === 'tower' && b.garrison.length) {
@@ -356,7 +384,7 @@ Game.prototype.drawUnit = function(u) {
     ctx.arc(u.x, u.y, u.r, 0, Math.PI * 2);
     ctx.fill();
   }
-  if (u.hp < u.maxHp || u.faction !== 0) this.drawHpBar(u.x, u.y - 58, u.hp / u.maxHp, u.faction, 34);
+  if (u.hp < u.maxHp) this.drawHpBar(u.x, u.y - (def.fh * def.scale * SPRITE_BOOST) + 8, u.hp / u.maxHp, u.faction, 36);
 };
 
 Game.prototype.drawProjectile = function(p) {
@@ -408,9 +436,12 @@ Game.prototype.drawSelectionRect = function(x, y, w, h, color) {
 
 Game.prototype.drawHpBar = function(x, y, pct, fid, width = 58) {
   pct = clamp(pct, 0, 1);
-  ctx.fillStyle = 'rgba(31,15,20,.76)'; ctx.fillRect(x - width / 2, y, width, 6);
-  ctx.fillStyle = faction(fid).color; ctx.fillRect(x - width / 2 + 1, y + 1, (width - 2) * pct, 4);
-  ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.strokeRect(x - width / 2, y, width, 6);
+  ctx.fillStyle = 'rgba(0,0,0,.45)';
+  ctx.fillRect(x - width / 2, y, width, 5);
+  ctx.fillStyle = '#3a1b1e';
+  ctx.fillRect(x - width / 2 + 1, y + 1, width - 2, 3);
+  ctx.fillStyle = pct > .6 ? '#8ce37a' : pct > .3 ? '#f3d36a' : '#ff7070';
+  ctx.fillRect(x - width / 2 + 1, y + 1, (width - 2) * pct, 3);
 };
 
 Game.prototype.drawProgress = function(x, y, pct, color) {
@@ -451,20 +482,35 @@ Game.prototype.drawScreenOverlays = function() {
   }
 };
 
+Game.prototype.buildMinimapTerrainCache = function() {
+  const w = 512, h = 360;
+  const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const mc = c.getContext('2d', { alpha: false });
+  mc.fillStyle = '#1f6773';
+  mc.fillRect(0, 0, w, h);
+  if (this.landMap) {
+    const cols = this.landCols, rows = this.landRows;
+    const cw = Math.ceil(w / cols), ch = Math.ceil(h / rows);
+    for (let ty = 0; ty < rows; ty++) {
+      for (let tx = 0; tx < cols; tx++) {
+        if (this.landMap[ty * cols + tx] !== 1) continue;
+        mc.fillStyle = this.groundVariant && this.groundVariant[ty * cols + tx] >= 40 ? '#79a964' : '#6fa75a';
+        mc.fillRect(Math.floor(tx / cols * w), Math.floor(ty / rows * h), cw, ch);
+      }
+    }
+  }
+  this.minimapTerrain = c;
+};
+
 Game.prototype.drawMinimap = function() {
   this.resizeMini();
   const w = mini.width, h = mini.height;
   if (!w || !h) return;
-  mctx.fillStyle = '#1f6773'; mctx.fillRect(0, 0, w, h);
-  if (this.landMap) {
-    const cols = this.landCols, rows = this.landRows;
-    const cw = Math.ceil(w / cols), ch = Math.ceil(h / rows);
-    for (let ty = 0; ty < rows; ty++) for (let tx = 0; tx < cols; tx++) {
-      if (this.landMap[ty * cols + tx] !== 1) continue;
-      mctx.fillStyle = '#6fa75a';
-      mctx.fillRect(Math.floor(tx / cols * w), Math.floor(ty / rows * h), cw, ch);
-    }
-  }
+  if (!this.minimapTerrain) this.buildMinimapTerrainCache();
+  if (this.minimapTerrain) mctx.drawImage(this.minimapTerrain, 0, 0, w, h);
+  else { mctx.fillStyle = '#1f6773'; mctx.fillRect(0, 0, w, h); }
   for (const r of this.resources) if (!r.dead) { mctx.fillStyle = r.type === 'gold' ? '#e8ca4d' : r.type === 'tree' ? '#366f3f' : '#e8a765'; mctx.fillRect(r.x / WORLD_W * w, r.y / WORLD_H * h, 1.8, 1.8); }
   for (const b of this.buildings) if (!b.dead) { mctx.fillStyle = faction(b.faction).color; mctx.fillRect(b.x / WORLD_W * w - 2, b.y / WORLD_H * h - 2, b.type === 'castle' ? 6 : 4, b.type === 'castle' ? 6 : 4); }
   for (const u of this.units) if (!u.dead && !u.garrisoned) { mctx.fillStyle = faction(u.faction).color; mctx.fillRect(u.x / WORLD_W * w, u.y / WORLD_H * h, 2, 2); }

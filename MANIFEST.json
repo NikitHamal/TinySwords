@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-05-01T15:13:40Z",
+  "source": "TinySwords production pass",
+  "changedFiles": [
+    "PRODUCTION_PASS_NOTES.md",
+    "README.md",
+    "css/style.css",
+    "index.html",
+    "js/core/audio.js",
+    "js/core/config.js",
+    "js/core/game-state.js",
+    "js/core/save-load.js",
+    "js/main.js",
+    "js/render/world-renderer.js",
+    "js/systems/input.js",
+    "js/systems/pathfinding.js",
+    "js/systems/simulation.js",
+    "js/systems/world.js",
+    "js/ui/hud.js",
+    "js/ui/menu.js"
+  ]
+}

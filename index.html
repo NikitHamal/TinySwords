@@ -11,7 +11,171 @@
   <div id="game-shell">
     <canvas id="gameCanvas" width="1280" height="720" aria-label="Tiny Swords RTS game canvas"></canvas>
 
-    <div id="hud" class="hidden" aria-live="polite">
+    <section id="titleScreen" class="screen title-screen">
+      <div class="parallax-bg"></div>
+      <div class="title-hero">
+        <div class="title-card pixel-panel">
+          <div class="eyebrow">Production Realm Builder</div>
+          <h1>TINY SWORDS</h1>
+          <p>Build, hunt, defend, expand, save your world, and wage realm-scale RTS wars across persistent worlds.</p>
+          <div class="title-actions">
+            <button id="btnContinue" class="big-button">
+              <b>Continue</b><span>No saved worlds yet</span>
+            </button>
+            <button id="btnSinglePlayer" class="big-button primary">
+              <b>Single Player</b><span>Browse existing worlds or create a new realm</span>
+            </button>
+            <button id="btnSettings" class="big-button">
+              <b>Settings</b><span>Graphics, autosave, controls, and defaults</span>
+            </button>
+          </div>
+        </div>
+        <aside class="feature-card pixel-panel">
+          <h3>Production Pillars</h3>
+          <ul>
+            <li>Persistent multi-world single-player campaign flow</li>
+            <li>Large-scale RTS simulation with save/load support</li>
+            <li>Improved hunting, pathfinding, AI tactics, and scaling</li>
+            <li>Pixel-art presentation with stronger menu hierarchy</li>
+          </ul>
+        </aside>
+      </div>
+    </section>
+
+    <section id="worldScreen" class="screen world-screen hidden">
+      <div class="screen-header">
+        <button id="btnBackTitle" class="ghost">← Back</button>
+        <div class="screen-header-copy">
+          <h2>Single Player</h2>
+          <p>Manage saved worlds, review their settings, and jump back into a realm.</p>
+        </div>
+        <button id="btnOpenCreateWorld" class="big-button compact primary">
+          <b>Create New World</b><span>Open world creation</span>
+        </button>
+      </div>
+      <div class="world-browser">
+        <section class="pixel-panel world-list-wrap">
+          <div class="section-head">
+            <h3>Your Worlds</h3>
+            <span id="worldCountLabel" class="section-meta">0 worlds</span>
+          </div>
+          <div id="worldList" class="world-list"></div>
+        </section>
+        <section class="pixel-panel world-detail-wrap">
+          <div class="section-head">
+            <h3>World Overview</h3>
+            <span class="section-meta">Persistent saves</span>
+          </div>
+          <div id="worldEmptyState" class="empty-worlds empty-worlds-large">
+            <h4>No worlds yet</h4>
+            <p>Create your first realm to unlock persistent saves, large world generation, and single-player progress.</p>
+            <button id="btnCreateWorldFromEmpty" class="big-button compact primary">
+              <b>Create New World</b><span>Start your first realm</span>
+            </button>
+          </div>
+          <div id="worldDetails" class="world-details hidden"></div>
+        </section>
+      </div>
+    </section>
+
+    <section id="createWorldScreen" class="screen create-world-screen hidden">
+      <div class="screen-header create-header">
+        <button id="btnBackFromCreateWorld" class="ghost">← Back</button>
+        <div class="screen-header-copy">
+          <h2>Create New World</h2>
+          <p>Configure your realm, then generate it with a persistent save slot.</p>
+        </div>
+      </div>
+      <div class="create-world-layout">
+        <form id="createWorldForm" class="pixel-panel create-world-form">
+          <div class="section-head">
+            <h3>World Settings</h3>
+            <span class="section-meta">Minecraft-style slot flow</span>
+          </div>
+          <div class="form-grid">
+            <label>World Name <input id="worldName" name="name" placeholder="Leave empty for an unnamed world"></label>
+            <label>Seed <input id="worldSeed" name="seed" placeholder="Leave empty for random seed"></label>
+            <label>World Size
+              <select name="size">
+                <option value="standard">Standard Realm</option>
+                <option value="large" selected>Large Realm</option>
+                <option value="massive">Massive Realm</option>
+              </select>
+            </label>
+            <label>Difficulty
+              <select name="difficulty">
+                <option value="peaceful">Peaceful</option>
+                <option value="easy">Easy</option>
+                <option value="normal" selected>Normal</option>
+                <option value="hard">Hard</option>
+              </select>
+            </label>
+            <label>Resource Density
+              <select name="resourceDensity">
+                <option value="sparse">Sparse</option>
+                <option value="normal">Normal</option>
+                <option value="rich" selected>Rich</option>
+                <option value="abundant">Abundant</option>
+              </select>
+            </label>
+            <label>Rival Realms
+              <input id="worldRivals" name="rivals" type="range" min="0" max="4" value="4">
+              <span id="worldRivalsLabel" class="range-readout">4 rivals</span>
+            </label>
+            <label>Graphics
+              <select name="graphics">
+                <option value="performance">Performance</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="high">High Detail</option>
+              </select>
+            </label>
+            <label class="check"><input name="autosave" type="checkbox" checked> Autosave every 45 seconds</label>
+          </div>
+          <div class="inline-buttons">
+            <button id="btnClearName" type="button" class="ghost">Use Unnamed World</button>
+            <button id="btnRandomSeed" type="button" class="ghost">Generate Random Seed</button>
+          </div>
+          <button id="btnCreateWorld" type="submit" class="big-button primary"><b>Create World</b><span>Generate terrain and enter the realm</span></button>
+        </form>
+        <aside class="pixel-panel create-world-sidebar">
+          <div class="section-head">
+            <h3>Generation Preview</h3>
+            <span class="section-meta">What will be created</span>
+          </div>
+          <div id="worldPreview" class="world-preview"></div>
+        </aside>
+      </div>
+    </section>
+
+    <section id="settingsScreen" class="screen settings-screen hidden">
+      <div class="settings-card pixel-panel">
+        <button id="btnBackFromSettings" class="ghost">← Back</button>
+        <h2>Settings</h2>
+        <p>These defaults apply to menus and new world creation. Existing worlds keep their own settings.</p>
+        <form id="globalSettingsForm" class="settings-form">
+          <label>Graphics
+            <select name="graphics">
+              <option value="performance">Performance</option>
+              <option value="balanced">Balanced</option>
+              <option value="high">High Detail</option>
+            </select>
+          </label>
+          <label>Volume <input name="volume" type="range" min="0" max="1" value=".8" step=".05"></label>
+          <label class="check"><input name="autosave" type="checkbox" checked> Autosave by default</label>
+          <label class="check"><input name="edgePan" type="checkbox" checked> Edge-pan camera</label>
+        </form>
+      </div>
+    </section>
+
+    <section id="generationScreen" class="screen generation-screen hidden">
+      <div class="generation-card pixel-panel">
+        <h2 id="generationTitle">Generating World</h2>
+        <p id="generationText">Preparing seed...</p>
+        <div class="progress-track"><span id="generationBar"></span></div>
+      </div>
+    </section>
+
+    <div id="hud" class="screen hidden" aria-live="polite">
       <section id="topbar" class="pixel-panel">
         <div class="brand">
           <div class="brand-title">TINY SWORDS</div>
@@ -68,10 +232,13 @@
   <script src="js/core/config.js"></script>
   <script src="js/core/audio.js"></script>
   <script src="js/core/game-state.js"></script>
+  <script src="js/core/save-load.js"></script>
   <script src="js/systems/world.js"></script>
+  <script src="js/systems/pathfinding.js"></script>
   <script src="js/systems/input.js"></script>
   <script src="js/systems/simulation.js"></script>
   <script src="js/ui/hud.js"></script>
+  <script src="js/ui/menu.js"></script>
   <script src="js/render/world-renderer.js"></script>
   <script src="js/main.js"></script>
 </body>

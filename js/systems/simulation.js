@@ -20,6 +20,7 @@ Game.prototype.updateCamera = function(dt) {
 };
 
 Game.prototype.updateBuildings = function(dt) {
+  this.rebuildBuildingSpatialIndex && this.rebuildBuildingSpatialIndex();
   for (const b of this.buildings) {
     if (b.dead) continue;
     b.flash = Math.max(0, b.flash - dt * 3);
@@ -66,7 +67,7 @@ Game.prototype.passiveHeal = function(b, dt) {
         u.hp = Math.min(u.maxHp, u.hp + 10); healed = true;
       }
     }
-    if (healed) { b.cd = 1.2; this.effects.push({ kind: 'heal', x: b.x, y: b.y - 10, time: .9, max: .9 }); }
+    if (healed) { b.cd = 1.2; this.effects.push({ kind: 'heal', x: b.x, y: b.y - 10, time: .9, max: .9 }); this.sfx.heal(); }
   
 };
 
@@ -78,10 +79,12 @@ Game.prototype.setAnimalDirection = function(r, vx, vy) {
     r.face = vx >= 0 ? 1 : -1;
   } else {
     r.animalDir = vy >= 0 ? ANIMAL_DIRECTION_ROWS.down : ANIMAL_DIRECTION_ROWS.up;
+    if (Math.abs(vx) > 0.6) r.face = vx >= 0 ? 1 : -1;
   }
 };
 
 Game.prototype.updateResources = function(dt) {
+  this.rebuildResourceSpatialIndex();
   for (const r of this.resources) {
     r.flash = Math.max(0, (r.flash || 0) - dt * 3.5);
     r.hurtTimer = Math.max(0, (r.hurtTimer || 0) - dt);
@@ -104,9 +107,9 @@ Game.prototype.updateResources = function(dt) {
     const ny = r.y + r.vy * dt;
     if (!this.isWater(nx, ny) && !this.occupiedByBase(nx, ny, 90)) {
       let blocked = false;
-      for (const res of this.resources) {
+      for (const res of this.nearbyResources(nx, ny, 96)) {
         if (res === r || res.dead || res.amount <= 0) continue;
-        if (dist2(nx, ny, res.x, res.y) < (r.r + res.r) * (r.r + res.r) * .7) { blocked = true; break; }
+        if (dist2(nx, ny, res.x, res.y) < (getResourceFootprint(r) + getResourceFootprint(res)) ** 2 * .7) { blocked = true; break; }
       }
       if (!blocked) {
         r.x = nx; r.y = ny;
@@ -142,6 +145,63 @@ Game.prototype.nearbyUnits = function(x, y) {
   for (let oy = -1; oy <= 1; oy++) {
     for (let ox = -1; ox <= 1; ox++) {
       const list = this.unitBuckets.get(`${bx + ox},${by + oy}`);
+      if (list) out.push(...list);
+    }
+  }
+  return out;
+};
+
+
+Game.prototype.rebuildResourceSpatialIndex = function() {
+  const bucketSize = 128;
+  this.resourceBucketSize = bucketSize;
+  this.resourceBuckets = new Map();
+  for (const r of this.resources) {
+    if (r.dead || r.amount <= 0) continue;
+    const key = `${Math.floor(r.x / bucketSize)},${Math.floor(r.y / bucketSize)}`;
+    let list = this.resourceBuckets.get(key);
+    if (!list) this.resourceBuckets.set(key, list = []);
+    list.push(r);
+  }
+};
+
+Game.prototype.nearbyResources = function(x, y, range = 160) {
+  if (!this.resourceBuckets) return this.resources;
+  const bucketSize = this.resourceBucketSize || 128;
+  const bx = Math.floor(x / bucketSize), by = Math.floor(y / bucketSize);
+  const reach = Math.max(1, Math.ceil(range / bucketSize));
+  const out = [];
+  for (let oy = -reach; oy <= reach; oy++) {
+    for (let ox = -reach; ox <= reach; ox++) {
+      const list = this.resourceBuckets.get(`${bx + ox},${by + oy}`);
+      if (list) out.push(...list);
+    }
+  }
+  return out;
+};
+
+Game.prototype.rebuildBuildingSpatialIndex = function() {
+  const bucketSize = 192;
+  this.buildingBucketSize = bucketSize;
+  this.buildingBuckets = new Map();
+  for (const b of this.buildings) {
+    if (b.dead) continue;
+    const key = `${Math.floor(b.x / bucketSize)},${Math.floor(b.y / bucketSize)}`;
+    let list = this.buildingBuckets.get(key);
+    if (!list) this.buildingBuckets.set(key, list = []);
+    list.push(b);
+  }
+};
+
+Game.prototype.nearbyBuildings = function(x, y, range = 260) {
+  if (!this.buildingBuckets) return this.buildings;
+  const bucketSize = this.buildingBucketSize || 192;
+  const bx = Math.floor(x / bucketSize), by = Math.floor(y / bucketSize);
+  const reach = Math.max(1, Math.ceil(range / bucketSize));
+  const out = [];
+  for (let oy = -reach; oy <= reach; oy++) {
+    for (let ox = -reach; ox <= reach; ox++) {
+      const list = this.buildingBuckets.get(`${bx + ox},${by + oy}`);
       if (list) out.push(...list);
     }
   }
@@ -222,10 +282,11 @@ Game.prototype.updateWorker = function(u, dt) {
       return;
     }
 
-    this.moveToward(u, res.x, res.y, dt, res.r + 6);
-    if (dist2(u.x, u.y, res.x, res.y) <= (res.r + 26) * (res.r + 26)) {
+    const interact = getResourceInteractionPoint(res);
+    this.moveToward(u, interact.x, interact.y, dt, res.r + 6);
+    if (dist2(u.x, u.y, interact.x, interact.y) <= (res.r + 26) * (res.r + 26)) {
       u.gather += dt;
-      u.face = res.x >= u.x ? 1 : -1;
+      u.face = interact.x >= u.x ? 1 : -1;
       const gatherTime = res.type === 'tree' ? 1.35 : res.type === 'gold' ? 1.6 : .82;
       if (u.gather >= gatherTime) {
         const amount = res.type === 'gold' ? 12 : res.type === 'food' ? 10 : 14;
@@ -233,8 +294,8 @@ Game.prototype.updateWorker = function(u, dt) {
         u.carry = { type: res.type === 'tree' ? 'wood' : res.type, amount };
         u.gather = 0;
         if (res.amount <= 0) {
-          if (res.type === 'tree') { res.depleted = true; res.dead = false; res.amount = 0; res.sprite = choose(['stump1','stump2']); res.r = 12; }
-          else res.dead = true;
+          if (res.type === 'tree') { res.depleted = true; res.dead = false; res.amount = 0; res.sprite = choose(['stump1','stump2']); res.r = 12; this.markNavDirty && this.markNavDirty(); }
+          else { res.dead = true; this.markNavDirty && this.markNavDirty(); }
           this.effects.push({ kind: 'dust', x: res.x, y: res.y, time: .65, max: .65 });
         }
       }
@@ -255,6 +316,7 @@ Game.prototype.updateMonk = function(u, dt) {
       ally.hp = Math.min(ally.maxHp, ally.hp + 18);
       u.cd = UNITS.monk.cd;
       this.effects.push({ kind: 'heal', x: ally.x, y: ally.y - 28, time: .6, max: .6 });
+      this.sfx.heal();
       u.order = 'heal';
       return;
     }
@@ -287,32 +349,47 @@ Game.prototype.updateFighter = function(u, dt) {
 Game.prototype.moveToward = function(u, x, y, dt, stop = 6) {
   const dx = x - u.x, dy = y - u.y;
   const d = Math.hypot(dx, dy);
-  if (d <= stop) return true;
+  if (d <= stop) { this.clearUnitPath && this.clearUnitPath(u); return true; }
+
+  let tx = x, ty = y;
+  if (this.isSegmentWalkable && this.isSegmentWalkable(u, u.x, u.y, x, y, d > 200 ? 10 : 6)) this.clearUnitPath && this.clearUnitPath(u);
+  const path = this.prepareUnitPath ? this.prepareUnitPath(u, x, y, d) : null;
+  if (path && path.length) {
+    const wp = this.nextPathWaypoint(u, x, y);
+    tx = wp.x; ty = wp.y;
+  }
+
+  const pdx = tx - u.x, pdy = ty - u.y;
+  const pd = Math.hypot(pdx, pdy) || d;
   const sp = u.speed * dt * (u.carry ? .77 : 1);
-  const step = Math.min(sp, Math.max(0, d - stop));
-  let nx = u.x + dx / d * step;
-  let ny = u.y + dy / d * step;
+  const step = Math.min(sp, Math.max(0, pd - Math.min(stop, 10)));
+  let nx = u.x + pdx / pd * step;
+  let ny = u.y + pdy / pd * step;
 
   if (this.isBlocked(nx, ny, u)) {
-    const angle = Math.atan2(dy, dx);
+    const angle = Math.atan2(pdy, pdx);
     let found = false;
     const bias = (u.pathProbe || 0) % 2 ? -1 : 1;
-    for (const turn of [Math.PI / 6 * bias, -Math.PI / 6 * bias, Math.PI / 3 * bias, -Math.PI / 3 * bias, Math.PI / 2, -Math.PI / 2, Math.PI * .82, -Math.PI * .82]) {
+    const turns = path ? [Math.PI / 5 * bias, -Math.PI / 5 * bias, Math.PI / 3 * bias, -Math.PI / 3 * bias, Math.PI / 2, -Math.PI / 2]
+                       : [Math.PI / 6 * bias, -Math.PI / 6 * bias, Math.PI / 3 * bias, -Math.PI / 3 * bias, Math.PI / 2, -Math.PI / 2, Math.PI * .82, -Math.PI * .82];
+    for (const turn of turns) {
       const a = angle + turn;
-      const tx = u.x + Math.cos(a) * step;
-      const ty = u.y + Math.sin(a) * step;
-      if (!this.isBlocked(tx, ty, u)) { nx = tx; ny = ty; found = true; break; }
+      const tx2 = u.x + Math.cos(a) * step;
+      const ty2 = u.y + Math.sin(a) * step;
+      if (!this.isBlocked(tx2, ty2, u)) { nx = tx2; ny = ty2; found = true; break; }
     }
     if (!found) {
       u.stuck = (u.stuck || 0) + dt;
-      if (u.stuck > .4) {
+      if (u.stuck > .55) {
         u.pathProbe = (u.pathProbe || 0) + 1;
+        this.clearUnitPath && this.clearUnitPath(u);
         const nudgeAngle = (u.pathProbe * 2.39996) % (Math.PI * 2);
-        const nudgeR = u.r + 20 + Math.random() * 30;
+        const nudgeR = u.r + 18 + Math.random() * 24;
         const gx = u.x + Math.cos(nudgeAngle) * nudgeR;
         const gy = u.y + Math.sin(nudgeAngle) * nudgeR;
-        if (!this.isWater(gx, gy)) { u.x = gx; u.y = gy; }
+        if (!this.isBlocked(gx, gy, u)) { u.x = gx; u.y = gy; }
         else this.nudgeUnitToLand(u);
+        u.stuck = .15;
       }
       return false;
     }
@@ -320,10 +397,9 @@ Game.prototype.moveToward = function(u, x, y, dt, stop = 6) {
 
   u.x = nx;
   u.y = ny;
-  u.face = dx >= 0 ? 1 : -1;
+  u.face = pdx >= 0 ? 1 : -1;
   return false;
 };
-
 
 Game.prototype.separate = function(u, dt) {
   let sx = 0, sy = 0;
@@ -355,12 +431,13 @@ Game.prototype.attackTarget = function(u, target) {
     u.face = target.x >= u.x ? 1 : -1;
     u.cd = def.cd;
     if (u.type === 'archer') this.spawnProjectile(u.faction, u.x, u.y - 34, target, def.damage);
-    else this.damage(target, def.damage, u.faction);
+    else { this.sfx.attack(); this.damage(target, def.damage, u.faction); }
   
 };
 
 Game.prototype.spawnProjectile = function(fid, x, y, target, damage) {
     this.projectiles.push({ id: gid++, x, y, faction: fid, target, damage, speed: 510, life: 2.2, dead: false });
+    this.sfx.arrow();
   
 };
 
@@ -389,6 +466,7 @@ Game.prototype.damage = function(target, amount, sourceFaction) {
     if (!isAlive(target)) return;
     target.hp -= amount;
     target.flash = 1;
+    if (amount > 0) this.sfx.hit();
     if (target.entity === 'building') this.factions[target.faction].underAttack = 5;
     if (target.faction === 0 && sourceFaction !== 0 && Math.random() < .08) this.sfx.alert();
     if (target.hp <= 0) {
@@ -469,15 +547,23 @@ Game.prototype.autoGather = function(u) {
 
 
 Game.prototype.nearestResource = function(x, y, type, range) {
-    let best = null, bd = range * range;
+  let best = null, bd = range * range;
+  const candidates = this.nearbyResources ? this.nearbyResources(x, y, range) : this.resources;
+  for (const r of candidates) {
+    if (r.dead || r.amount <= 0) continue;
+    if (type && r.type !== type) continue;
+    const d = dist2(x, y, r.x, r.y);
+    if (d < bd) { bd = d; best = r; }
+  }
+  if (!best && candidates !== this.resources) {
     for (const r of this.resources) {
       if (r.dead || r.amount <= 0) continue;
       if (type && r.type !== type) continue;
       const d = dist2(x, y, r.x, r.y);
       if (d < bd) { bd = d; best = r; }
     }
-    return best;
-  
+  }
+  return best;
 };
 
 Game.prototype.setAutoWorkerOrders = function(fid) {
@@ -504,6 +590,12 @@ Game.prototype.aiThink = function(f) {
   this.aiTrain(f);
   this.aiTactics(f);
   this.reassignIdleWorkers(f.id);
+};
+
+Game.prototype.aiFrontlinePosition = function(f) {
+  const target = this.pickStrategicTargetV2(f.id);
+  if (!target) return f.base;
+  return this.nearestLandPoint(f.base.x + (target.x - f.base.x) * 0.42, f.base.y + (target.y - f.base.y) * 0.42, 260) || f.base;
 };
 
 
@@ -566,36 +658,102 @@ Game.prototype.aiTrain = function(f) {
 
 
 Game.prototype.aiTactics = function(f) {
+  const diff = DIFFICULTY_PRESETS[this.worldSettings?.difficulty || 'normal'] || DIFFICULTY_PRESETS.normal;
   const army = this.units.filter(u => u.faction === f.id && u.type !== 'worker' && !u.dead && !u.garrisoned);
   const idleArmy = army.filter(u => u.order === 'idle' || u.order === 'move' || u.order === 'attackMove');
-  const threat = this.nearestThreatToBase(f.id, f.base.x, f.base.y, 920);
+  const workers = this.units.filter(u => u.faction === f.id && u.type === 'worker' && !u.dead && !u.garrisoned);
+  const threat = this.nearestThreatToBase(f.id, f.base.x, f.base.y, f.underAttack > 0 ? 1350 : 940);
+
   if (threat && idleArmy.length) {
-    for (const u of idleArmy.slice(0, Math.min(idleArmy.length, 18))) this.orderAttack(u, threat, false);
+    const defenders = idleArmy
+      .sort((a, b) => dist2(a.x, a.y, threat.x, threat.y) - dist2(b.x, b.y, threat.x, threat.y))
+      .slice(0, Math.min(idleArmy.length, f.underAttack > 0 ? 24 : 14));
+    for (const u of defenders) this.orderAttack(u, threat, false);
+    if (workers.length && f.underAttack > 1) {
+      const repairTarget = this.buildings.find(b => b.faction === f.id && !b.dead && b.hp < b.maxHp && dist2(b.x, b.y, threat.x, threat.y) < 720 * 720);
+      if (repairTarget) {
+        for (const w of workers.slice(0, 4)) { w.order = 'repair'; w.target = repairTarget; w.goal = null; this.clearUnitPath && this.clearUnitPath(w); }
+      }
+    }
     return;
   }
 
   const towers = this.buildings.filter(b => b.faction === f.id && b.type === 'tower' && b.build >= 1 && b.garrison.length < BUILDINGS.tower.garrisonCap);
   for (const tw of towers) {
-    const ar = idleArmy.find(u => u.type === 'archer' && dist2(u.x, u.y, tw.x, tw.y) < 720 * 720);
+    const ar = idleArmy.find(u => u.type === 'archer' && dist2(u.x, u.y, tw.x, tw.y) < 860 * 860);
     if (ar) this.garrisonArchers([ar], tw, true);
   }
 
-  f.aiState.attackTimer -= 1;
-  if (idleArmy.length >= 4) {
-    const stage = { x: f.base.x + Math.cos(f.aiState.rallyAngle) * 360, y: f.base.y + Math.sin(f.aiState.rallyAngle) * 360 };
-    for (const u of idleArmy.slice(0, Math.min(idleArmy.length, 10))) if (dist2(u.x, u.y, f.base.x, f.base.y) < 520 * 520) this.orderMoveFormation([u], stage.x, stage.y, true);
+  const armyPower = army.reduce((sum, u) => sum + (u.type === 'lancer' ? 2.1 : u.type === 'archer' ? 1.25 : u.type === 'monk' ? .85 : 1), 0);
+  f.aiState.attackTimer -= diff.aggression;
+  const stageAngle = f.aiState.rallyAngle;
+  const frontline = this.aiFrontlinePosition(f);
+  const stage = this.nearestLandPoint(
+    frontline.x + Math.cos(stageAngle) * (180 + f.aiState.expansion * 40),
+    frontline.y + Math.sin(stageAngle) * (180 + f.aiState.expansion * 40),
+    280
+  ) || frontline;
+
+  if (idleArmy.length >= Math.max(3, diff.aiSquadMin - 2)) {
+    for (const u of idleArmy.slice(0, Math.min(idleArmy.length, 12))) {
+      if (dist2(u.x, u.y, f.base.x, f.base.y) < 660 * 660) this.orderMoveFormation([u], stage.x, stage.y, true);
+    }
   }
-  if (f.aiState.attackTimer <= 0 && idleArmy.length >= 7) {
-    f.aiState.attackTimer = 9 + Math.random() * 11;
-    f.aiState.rallyAngle += .8 + Math.random() * .6;
-    const target = this.pickStrategicTarget(f.id);
-    if (target) {
-      const squad = idleArmy.slice(0, Math.min(idleArmy.length, 9 + Math.floor(Math.random() * 9)));
-      for (const u of squad) this.orderAttack(u, target, true);
+
+  const wounded = army.filter(u => u.hp / u.maxHp < .35 && u.order !== 'move');
+  const archers = idleArmy.filter(u => u.type === 'archer');
+  const melee = idleArmy.filter(u => u.type === 'warrior' || u.type === 'lancer');
+  for (const u of wounded.slice(0, 5)) this.orderMoveFormation([u], f.base.x + (Math.random() - .5) * 260, f.base.y + (Math.random() - .5) * 260, false);
+
+  if (archers.length && melee.length) {
+    for (const ar of archers.slice(0, Math.min(archers.length, 6))) {
+      const escort = melee[Math.floor(Math.random() * melee.length)];
+      if (escort && dist2(ar.x, ar.y, escort.x, escort.y) > 180 * 180) this.orderMoveFormation([ar], escort.x - 18 * ar.face, escort.y + 12, true);
+    }
+  }
+
+  const shouldAttack = f.aiState.attackTimer <= 0 && armyPower >= diff.aiSquadMin;
+  if (!shouldAttack) return;
+
+  f.aiState.attackTimer = diff.aiAttackDelay + 6 + Math.random() * 10;
+  f.aiState.rallyAngle += .55 + Math.random() * .75;
+  const target = this.pickStrategicTargetV2(f.id);
+  if (!target) return;
+  f.aiState.lastTargetId = target.id;
+  const squadLimit = Math.min(idleArmy.length, Math.max(diff.aiSquadMin, 8 + Math.floor(armyPower / 2)));
+  const squad = idleArmy
+    .sort((a, b) => {
+      const roleA = a.type === 'monk' ? 2 : a.type === 'archer' ? 0 : 1;
+      const roleB = b.type === 'monk' ? 2 : b.type === 'archer' ? 0 : 1;
+      return roleA - roleB;
+    })
+    .slice(0, squadLimit);
+  for (const u of squad) this.orderAttack(u, target, true);
+  for (const monk of squad.filter(u => u.type === 'monk').slice(0, 2)) this.orderMoveFormation([monk], stage.x - 30, stage.y + 24, false);
+
+  if (Math.random() < .35 * diff.aggression) {
+    const exposed = this.units.find(u => u.faction !== f.id && !u.dead && u.type === 'worker' && this.factions[u.faction]?.alive);
+    if (exposed) {
+      for (const raider of idleArmy.filter(u => u.type !== 'monk').slice(0, 3)) this.orderAttack(raider, exposed, true);
     }
   }
 };
 
+Game.prototype.pickStrategicTargetV2 = function(fid) {
+  let best = null, score = Infinity;
+  const own = this.factions[fid];
+  for (const b of this.buildings) {
+    if (b.dead || b.faction === fid || !this.factions[b.faction].alive || b.build < 1) continue;
+    const baseD = Math.sqrt(dist2(own.base.x, own.base.y, b.x, b.y));
+    const enemyArmyNear = this.units.filter(u => u.faction === b.faction && !u.dead && dist2(u.x, u.y, b.x, b.y) < 620 * 620).length;
+    const friendlyPressure = this.units.filter(u => u.faction === fid && !u.dead && dist2(u.x, u.y, b.x, b.y) < 720 * 720).length;
+    const value = b.type === 'castle' ? -520 : b.type === 'tower' ? 220 : b.type === 'house' ? -80 : -180;
+    const hpPenalty = (b.hp / b.maxHp) * 90;
+    const s = baseD + enemyArmyNear * 58 - friendlyPressure * 24 + value + hpPenalty + Math.random() * 240;
+    if (s < score) { score = s; best = b; }
+  }
+  return best || this.pickStrategicTarget(fid);
+};
 
 Game.prototype.nearestThreatToBase = function(fid, x, y, range) {
     let best = null, bd = range * range;
@@ -761,6 +919,7 @@ Game.prototype.orderMoveFormation = function(units, x, y, attackMove) {
     const ox = ((i % cols) - (cols - 1) / 2) * spacing;
     const oy = (Math.floor(i / cols) - Math.floor(n / cols) / 2) * spacing;
     const p = this.nearestLandPoint(clamp(land.x + ox, 30, WORLD_W - 30), clamp(land.y + oy, 30, WORLD_H - 30), 150) || land;
+    this.clearUnitPath && this.clearUnitPath(u);
     u.goal = { x: p.x, y: p.y };
     u.order = attackMove ? 'attackMove' : 'move';
     u.target = null; u.attackMove = attackMove; u.hold = false;
@@ -773,13 +932,15 @@ Game.prototype.isBlocked = function(x, y, u) {
   const r = u ? u.r || 8 : 8;
   const rect = { x: x - r, y: y - r, w: r * 2, h: r * 2 };
   
-  for (const b of this.buildings) {
+  const buildingCandidates = this.nearbyBuildings ? this.nearbyBuildings(x, y, 280) : this.buildings;
+  for (const b of buildingCandidates) {
     if (b.dead || b.build < 0.1) continue;
     const brect = { x: b.x - b.w / 2, y: b.y - b.h / 2, w: b.w, h: b.h };
     if (rectsOverlap(rect, brect)) return true;
   }
   
-  for (const res of this.resources) {
+  const resourceCandidates = this.nearbyResources ? this.nearbyResources(x, y, 180) : this.resources;
+  for (const res of resourceCandidates) {
     if (res.dead || res.amount <= 0 || res.animal) continue;
     const resRect = { x: res.x - res.r * 0.7, y: res.y - res.r * 0.7, w: res.r * 1.4, h: res.r * 1.4 };
     if (rectsOverlap(rect, resRect) && (!u || u.target !== res)) return true;
@@ -854,6 +1015,7 @@ Game.prototype.aiBuildAnchor = function(f, type) {
 };
 
 Game.prototype.run = function(ts) {
+  if (!this.running) return;
   const dt = Math.min(MAX_DT, (ts - this.lastFrame) / 1000 || 0);
   this.lastFrame = ts;
   this.update(dt * (this.fast ? 1.7 : 1));
@@ -875,6 +1037,7 @@ Game.prototype.update = function(dt) {
     this.updateProjectiles(dt);
     this.updateEffects(dt);
     this.updateAI(dt);
+    this.autosaveIfDue && this.autosaveIfDue(dt);
     this.cleanup();
   }
   this.uiTimer -= dt;

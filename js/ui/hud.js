@@ -7,7 +7,12 @@ Game.prototype.renderUI = function() {
     return `<div class="res-pill"><img src="${IMAGE_PATHS[r.icon]}" alt="${r.label}"><span>${Math.floor(f.res[k])}</span></div>`;
   }).join('') + `<div class="res-pill"><img src="${IMAGE_PATHS.iconHouse}" alt="Population"><span>${pop.used}/${pop.cap}</span></div>`;
   const enemiesAlive = this.factions.filter(x => x.id !== 0 && x.alive).length;
-  HUD.state.innerHTML = `<span>${this.paused ? 'Paused' : 'Live'}</span><span>${enemiesAlive} rivals</span><span>H help</span>`;
+  const worldName = this.worldRecord?.name || 'World';
+  HUD.state.innerHTML = `<span>${this.paused ? 'Paused' : 'Live'}</span><span>${worldName}</span><span>${enemiesAlive} rivals</span><button class="mini-action" id="hudSaveBtn" title="Save world (Ctrl+S)">Save</button><button class="mini-action" id="hudExitBtn" title="Save and return to menu">Menu</button>`;
+  const saveBtn = document.getElementById('hudSaveBtn');
+  const exitBtn = document.getElementById('hudExitBtn');
+  if (saveBtn) saveBtn.onclick = () => this.saveToWorldRecord && this.saveToWorldRecord('manual');
+  if (exitBtn) exitBtn.onclick = () => window.tinySwordsApp && window.tinySwordsApp.returnToMenu();
   this.renderSelectionPanel();
   this.renderActions();
 };
