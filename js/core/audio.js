@@ -21,7 +21,8 @@ class SoundBank {
     if (!AC) return;
     this.ctx = new AC();
     this.master = this.ctx.createGain();
-    this.master.gain.value = 0.08;
+    const stored = (typeof TinySwordsStorage !== 'undefined' && TinySwordsStorage.globalSettings) ? Number(TinySwordsStorage.globalSettings().volume ?? .8) : .8;
+    this.master.gain.value = 0.10 * clamp(Number.isFinite(stored) ? stored : .8, 0, 1);
     this.master.connect(this.ctx.destination);
   }
 
@@ -32,7 +33,7 @@ class SoundBank {
 
   tone(freq = 440, duration = 0.08, type = 'square', vol = 0.10, sweep = 0) {
     this.init();
-    if (!this.ctx || !this.master) return;
+    if (!this.ctx || !this.master || !this.enabled || vol <= 0.001) return;
     const t = this.ctx.currentTime;
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
@@ -48,11 +49,13 @@ class SoundBank {
   }
 
   playSample(name, volume = 0.32, rate = 1, cooldown = 0) {
+    if (!this.enabled || volume <= 0.012) return false;
     const now = performance.now();
-    if (cooldown && this.lastSampleAt[name] && now - this.lastSampleAt[name] < cooldown) return false;
+    const cooldownKey = `${name}`;
+    if (cooldown && this.lastSampleAt[cooldownKey] && now - this.lastSampleAt[cooldownKey] < cooldown) return false;
     const url = this.sampleUrls[name];
     if (!url) return false;
-    this.lastSampleAt[name] = now;
+    this.lastSampleAt[cooldownKey] = now;
     let base = this.sampleCache[name];
     if (!base) {
       base = new Audio(url);
@@ -60,51 +63,64 @@ class SoundBank {
       this.sampleCache[name] = base;
     }
     const audio = base.cloneNode();
-    audio.volume = this.enabled ? volume : 0;
+    audio.volume = clamp(volume, 0, 1);
     audio.playbackRate = rate;
     audio.play().catch(() => {});
     return true;
   }
 
-  click() {
-    this.tone(620, 0.045, 'square', 0.07, 90);
-    this.tone(890, 0.03, 'square', 0.04, -70);
+  click(gain = 1) {
+    gain = clamp(gain, 0, 1);
+    this.tone(620, 0.045, 'square', 0.07 * gain, 90);
+    this.tone(890, 0.03, 'square', 0.04 * gain, -70);
   }
 
-  build() {
-    this.tone(330, 0.07, 'triangle', 0.08, 60);
-    this.tone(500, 0.10, 'sine', 0.05, 140);
+  build(gain = 1) {
+    gain = clamp(gain, 0, 1);
+    this.tone(330, 0.07, 'triangle', 0.08 * gain, 60);
+    this.tone(500, 0.10, 'sine', 0.05 * gain, 140);
   }
 
-  deny() {
-    this.tone(220, 0.08, 'sawtooth', 0.08, -80);
+  deny(gain = 1) {
+    gain = clamp(gain, 0, 1);
+    this.tone(220, 0.08, 'sawtooth', 0.08 * gain, -80);
   }
 
-  attack() {
-    if (this.playSample('sword', 0.22, 0.96 + Math.random() * 0.08, 45)) return;
-    this.tone(170, 0.06, 'square', 0.08, 50);
-    this.tone(110, 0.09, 'triangle', 0.05, -25);
+  attack(gain = 1) {
+    gain = clamp(gain, 0, 1);
+    if (gain <= 0.012) return;
+    if (this.playSample('sword', 0.22 * gain, 0.96 + Math.random() * 0.08, 45)) return;
+    this.tone(170, 0.06, 'square', 0.08 * gain, 50);
+    this.tone(110, 0.09, 'triangle', 0.05 * gain, -25);
   }
 
-  arrow() {
-    if (this.playSample('arrow', 0.18, 0.98 + Math.random() * 0.06, 40)) return;
-    this.tone(760, 0.05, 'triangle', 0.05, -200);
+  arrow(gain = 1) {
+    gain = clamp(gain, 0, 1);
+    if (gain <= 0.012) return;
+    if (this.playSample('arrow', 0.18 * gain, 0.98 + Math.random() * 0.06, 40)) return;
+    this.tone(760, 0.05, 'triangle', 0.05 * gain, -200);
   }
 
-  hit() {
-    if (this.playSample('hit', 0.18, 0.98 + Math.random() * 0.06, 35)) return;
-    this.tone(240, 0.05, 'square', 0.06, -70);
+  hit(gain = 1) {
+    gain = clamp(gain, 0, 1);
+    if (gain <= 0.012) return;
+    if (this.playSample('hit', 0.18 * gain, 0.98 + Math.random() * 0.06, 35)) return;
+    this.tone(240, 0.05, 'square', 0.06 * gain, -70);
   }
 
-  heal() {
-    if (this.playSample('heal', 0.18, 1, 60)) return;
-    this.tone(520, 0.08, 'sine', 0.05, 160);
-    this.tone(740, 0.12, 'sine', 0.03, 120);
+  heal(gain = 1) {
+    gain = clamp(gain, 0, 1);
+    if (gain <= 0.012) return;
+    if (this.playSample('heal', 0.18 * gain, 1, 60)) return;
+    this.tone(520, 0.08, 'sine', 0.05 * gain, 160);
+    this.tone(740, 0.12, 'sine', 0.03 * gain, 120);
   }
 
-  alert() {
-    if (this.playSample('battle', 0.18, 1, 220)) return;
-    this.tone(190, 0.11, 'sawtooth', 0.09, 70);
-    this.tone(120, 0.14, 'square', 0.06, -40);
+  alert(gain = 1) {
+    gain = clamp(gain, 0, 1);
+    if (gain <= 0.012) return;
+    if (this.playSample('battle', 0.18 * gain, 1, 220)) return;
+    this.tone(190, 0.11, 'sawtooth', 0.09 * gain, 70);
+    this.tone(120, 0.14, 'square', 0.06 * gain, -40);
   }
 }

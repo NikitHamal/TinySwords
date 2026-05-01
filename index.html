@@ -102,6 +102,18 @@
                 <option value="massive">Massive Realm</option>
               </select>
             </label>
+            <label>Map
+              <select name="mapStyle">
+                <option value="crossroads" selected>Crossroads Kingdom</option>
+                <option value="archipelago">Crown Archipelago</option>
+                <option value="twinrivers">Twin Rivers</option>
+                <option value="fourcorners">Four Corner War</option>
+                <option value="kingroad">King Road</option>
+                <option value="spiral">Spiral Isles</option>
+                <option value="goldrush">Gold Rush Basin</option>
+                <option value="highlands">Highland Lakes</option>
+              </select>
+            </label>
             <label>Difficulty
               <select name="difficulty">
                 <option value="peaceful">Peaceful</option>
@@ -177,20 +189,15 @@
 
     <div id="hud" class="screen hidden" aria-live="polite">
       <section id="topbar" class="pixel-panel">
-        <div class="brand">
-          <div class="brand-title">TINY SWORDS</div>
-          <div class="brand-subtitle">Realm War RTS</div>
-        </div>
         <div id="resources" class="resource-strip"></div>
-        <div id="stateReadout" class="state-readout"></div>
       </section>
 
-      <section id="selectionPanel" class="pixel-panel">
-        <div id="selectionHeader">No selection</div>
-        <div id="selectionBody">Drag-select units, click buildings, press B to build.</div>
+      <section id="selectionPanel" class="pixel-panel hidden">
+        <div id="selectionHeader"></div>
+        <div id="selectionBody"></div>
       </section>
 
-      <section id="actionDock" class="pixel-panel">
+      <section id="actionDock" class="pixel-panel hidden">
         <div id="actionTitle">Commands</div>
         <div id="actionBar"></div>
       </section>
@@ -200,9 +207,35 @@
         <div id="buildButtons"></div>
       </section>
 
+
+      <section id="workerRolesPanel" class="pixel-panel worker-roles hidden" aria-live="polite">
+        <div class="worker-roles-head">
+          <div>
+            <span class="panel-kicker">Economy Command</span>
+            <b id="workerRoleTitle">Worker Roles</b>
+          </div>
+          <button id="workerRoleClose" class="close-button" title="Close worker roles">×</button>
+        </div>
+        <div id="workerRoleBody" class="worker-role-body"></div>
+      </section>
+
       <section id="miniWrap" class="pixel-panel">
         <div class="mini-head"><span>MINIMAP</span><button id="miniToggle" title="Expand minimap">M</button></div>
         <canvas id="miniMap" width="220" height="150" aria-label="Minimap"></canvas>
+      </section>
+
+      <section id="pauseOverlay" class="pause-overlay hidden" aria-live="polite">
+        <div class="pause-card pixel-panel">
+          <div class="pause-kicker">Paused</div>
+          <h2>Realm Paused</h2>
+          <button id="pauseResume" class="pause-button primary">Resume</button>
+          <button id="pauseSettings" class="pause-button">Settings</button>
+          <div id="pauseSettingsBody" class="pause-settings hidden">
+            <label><span>Volume</span><input id="pauseVolume" type="range" min="0" max="1" step="0.05" value="0.8"></label>
+            <label><span>Autosave</span><input id="pauseAutosave" type="checkbox" checked></label>
+          </div>
+          <button id="pauseExit" class="pause-button danger">Save & Exit</button>
+        </div>
       </section>
 
       <section id="messageToast" class="toast hidden"></section>
@@ -214,14 +247,14 @@
           <p>Top-down RTS. No hero unit: command workers, buildings, armies, towers and flags.</p>
           <div class="help-grid">
             <div><b>Camera</b><br>WASD / arrows pan, mouse edge pan, wheel zoom.</div>
-            <div><b>Select</b><br>Left click one thing, drag-select army, Shift adds.</div>
-            <div><b>Orders</b><br>Right click ground to move, resources to harvest, enemies to attack, towers to garrison archers.</div>
-            <div><b>Build</b><br>Press B, choose a building, left click to place, Esc cancels.</div>
-            <div><b>Training</b><br>Select Castle/Barracks/Archery/Monastery, then use action buttons or hotkeys 1-5.</div>
+            <div><b>Select</b><br>Left click one thing, drag-select army, Shift adds. Drag your own buildings to relocate them.</div>
+            <div><b>Orders</b><br>Right click ground to move, resources to harvest, enemies to attack. Towers include their own archer.</div>
+            <div><b>Build</b><br>Press B, choose a building, left click to place. Workers must construct foundations.</div>
+            <div><b>Training</b><br>Select Castle/Barracks/Archery/Monastery, then use action buttons. Number keys recall control groups once saved.</div>
             <div><b>Rally / Flag</b><br>Select a production building and right click ground to set its flag. New units walk there.</div>
-            <div><b>Towers</b><br>Towers need an archer inside. Select archer(s), right click a tower, or use Garrison.</div>
+            <div><b>Towers</b><br>Each tower arrives with exactly one built-in archer. Select any unit or tower to preview range.</div>
             <div><b>Minimap</b><br>Click to jump camera. Press M to expand/collapse.</div>
-            <div><b>Other</b><br>H help, Space pause, Esc cancel/close, Ctrl+A selects army, 0 selects all units.</div>
+            <div><b>Other</b><br>Ctrl+1-9 stores control groups, 1-9 recalls them, Ctrl+A selects army, 0 selects all units.</div>
           </div>
         </div>
       </section>

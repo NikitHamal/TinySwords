@@ -12,6 +12,7 @@ const HUD = {
   root: document.getElementById('hud'),
   resources: document.getElementById('resources'),
   state: document.getElementById('stateReadout'),
+  economy: document.getElementById('economyBody'),
   selectionHeader: document.getElementById('selectionHeader'),
   selectionBody: document.getElementById('selectionBody'),
   actionTitle: document.getElementById('actionTitle'),
@@ -21,9 +22,20 @@ const HUD = {
   message: document.getElementById('messageToast'),
   help: document.getElementById('helpOverlay'),
   miniWrap: document.getElementById('miniWrap'),
+  workerRoles: document.getElementById('workerRolesPanel'),
+  workerRoleTitle: document.getElementById('workerRoleTitle'),
+  workerRoleBody: document.getElementById('workerRoleBody'),
+  workerRoleClose: document.getElementById('workerRoleClose'),
   loading: document.getElementById('loading'),
   miniToggle: document.getElementById('miniToggle'),
-  helpClose: document.getElementById('helpClose')
+  helpClose: document.getElementById('helpClose'),
+  pauseOverlay: document.getElementById('pauseOverlay'),
+  pauseResume: document.getElementById('pauseResume'),
+  pauseSettings: document.getElementById('pauseSettings'),
+  pauseExit: document.getElementById('pauseExit'),
+  pauseSettingsBody: document.getElementById('pauseSettingsBody'),
+  pauseVolume: document.getElementById('pauseVolume'),
+  pauseAutosave: document.getElementById('pauseAutosave')
 };
 
 const VIEW_W = 1280;
@@ -37,8 +49,59 @@ const WORLD_PRESETS = {
   massive: { label: 'Massive Realm', width: 20480, height: 14400, areaScale: 2.65 }
 };
 
+const MAP_PRESETS = Object.freeze({
+  crossroads: {
+    label: 'Crossroads Kingdom',
+    desc: 'Balanced mainland lanes with side islands, safe openings, and contested center fields.',
+    bases: [[0.135, 0.155], [0.865, 0.155], [0.135, 0.845], [0.865, 0.845], [0.50, 0.50]]
+  },
+  archipelago: {
+    label: 'Crown Archipelago',
+    desc: 'Large island starts linked by bridges, rich shoreline pockets, and risky center crossings.',
+    bases: [[0.14, 0.20], [0.86, 0.20], [0.14, 0.80], [0.86, 0.80], [0.50, 0.50]]
+  },
+  twinrivers: {
+    label: 'Twin Rivers',
+    desc: 'Two broad rivers divide expansion routes; bridges become natural siege objectives.',
+    bases: [[0.14, 0.18], [0.86, 0.18], [0.14, 0.82], [0.86, 0.82], [0.50, 0.50]]
+  },
+  fourcorners: {
+    label: 'Four Corner War',
+    desc: 'Fast corner starts, open side lanes, and a dangerous center gold basin.',
+    bases: [[0.12, 0.12], [0.88, 0.12], [0.12, 0.88], [0.88, 0.88], [0.50, 0.50]]
+  },
+  kingroad: {
+    label: 'King Road',
+    desc: 'A long central highway rewards scouting, harassment, and forward towers.',
+    bases: [[0.16, 0.50], [0.84, 0.50], [0.50, 0.16], [0.50, 0.84], [0.50, 0.50]]
+  },
+  spiral: {
+    label: 'Spiral Isles',
+    desc: 'Curving lanes wrap around the center, creating ambush turns and layered defenses.',
+    bases: [[0.18, 0.24], [0.82, 0.24], [0.18, 0.76], [0.82, 0.76], [0.50, 0.50]]
+  },
+  goldrush: {
+    label: 'Gold Rush Basin',
+    desc: 'Safe wood at home, exposed gold fields, and a wealthy middle that forces conflict.',
+    bases: [[0.16, 0.18], [0.84, 0.18], [0.16, 0.82], [0.84, 0.82], [0.50, 0.50]]
+  },
+  highlands: {
+    label: 'Highland Lakes',
+    desc: 'Patchwork grass plateaus around lakes with many short attack angles and flank paths.',
+    bases: [[0.18, 0.18], [0.82, 0.18], [0.18, 0.82], [0.82, 0.82], [0.50, 0.50]]
+  }
+});
+
+const FORMATION_MODES = Object.freeze({
+  line: { label: 'Line', spacing: 44 },
+  box: { label: 'Box', spacing: 42 },
+  wedge: { label: 'Wedge', spacing: 42 },
+  split: { label: 'Split', spacing: 44 }
+});
+
 const DEFAULT_WORLD_SETTINGS = Object.freeze({
   size: 'large',
+  mapStyle: 'crossroads',
   difficulty: 'normal',
   resourceDensity: 'rich',
   rivals: 4,
@@ -59,9 +122,11 @@ const RESOURCE_DENSITY_PRESETS = { sparse: .72, normal: 1.0, rich: 1.25, abundan
 function normalizedWorldSettings(settings = {}) {
   const out = { ...DEFAULT_WORLD_SETTINGS, ...(settings || {}) };
   if (!WORLD_PRESETS[out.size]) out.size = DEFAULT_WORLD_SETTINGS.size;
+  if (!MAP_PRESETS[out.mapStyle]) out.mapStyle = DEFAULT_WORLD_SETTINGS.mapStyle;
   if (!DIFFICULTY_PRESETS[out.difficulty]) out.difficulty = DEFAULT_WORLD_SETTINGS.difficulty;
   if (!RESOURCE_DENSITY_PRESETS[out.resourceDensity]) out.resourceDensity = DEFAULT_WORLD_SETTINGS.resourceDensity;
-  out.rivals = clamp(Number(out.rivals) || DEFAULT_WORLD_SETTINGS.rivals, 0, 4);
+  const rivalsNumber = Number(out.rivals);
+  out.rivals = clamp(Number.isFinite(rivalsNumber) ? rivalsNumber : DEFAULT_WORLD_SETTINGS.rivals, 0, 4);
   out.seed = String(out.seed || '').trim();
   out.autosave = out.autosave !== false;
   out.graphics = ['performance', 'balanced', 'high'].includes(out.graphics) ? out.graphics : 'balanced';
@@ -73,9 +138,8 @@ function applyWorldSettings(settings = {}) {
   const preset = WORLD_PRESETS[normalized.size];
   WORLD_W = preset.width;
   WORLD_H = preset.height;
-  const bases = [
-    [0.135, 0.155], [0.865, 0.155], [0.135, 0.845], [0.865, 0.845], [0.50, 0.50]
-  ];
+  const mapPreset = MAP_PRESETS[normalized.mapStyle] || MAP_PRESETS.crossroads;
+  const bases = mapPreset.bases || MAP_PRESETS.crossroads.bases;
   for (let i = 0; i < FACTIONS.length; i++) {
     FACTIONS[i].base = { x: Math.round(WORLD_W * bases[i][0]), y: Math.round(WORLD_H * bases[i][1]) };
     FACTIONS[i].ai = i !== 0 && i <= normalized.rivals;
@@ -132,7 +196,7 @@ const DECOR_SPECS = {
 };
 
 const NATURAL_DECOR_KINDS = ['bush1','bush2','bush3','bush4','rock1','rock2','rock3','rock4'];
-const PASSABLE_DECOR = new Set();
+const PASSABLE_DECOR = new Set(NATURAL_DECOR_KINDS);
 const LIGHT_DECOR = new Set();
 
 const RESOURCE_SPECS = {
@@ -144,32 +208,32 @@ const RESOURCE_SPECS = {
 
 const HUNT_ANIMALS = {
   deer: {
-    label: 'Deer', folder: 'Deer', prefix: 'Deer', weight: 1.05, hp: 42, yield: 24, radius: 15,
-    scale: 1.46, baseline: 28, shadow: [18, 5], walkSpeed: [14, 25], runSpeed: [56, 84], fps: { idle: 2.3, walk: 6.4, run: 9.2, hurt: 5.5 },
+    label: 'Deer', folder: 'Deer', prefix: 'Deer', weight: 1.05, hp: 42, yield: 24, radius: 13,
+    scale: 1.10, baseline: 28, shadow: [14, 4], walkSpeed: [14, 25], runSpeed: [56, 84], fps: { idle: 2.3, walk: 6.4, run: 9.2, hurt: 5.5 },
     idle: 'animalDeerIdle', walk: 'animalDeerWalk', run: 'animalDeerRun', hurt: 'animalDeerHurt', death: 'animalDeerDeath', shadowKey: 'animalDeerShadow',
     files: { idle: 'Deer_Idle.png', walk: 'Deer_Walk.png', run: 'Deer_Run.png', hurt: 'Deer_Hurt.png', death: 'Deer_Death.png', shadow: 'Deer_Shadow.png' }
   },
   boar: {
-    label: 'Boar', folder: 'Boar', prefix: 'Boar', weight: .82, hp: 54, yield: 28, radius: 16, retaliation: 4,
-    scale: 1.34, baseline: 28, shadow: [17, 5], walkSpeed: [12, 22], runSpeed: [48, 70], fps: { idle: 2.2, walk: 6.2, run: 8.6, hurt: 5.4 },
+    label: 'Boar', folder: 'Boar', prefix: 'Boar', weight: .82, hp: 54, yield: 28, radius: 14, retaliation: 4,
+    scale: 1.04, baseline: 28, shadow: [14, 4], walkSpeed: [12, 22], runSpeed: [48, 70], fps: { idle: 2.2, walk: 6.2, run: 8.6, hurt: 5.4 },
     idle: 'animalBoarIdle', walk: 'animalBoarWalk', run: 'animalBoarRun', hurt: 'animalBoarHurt', death: 'animalBoarDeath', attack: 'animalBoarAttack', shadowKey: 'animalBoarShadow',
     files: { idle: 'Boar_Idle.png', walk: 'Boar_Walk.png', run: 'Boar_Run.png', hurt: 'Boar_Hurt.png', death: 'Boar_Death.png', attack: 'Boar_Attack.png', shadow: 'Boar_shadow.png' }
   },
   hare: {
     label: 'Hare', folder: 'Hare', prefix: 'Hare', weight: 1.38, hp: 18, yield: 12, radius: 10,
-    scale: 0.78, baseline: 28, shadow: [10, 3], walkSpeed: [18, 30], runSpeed: [68, 96], fps: { idle: 2.8, walk: 7.2, run: 10.8, hurt: 6 },
+    scale: 0.68, baseline: 28, shadow: [9, 3], walkSpeed: [18, 30], runSpeed: [68, 96], fps: { idle: 2.8, walk: 7.2, run: 10.8, hurt: 6 },
     idle: 'animalHareIdle', walk: 'animalHareWalk', run: 'animalHareRun', hurt: 'animalHareHurt', death: 'animalHareDeath', shadowKey: 'animalHareShadow',
     files: { idle: 'Hare_Idle.png', walk: 'Hare_Walk.png', run: 'Hare_Run.png', hurt: 'Hare_Hurt.png', death: 'Hare_Death.png', shadow: 'Hare_Shadow.png' }
   },
   fox: {
     label: 'Fox', folder: 'Fox', prefix: 'Fox', weight: .72, hp: 26, yield: 16, radius: 12,
-    scale: 0.94, baseline: 28, shadow: [12, 4], walkSpeed: [16, 27], runSpeed: [62, 90], fps: { idle: 2.5, walk: 6.8, run: 10.2, hurt: 6 },
+    scale: 0.86, baseline: 28, shadow: [11, 4], walkSpeed: [16, 27], runSpeed: [62, 90], fps: { idle: 2.5, walk: 6.8, run: 10.2, hurt: 6 },
     idle: 'animalFoxIdle', walk: 'animalFoxWalk', run: 'animalFoxRun', hurt: 'animalFoxHurt', death: 'animalFoxDeath', shadowKey: 'animalFoxShadow',
     files: { idle: 'Fox_Idle.png', walk: 'Fox_walk.png', run: 'Fox_Run.png', hurt: 'Fox_Hurt.png', death: 'Fox_Death.png', shadow: 'Fox_Shadow.png' }
   },
   grouse: {
     label: 'Black Grouse', folder: 'Black_grouse', prefix: 'Black_grouse', weight: .78, hp: 20, yield: 14, radius: 11,
-    scale: 0.66, baseline: 28, shadow: [9, 3], walkSpeed: [14, 26], runSpeed: [58, 86], fps: { idle: 2.6, walk: 6.8, run: 9.5, hurt: 6 },
+    scale: 0.58, baseline: 28, shadow: [8, 3], walkSpeed: [14, 26], runSpeed: [58, 86], fps: { idle: 2.6, walk: 6.8, run: 9.5, hurt: 6 },
     idle: 'animalGrouseIdle', walk: 'animalGrouseWalk', run: 'animalGrouseFlight', hurt: 'animalGrouseHurt', death: 'animalGrouseDeath', shadowKey: 'animalGrouseShadow',
     files: { idle: 'Black_grouse_Idle.png', walk: 'Black_grouse_Walk.png', run: 'Black_grouse_Flight.png', hurt: 'Black_grouse_Hurt.png', death: 'Black_grouse_Death.png', shadow: 'Black_grouse_Shadow.png' }
   },
@@ -205,17 +269,33 @@ const BUILDINGS = {
   house: { label: 'House', file: 'House1.png', scale: 0.56, w: 84, h: 74, hp: 260, pop: 8, cost: { wood: 70, gold: 15, food: 0 }, time: 12, trains: [], key: 'H', icon: 'iconHouse' },
   barracks: { label: 'Barracks', file: 'Barracks.png', scale: 0.50, w: 106, h: 90, hp: 520, pop: 0, cost: { wood: 145, gold: 85, food: 0 }, time: 22, trains: ['warrior', 'lancer'], key: 'R', icon: 'iconBarracks' },
   archery: { label: 'Archery', file: 'Archery.png', scale: 0.50, w: 106, h: 90, hp: 440, pop: 0, cost: { wood: 120, gold: 95, food: 0 }, time: 20, trains: ['archer'], key: 'A', icon: 'iconArchery' },
-  tower: { label: 'Tower', file: 'Tower.png', scale: 0.54, w: 60, h: 96, hp: 640, pop: 0, cost: { wood: 110, gold: 115, food: 0 }, time: 20, trains: [], key: 'T', icon: 'iconTower', tower: true, range: 360, garrisonCap: 2 },
+  tower: { label: 'Tower', file: 'Tower.png', scale: 0.54, w: 60, h: 96, hp: 62, pop: 0, cost: { wood: 110, gold: 115, food: 0 }, time: 20, trains: [], key: 'T', icon: 'iconTower', tower: true, range: 360, garrisonCap: 0, builtInArcher: true },
   monastery: { label: 'Monastery', file: 'Monastery.png', scale: 0.46, w: 102, h: 106, hp: 420, pop: 0, cost: { wood: 120, gold: 165, food: 0 }, time: 24, trains: ['monk'], key: 'M', icon: 'iconMonastery' }
 };
+
+// Pass 4 collision footprint calibration: placement/pathing now use the visible grass-contact base,
+// not the tall roof silhouette. This removes false "Blocked by Monastery" placement failures.
+Object.assign(BUILDINGS.castle, { placeW: 152, placeH: 58, placeYOffset: 38 });
+Object.assign(BUILDINGS.house, { placeW: 66, placeH: 38, placeYOffset: 24 });
+Object.assign(BUILDINGS.barracks, { placeW: 84, placeH: 46, placeYOffset: 28 });
+Object.assign(BUILDINGS.archery, { placeW: 84, placeH: 46, placeYOffset: 28 });
+Object.assign(BUILDINGS.tower, { placeW: 42, placeH: 38, placeYOffset: 30 });
+Object.assign(BUILDINGS.monastery, { placeW: 70, placeH: 44, placeYOffset: 34 });
 
 const UNITS = {
   worker: { label: 'Worker', role: 'worker', hp: 55, speed: 96, range: 22, damage: 5, cd: 0.65, cost: { wood: 0, gold: 35, food: 1 }, time: 8, pop: 1, fw: 192, fh: 192, scale: 0.34, radius: 12, icon: 'iconWorker', hotkey: '1' },
   warrior: { label: 'Warrior', role: 'melee', hp: 95, speed: 78, range: 28, damage: 15, cd: 0.78, cost: { wood: 0, gold: 65, food: 1 }, time: 10, pop: 1, fw: 192, fh: 192, scale: 0.35, radius: 13, icon: 'iconWarrior', hotkey: '2' },
   archer: { label: 'Archer', role: 'ranged', hp: 62, speed: 74, range: 290, damage: 12, cd: 1.18, cost: { wood: 40, gold: 70, food: 1 }, time: 12, pop: 1, fw: 192, fh: 192, scale: 0.34, radius: 12, icon: 'iconArcher', hotkey: '3' },
-  lancer: { label: 'Lancer', role: 'melee', hp: 135, speed: 88, range: 36, damage: 23, cd: 1.05, cost: { wood: 55, gold: 95, food: 2 }, time: 16, pop: 2, fw: 320, fh: 320, scale: 0.23, radius: 15, icon: 'iconLancer', hotkey: '4' },
+  lancer: { label: 'Lancer', role: 'melee', hp: 135, speed: 88, range: 44, damage: 24, cd: 1.05, cost: { wood: 55, gold: 95, food: 2 }, time: 16, pop: 2, fw: 320, fh: 320, scale: 0.34, radius: 17, icon: 'iconLancer', hotkey: '4' },
   monk: { label: 'Monk', role: 'healer', hp: 64, speed: 70, range: 215, damage: -16, cd: 1.1, cost: { wood: 25, gold: 110, food: 1 }, time: 14, pop: 1, fw: 192, fh: 192, scale: 0.34, radius: 12, icon: 'iconMonk', hotkey: '5' }
 };
+
+// Pass 3 render calibration: the Tiny Swords lancer sheet has a 320px frame with the horse/soldier
+// painted high inside the frame. These offsets align its actual feet with gameplay selection/targeting.
+UNITS.lancer.scale = 0.40;
+UNITS.lancer.radius = 18;
+UNITS.lancer.drawYOffset = 27;
+UNITS.lancer.shadow = [24, 8];
 
 const ICON_PATHS = {
   resWood: BASE + 'Terrain/Resources/Wood/Wood Resource/Wood Resource.png',
@@ -366,6 +446,28 @@ function rngHash(x, y, seed = 11) {
 }
 function choose(arr, n) { return arr[Math.floor((n === undefined ? Math.random() : n) * arr.length) % arr.length]; }
 function rectsOverlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+
+function getBuildingFootprintRect(typeOrBuilding, x, y, pad = 0) {
+  const type = typeof typeOrBuilding === 'string' ? typeOrBuilding : typeOrBuilding.type;
+  const def = BUILDINGS[type];
+  const bx = x === undefined ? typeOrBuilding.x : x;
+  const by = y === undefined ? typeOrBuilding.y : y;
+  // The Tiny Swords building sprites have tall roofs, but only a compact ground footprint.
+  // Collision and placement should follow the base on the grass, not the whole roof silhouette.
+  const w = Math.max(34, (def.placeW || def.w * .82) + pad * 2);
+  const h = Math.max(30, (def.placeH || def.h * .58) + pad * 2);
+  const yOffset = def.placeYOffset === undefined ? def.h * .10 : def.placeYOffset;
+  return { x: bx - w / 2, y: by - h / 2 + yOffset, w, h };
+}
+
+function getBuildingDisplayRect(typeOrBuilding, x, y, pad = 0) {
+  const type = typeof typeOrBuilding === 'string' ? typeOrBuilding : typeOrBuilding.type;
+  const def = BUILDINGS[type];
+  const bx = x === undefined ? typeOrBuilding.x : x;
+  const by = y === undefined ? typeOrBuilding.y : y;
+  return { x: bx - def.w / 2 - pad, y: by - def.h / 2 - pad, w: def.w + pad * 2, h: def.h + pad * 2 };
+}
+
 function isAlive(e) { return e && !e.dead && e.hp > 0; }
 function faction(id) { return FACTIONS[id]; }
 function fmtCost(cost) {

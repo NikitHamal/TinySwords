@@ -17,7 +17,13 @@ class Game {
     this.autosaveTimer = 30;
     this.lastSavedGameTime = 0;
     this.selected = [];
+    this.formationMode = 'box';
+    this.controlGroups = {};
+    this.lastControlGroupTap = {};
+    this.attackPings = [];
+    this.attackAlertCooldown = 0;
     this.placing = null;
+    this.dragBuilding = null;
     this.aiTick = 0;
     this.lastFrame = 0;
     withSeededRandom(this.worldSeed, () => this.reset());

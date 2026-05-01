@@ -316,6 +316,7 @@ Game.prototype.addResource = function(type, x, y) {
   const clearance = getResourceFootprint(res) + 8;
   if (this.tooCloseResource(x, y, clearance, res)) return null;
   this.resources.push(res);
+  this.resourceBuckets = null;
   return res;
 };
 
@@ -337,12 +338,13 @@ Game.prototype.addBuilding = function(fid, type, x, y, complete = false) {
   const b = {
     id: gid++, entity: 'building', faction: fid, type, x, y,
     w: def.w, h: def.h, r: Math.max(def.w, def.h) * .46,
-    hp: complete ? def.hp : Math.max(80, def.hp * .28), maxHp: def.hp,
+    hp: complete ? def.hp : Math.max(12, Math.min(def.hp, def.hp * .28)), maxHp: def.hp,
     build: complete ? 1 : 0, buildTime: def.time, queue: [], rally: { x: x, y: y + 190 },
     sprite: type === 'house' ? choose(['house','house2','house3']) : type,
     cd: Math.random(), garrison: [], dead: false, flash: 0, aiIntent: null
   };
   this.buildings.push(b);
+  this.buildingBuckets = null;
   this.clearOverlapsAroundStructures();
   this.markNavDirty && this.markNavDirty();
   this.uiDirty = true;
@@ -389,4 +391,196 @@ Game.prototype.spawnFaction = function(f) {
   for (let i = 0; i < (f.ai ? 5 : 3); i++) this.addUnit(f.id, i % 3 === 0 ? 'archer' : 'warrior', b.x + 135 + Math.random() * 115, b.y + (Math.random() - .5) * 155);
   this.clearOverlapsAroundStructures();
   this.setAutoWorkerOrders(f.id);
+};
+
+
+// Pass 4: selectable production map layouts.
+Game.prototype.generateTerrain = function() {
+  this.landCols = Math.ceil(WORLD_W / TILE);
+  this.landRows = Math.ceil(WORLD_H / TILE);
+  const cols = this.landCols, rows = this.landRows;
+  this.landMap = new Uint8Array(cols * rows);
+  this.groundVariant = new Uint8Array(cols * rows);
+  const style = (this.worldSettings && this.worldSettings.mapStyle) || 'crossroads';
+  const center = { x: WORLD_W / 2, y: WORLD_H / 2 };
+
+  const setLand = (tx, ty, v = 1) => {
+    if (tx >= 0 && ty >= 0 && tx < cols && ty < rows) this.landMap[ty * cols + tx] = v;
+  };
+  const paintEllipse = (cx, cy, rx, ry, v = 1, wobble = .08) => {
+    const minX = Math.floor((cx - rx) / TILE) - 2, maxX = Math.ceil((cx + rx) / TILE) + 2;
+    const minY = Math.floor((cy - ry) / TILE) - 2, maxY = Math.ceil((cy + ry) / TILE) + 2;
+    for (let ty = minY; ty <= maxY; ty++) for (let tx = minX; tx <= maxX; tx++) {
+      const x = tx * TILE + TILE / 2, y = ty * TILE + TILE / 2;
+      const n = (rngHash(tx, ty, 902) - .5) * wobble + Math.sin((tx * 1.7 + ty * .9) * .55) * wobble * .22;
+      const d = ((x - cx) / Math.max(1, rx)) ** 2 + ((y - cy) / Math.max(1, ry)) ** 2;
+      if (d < 1 + n) setLand(tx, ty, v);
+    }
+  };
+  const paintLine = (a, b, width, v = 1, bend = 0, wobbleSeed = 0) => {
+    const steps = Math.ceil(Math.hypot(a.x - b.x, a.y - b.y) / (TILE * .34));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / Math.max(1, steps);
+      const wob = Math.sin(t * Math.PI * 2 + wobbleSeed) * bend;
+      const x = a.x + (b.x - a.x) * t + Math.cos(t * Math.PI * 3.2 + wobbleSeed) * wob;
+      const y = a.y + (b.y - a.y) * t + Math.sin(t * Math.PI * 2.1 + wobbleSeed) * wob;
+      paintEllipse(x, y, width, width * .72, v, .035);
+    }
+  };
+  const activeBases = FACTIONS.filter(f => f.id === 0 || f.ai).map(f => f.base);
+  const allBases = FACTIONS.map(f => f.base);
+
+  const drawCrossroads = () => {
+    for (const b of allBases) {
+      const sideX = b.x < center.x ? 1 : -1, sideY = b.y < center.y ? 1 : -1;
+      paintEllipse(b.x, b.y + 24, 1080, 760, 1, .055);
+      paintEllipse(b.x + sideX * 470, b.y + sideY * 410, 650, 440, 1, .075);
+    }
+    paintEllipse(center.x, center.y, 1500, 1080, 1, .07);
+    [[-1600,-360,760,500],[1600,360,780,520],[-1600,360,760,500],[1600,-360,780,520]].forEach(([ox,oy,rx,ry]) => paintEllipse(center.x+ox, center.y+oy, rx, ry, 1, .08));
+    for (const b of allBases) paintLine(b, center, 220, 1, 124);
+    paintLine(FACTIONS[0].base, FACTIONS[1].base, 175, 1, 180);
+    paintLine(FACTIONS[2].base, FACTIONS[3].base, 175, 1, 180);
+    paintLine(FACTIONS[0].base, FACTIONS[2].base, 165, 1, 135);
+    paintLine(FACTIONS[1].base, FACTIONS[3].base, 165, 1, 135);
+    paintLine(FACTIONS[0].base, FACTIONS[3].base, 135, 1, 170);
+    paintLine(FACTIONS[1].base, FACTIONS[2].base, 135, 1, 170);
+  };
+
+  const drawArchipelago = () => {
+    for (const b of allBases) {
+      paintEllipse(b.x, b.y, 880, 680, 1, .10);
+      paintEllipse(b.x + (center.x > b.x ? 390 : -390), b.y + (center.y > b.y ? 250 : -250), 440, 330, 1, .11);
+      paintLine(b, center, 130, 1, 78);
+    }
+    paintEllipse(center.x, center.y, 1260, 920, 1, .10);
+    for (let i = 0; i < 18; i++) {
+      const a = i / 18 * Math.PI * 2;
+      const r = 1650 + (i % 3) * 520;
+      paintEllipse(center.x + Math.cos(a) * r, center.y + Math.sin(a) * r * .72, 330 + (i % 4) * 60, 230 + (i % 3) * 48, 1, .16);
+    }
+    paintLine({x: WORLD_W*.20, y: WORLD_H*.50}, {x: WORLD_W*.80, y: WORLD_H*.50}, 115, 1, 220, 3);
+    paintLine({x: WORLD_W*.50, y: WORLD_H*.18}, {x: WORLD_W*.50, y: WORLD_H*.82}, 115, 1, 220, 5);
+  };
+
+  const drawTwinRivers = () => {
+    paintEllipse(center.x, center.y, WORLD_W * .48, WORLD_H * .45, 1, .045);
+    for (const b of allBases) paintEllipse(b.x, b.y, 1120, 820, 1, .05);
+    for (const b of allBases) paintLine(b, center, 240, 1, 95);
+    paintLine({x: WORLD_W*.18, y: -220}, {x: WORLD_W*.40, y: WORLD_H+220}, 190, 0, 260, 1.7);
+    paintLine({x: WORLD_W*.60, y: -220}, {x: WORLD_W*.82, y: WORLD_H+220}, 190, 0, 260, 2.9);
+    for (const y of [.24, .50, .76]) {
+      paintLine({x: WORLD_W*.12, y: WORLD_H*y}, {x: WORLD_W*.88, y: WORLD_H*y}, 110, 1, 150, y * 12);
+    }
+  };
+
+  const drawFourCorners = () => {
+    for (const b of allBases) {
+      paintEllipse(b.x, b.y, 1040, 780, 1, .08);
+      paintEllipse(b.x + (center.x > b.x ? 520 : -520), b.y, 480, 330, 1, .12);
+      paintEllipse(b.x, b.y + (center.y > b.y ? 520 : -520), 480, 330, 1, .12);
+      paintLine(b, center, 170, 1, 120);
+    }
+    paintEllipse(center.x, center.y, 1380, 980, 1, .09);
+    paintEllipse(center.x, center.y, 360, 260, 0, .06);
+    paintLine({x: WORLD_W*.15, y: center.y}, {x: WORLD_W*.85, y: center.y}, 150, 1, 110, 4);
+    paintLine({x: center.x, y: WORLD_H*.15}, {x: center.x, y: WORLD_H*.85}, 150, 1, 110, 6);
+  };
+
+  const drawKingRoad = () => {
+    paintLine({x: WORLD_W*.05, y: center.y}, {x: WORLD_W*.95, y: center.y}, 430, 1, 85, 0);
+    paintLine({x: center.x, y: WORLD_H*.05}, {x: center.x, y: WORLD_H*.95}, 330, 1, 90, 2);
+    paintEllipse(center.x, center.y, 1500, 1120, 1, .04);
+    for (const b of allBases) {
+      paintEllipse(b.x, b.y, 980, 760, 1, .05);
+      paintLine(b, center, 230, 1, 70);
+    }
+    for (let i = 0; i < 10; i++) {
+      const t = (i + .5) / 10;
+      paintEllipse(WORLD_W * t, center.y + (i % 2 ? 720 : -720), 420, 300, 1, .12);
+    }
+  };
+
+  const drawSpiral = () => {
+    paintEllipse(center.x, center.y, 1280, 960, 1, .08);
+    for (const b of allBases) paintEllipse(b.x, b.y, 910, 660, 1, .08);
+    let prev = { x: center.x + 260, y: center.y };
+    for (let i = 1; i <= 72; i++) {
+      const a = i * .34;
+      const r = 260 + i * 34;
+      const cur = { x: center.x + Math.cos(a) * r, y: center.y + Math.sin(a) * r * .72 };
+      paintLine(prev, cur, 190, 1, 12, i);
+      prev = cur;
+    }
+    for (const b of allBases) paintLine(b, center, 160, 1, 95);
+  };
+
+  const drawGoldRush = () => {
+    paintEllipse(center.x, center.y, WORLD_W * .46, WORLD_H * .42, 1, .06);
+    paintEllipse(center.x, center.y, 1180, 820, 1, .02);
+    for (const b of allBases) {
+      paintEllipse(b.x, b.y, 920, 700, 1, .055);
+      paintLine(b, center, 240, 1, 80);
+    }
+    const holes = [[.28,.50,360,260],[.72,.50,360,260],[.50,.28,340,230],[.50,.72,340,230]];
+    holes.forEach(([px,py,rx,ry]) => paintEllipse(WORLD_W*px, WORLD_H*py, rx, ry, 0, .09));
+  };
+
+  const drawHighlands = () => {
+    paintEllipse(center.x, center.y, WORLD_W * .47, WORLD_H * .43, 1, .07);
+    for (const b of allBases) {
+      paintEllipse(b.x, b.y, 1020, 740, 1, .07);
+      paintLine(b, center, 205, 1, 110);
+    }
+    const lakes = [[.30,.32,420,300],[.70,.32,420,300],[.30,.68,420,300],[.70,.68,420,300],[.50,.50,360,260],[.50,.18,280,210],[.50,.82,280,210]];
+    lakes.forEach(([px,py,rx,ry]) => paintEllipse(WORLD_W*px, WORLD_H*py, rx, ry, 0, .10));
+    for (let i = 0; i < 16; i++) {
+      const a = Math.PI * 2 * i / 16;
+      paintEllipse(center.x + Math.cos(a) * 1760, center.y + Math.sin(a) * 1260, 360, 250, 1, .16);
+    }
+  };
+
+  ({
+    archipelago: drawArchipelago,
+    twinrivers: drawTwinRivers,
+    fourcorners: drawFourCorners,
+    kingroad: drawKingRoad,
+    spiral: drawSpiral,
+    goldrush: drawGoldRush,
+    highlands: drawHighlands,
+    crossroads: drawCrossroads
+  }[style] || drawCrossroads)();
+
+  const satellites = [
+    [.08,.50,380,260], [.18,.26,430,285], [.18,.74,430,285], [.31,.14,480,310], [.31,.86,480,310],
+    [.50,.08,360,240], [.50,.92,380,250], [.69,.14,480,310], [.69,.86,480,310], [.82,.26,430,285],
+    [.82,.74,430,285], [.92,.50,400,270], [.38,.34,430,285], [.62,.66,450,300], [.38,.66,430,285],
+    [.62,.34,450,300], [.50,.28,360,240], [.50,.72,360,240]
+  ];
+  for (const [px, py, rx, ry] of satellites) if (rngHash(Math.floor(px*100), Math.floor(py*100), style.length) > .25) paintEllipse(WORLD_W * px, WORLD_H * py, rx, ry, 1, .12);
+
+  for (let pass = 0; pass < 2; pass++) {
+    const src = this.landMap.slice();
+    for (let ty = 1; ty < rows - 1; ty++) for (let tx = 1; tx < cols - 1; tx++) {
+      const idx = ty * cols + tx;
+      let n = 0;
+      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (src[(ty + oy) * cols + tx + ox]) n++;
+      if (src[idx] && n <= 3) this.landMap[idx] = 0;
+      if (!src[idx] && n >= 7) this.landMap[idx] = 1;
+    }
+  }
+
+  // Always guarantee clean spawn plazas and a navigable path from every active base.
+  for (const b of activeBases) {
+    paintEllipse(b.x, b.y + 20, 1120, 790, 1, .02);
+    paintLine(b, center, style === 'archipelago' ? 135 : 190, 1, 82);
+  }
+  paintEllipse(center.x, center.y, 1240, 900, 1, .035);
+
+  const landAt = (tx, ty) => tx >= 0 && ty >= 0 && tx < cols && ty < rows && this.landMap[ty * cols + tx] === 1;
+  for (let ty = 0; ty < rows; ty++) for (let tx = 0; tx < cols; tx++) {
+    const wetEdge = landAt(tx, ty) && (!landAt(tx, ty - 1) || !landAt(tx, ty + 1) || !landAt(tx - 1, ty) || !landAt(tx + 1, ty)) ? 1 : 0;
+    const styleSalt = hashStringSeed(style) % 9973;
+    this.groundVariant[ty * cols + tx] = Math.floor(rngHash(tx, ty, wetEdge ? 1619 + styleSalt : 919 + styleSalt) * 24) + wetEdge * 40;
+  }
 };

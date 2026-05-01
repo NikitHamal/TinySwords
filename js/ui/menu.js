@@ -120,6 +120,7 @@ class TinySwordsApp {
     if (!form) return;
     if (!form.dataset.initialized) {
       form.elements.size.value = 'large';
+      if (form.elements.mapStyle) form.elements.mapStyle.value = 'crossroads';
       form.elements.difficulty.value = 'normal';
       form.elements.resourceDensity.value = 'rich';
       form.elements.rivals.value = '4';
@@ -146,6 +147,7 @@ class TinySwordsApp {
     const data = new FormData(form);
     const settings = normalizedWorldSettings({
       size: data.get('size'),
+      mapStyle: data.get('mapStyle'),
       difficulty: data.get('difficulty'),
       resourceDensity: data.get('resourceDensity'),
       rivals: data.get('rivals'),
@@ -154,11 +156,16 @@ class TinySwordsApp {
       graphics: data.get('graphics')
     });
     const preset = WORLD_PRESETS[settings.size] || WORLD_PRESETS.large;
+    const mapPreset = MAP_PRESETS[settings.mapStyle] || MAP_PRESETS.crossroads;
     const name = String(data.get('name') || '').trim() || 'Unnamed World';
     target.innerHTML = `
       <div class="world-preview-card">
         <h4>${this.escape(name)}</h4>
-        <p>${preset.label} · ${DIFFICULTY_PRESETS[settings.difficulty]?.label || settings.difficulty} · ${settings.rivals} rival(s)</p>
+        <p>${mapPreset.label} · ${preset.label} · ${DIFFICULTY_PRESETS[settings.difficulty]?.label || settings.difficulty} · ${settings.rivals} rival(s)</p>
+      </div>
+      <div class="world-preview-card">
+        <h4>Map Identity</h4>
+        <p>${this.escape(mapPreset.desc)}</p>
       </div>
       <div class="world-preview-card">
         <h4>Expected Scale</h4>
@@ -207,7 +214,7 @@ class TinySwordsApp {
       row.innerHTML = `
         <div>
           <h4>${this.escape(world.name || 'Unnamed World')}</h4>
-          <p>${WORLD_PRESETS[settings.size]?.label || settings.size} · ${DIFFICULTY_PRESETS[settings.difficulty]?.label || settings.difficulty} · ${settings.rivals} rival(s)</p>
+          <p>${MAP_PRESETS[settings.mapStyle]?.label || settings.mapStyle} · ${WORLD_PRESETS[settings.size]?.label || settings.size} · ${DIFFICULTY_PRESETS[settings.difficulty]?.label || settings.difficulty} · ${settings.rivals} rival(s)</p>
           <small>Seed: ${this.escape(world.seed || settings.seed || 'random')}</small>
         </div>
         <div class="world-card-footer">
@@ -237,6 +244,7 @@ class TinySwordsApp {
         <p>Return to an existing realm, duplicate it as a variant, or remove the slot.</p>
       </div>
       <ul class="world-meta-list">
+        <li><span>Map</span><b>${this.escape(MAP_PRESETS[settings.mapStyle]?.label || settings.mapStyle)}</b></li>
         <li><span>World Size</span><b>${this.escape(WORLD_PRESETS[settings.size]?.label || settings.size)}</b></li>
         <li><span>Difficulty</span><b>${this.escape(DIFFICULTY_PRESETS[settings.difficulty]?.label || settings.difficulty)}</b></li>
         <li><span>Resources</span><b>${this.escape(settings.resourceDensity)}</b></li>
@@ -272,6 +280,7 @@ class TinySwordsApp {
     const data = new FormData(form);
     const settings = normalizedWorldSettings({
       size: data.get('size'),
+      mapStyle: data.get('mapStyle'),
       difficulty: data.get('difficulty'),
       resourceDensity: data.get('resourceDensity'),
       rivals: data.get('rivals'),
@@ -296,7 +305,7 @@ class TinySwordsApp {
 
     const steps = [
       ['Preparing seed and world slot', 10],
-      ['Generating terrain and coastline masks', 28],
+      ['Generating selected map layout and coastline masks', 28],
       ['Spawning resources, wildlife, and faction bases', 48],
       ['Validating footprints and clearing overlaps', 64],
       ['Building navigation data and AI caches', 81],
