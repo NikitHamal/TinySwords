@@ -34,7 +34,6 @@ Game.prototype.drawTerrain = function() {
     if (tx < 0 || ty < 0 || tx >= cols || ty >= rows || !this.landMap || this.landMap[ty * cols + tx] !== 1) continue;
     this.drawGrassGround(tx, ty, tx * TILE, ty * TILE);
   }
-  // this.drawShoreLines(sx, sy, ex, ey);
 };
 
 Game.prototype.landAtTile = function(tx, ty) {
@@ -56,13 +55,13 @@ Game.prototype.edgeSource = function(tx, ty) {
 
 Game.prototype.drawGrassGround = function(tx, ty, x, y) {
   const variant = this.groundVariant ? this.groundVariant[ty * this.landCols + tx] : 0;
-  const palette = [assets.tileGrass, assets.tileAlt, assets.tileMoss, assets.tileDeep, assets.tileWarm].filter(Boolean);
   const edge = this.edgeSource(tx, ty);
-  const dryPatch = !edge.edge && (variant % 24 > 18 || rngHash(tx, ty, 2026) > .84);
-  const img = palette.length ? (dryPatch ? assets.tileWarm : palette[variant % palette.length]) : null;
+  const dryPatch = !edge.edge && (variant % 24 > 18 || (variant + tx * 7 + ty * 13) % 100 > 84);
+  const img = dryPatch ? assets.tileWarm : (variant % 5 === 0 ? assets.tileMoss : variant % 5 === 1 ? assets.tileDeep : variant % 5 === 2 ? assets.tileAlt : assets.tileGrass);
+  if (!img && !edge.edge) { ctx.fillStyle = '#87bd62'; ctx.fillRect(x, y, TILE, TILE); return; }
 
   if (edge.edge && assets.waterFoam) {
-    const foamFrame = Math.floor(this.time * 5.4 + rngHash(tx, ty, 619) * 16) % 16;
+    const foamFrame = (Math.floor(this.time * 5.4 + ((tx * 31 + ty * 17) & 15)) & 15);
     ctx.globalAlpha = .68;
     ctx.drawImage(assets.waterFoam, foamFrame * 192 + edge.sx, edge.sy, 64, 64, x, y, TILE, TILE);
     ctx.globalAlpha = 1;
@@ -75,10 +74,9 @@ Game.prototype.drawGrassGround = function(tx, ty, x, y) {
     ctx.fillRect(x, y, TILE, TILE);
   }
 
-  if (!edge.edge) {
-    const n = rngHash(tx, ty, 1200);
-    if (n < .10) { ctx.fillStyle = 'rgba(244, 239, 141, .10)'; ctx.fillRect(x + 8 + (variant % 11), y + 14, 30, 3); }
-    if (n > .91) { ctx.fillStyle = 'rgba(41, 104, 68, .13)'; ctx.fillRect(x + 18, y + 47 - (variant % 9), 34, 4); }
+  if (!edge.edge && dryPatch) {
+    ctx.fillStyle = 'rgba(244, 239, 141, .10)';
+    ctx.fillRect(x + 8 + (variant % 11), y + 14, 30, 3);
   }
 };
 
@@ -87,16 +85,16 @@ Game.prototype.drawWaterTile = function(tx, ty, x, y) {
   if (img) ctx.drawImage(img, 0, 0, 64, 64, x, y, TILE, TILE);
   else { ctx.fillStyle = '#47aaa6'; ctx.fillRect(x, y, TILE, TILE); }
 
-  const phase = this.time * 1.35 + tx * .73 + ty * .41;
-  const shimmer = (Math.sin(phase) + 1) * .5;
-  const n = rngHash(tx, ty, 731);
-  if (n < .38) {
+  const n = (tx * 31 + ty * 17 + 731) & 1023;
+  if (n < 389) {
+    const phase = this.time * 1.35 + tx * .73 + ty * .41;
+    const shimmer = (Math.sin(phase) + 1) * .5;
     ctx.globalAlpha = .055 + shimmer * .065;
     ctx.fillStyle = '#d8fff6';
-    ctx.fillRect(x + 8 + Math.floor((n * 31 + this.time * 7) % 28), y + 12 + Math.floor(n * 37) % 34, 18 + (tx + ty) % 18, 2);
+    ctx.fillRect(x + 8 + ((n * 31 + (this.time * 7 | 0)) % 28), y + 12 + n % 34, 18 + (tx + ty) % 18, 2);
     ctx.globalAlpha = 1;
   }
-  if (n > .90) {
+  if (n > 921) {
     ctx.globalAlpha = .08;
     ctx.fillStyle = '#286f82';
     ctx.fillRect(x + 4, y + 47, 42, 3);
@@ -757,17 +755,36 @@ Game.prototype.drawMinimap = function() {
   if (!this.minimapTerrain) this.buildMinimapTerrainCache();
   if (this.minimapTerrain) mctx.drawImage(this.minimapTerrain, 0, 0, w, h);
   else { mctx.fillStyle = '#1f6773'; mctx.fillRect(0, 0, w, h); }
-  for (const r of this.resources) if (!r.dead) { mctx.fillStyle = r.type === 'gold' ? '#e8ca4d' : r.type === 'tree' ? '#366f3f' : '#e8a765'; mctx.fillRect(r.x / WORLD_W * w, r.y / WORLD_H * h, 1.8, 1.8); }
-  for (const b of this.buildings) if (!b.dead) { mctx.fillStyle = faction(b.faction).color; mctx.fillRect(b.x / WORLD_W * w - 2, b.y / WORLD_H * h - 2, b.type === 'castle' ? 6 : 4, b.type === 'castle' ? 6 : 4); }
-  for (const u of this.units) if (!u.dead) { mctx.fillStyle = faction(u.faction).color; mctx.fillRect(u.x / WORLD_W * w, u.y / WORLD_H * h, 2, 2); }
-  for (const p of (this.attackPings || [])) {
+  const sx = w / WORLD_W, sy = h / WORLD_H;
+  for (let i = 0; i < this.resources.length; i++) {
+    const r = this.resources[i];
+    if (r.dead) continue;
+    mctx.fillStyle = r.type === 'gold' ? '#e8ca4d' : r.type === 'tree' ? '#366f3f' : '#e8a765';
+    mctx.fillRect(r.x * sx, r.y * sy, 1.8, 1.8);
+  }
+  for (let i = 0; i < this.buildings.length; i++) {
+    const b = this.buildings[i];
+    if (b.dead) continue;
+    mctx.fillStyle = faction(b.faction).color;
+    const bw = b.type === 'castle' ? 6 : 4;
+    mctx.fillRect(b.x * sx - 2, b.y * sy - 2, bw, bw);
+  }
+  const unitColors = ['#61b7d9', '#db6060', '#e6ca59', '#b071df', '#aeb3bd'];
+  for (let i = 0; i < this.units.length; i++) {
+    const u = this.units[i];
+    if (u.dead || u.garrisoned) continue;
+    mctx.fillStyle = unitColors[u.faction] || '#aeb3bd';
+    mctx.fillRect(u.x * sx, u.y * sy, 2, 2);
+  }
+  for (let i = 0, pLen = this.attackPings ? this.attackPings.length : 0; i < pLen; i++) {
+    const p = this.attackPings[i];
     const age = this.time - p.start;
     const t = clamp(1 - age / Math.max(.1, p.until - p.start), 0, 1);
     mctx.strokeStyle = `rgba(255,93,70,${t})`; mctx.lineWidth = 2;
-    mctx.beginPath(); mctx.arc(p.x / WORLD_W * w, p.y / WORLD_H * h, 4 + age * 4, 0, Math.PI * 2); mctx.stroke();
+    mctx.beginPath(); mctx.arc(p.x * sx, p.y * sy, 4 + age * 4, 0, Math.PI * 2); mctx.stroke();
   }
   mctx.strokeStyle = '#fff3bd'; mctx.lineWidth = 1.5;
-  mctx.strokeRect(this.camera.x / WORLD_W * w, this.camera.y / WORLD_H * h, (VIEW_W / this.camera.zoom) / WORLD_W * w, (VIEW_H / this.camera.zoom) / WORLD_H * h);
+  mctx.strokeRect(this.camera.x * sx, this.camera.y * sy, (VIEW_W / this.camera.zoom) * sx, (VIEW_H / this.camera.zoom) * sy);
 };
 
 
@@ -799,19 +816,29 @@ Game.prototype.drawUnit = function(u) {
   if (u.selected) this.drawSelectionCircle(u.x, u.y, u.r + 8, '#f5d37d');
   if (img) {
     const fw = def.fw, fh = def.fh;
-    const frames = Math.max(1, Math.floor(img.width / fw));
+    const frames = Math.max(1, (img.width / fw) | 0);
     const frame = Math.floor(u.anim) % frames;
     const scale = def.scale * SPRITE_BOOST;
     const w = fw * scale;
     const h = fh * scale;
     const drawYOffset = def.drawYOffset || 0;
-    ctx.save();
-    ctx.translate(u.x, u.y + 7 + drawYOffset);
-    ctx.scale(u.face, 1);
-    ctx.globalAlpha = u.flash > 0 ? .75 : 1;
-    ctx.drawImage(img, frame * fw, 0, fw, fh, -w / 2, -h + 16, w, h);
-    ctx.globalAlpha = 1;
-    ctx.restore();
+    if (u.flash > 0) {
+      ctx.save();
+      ctx.translate(u.x, u.y + 7 + drawYOffset);
+      ctx.scale(u.face, 1);
+      ctx.globalAlpha = .75;
+      ctx.drawImage(img, frame * fw, 0, fw, fh, -w / 2, -h + 16, w, h);
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    } else if (u.face < 0) {
+      ctx.save();
+      ctx.translate(u.x, u.y + 7 + drawYOffset);
+      ctx.scale(-1, 1);
+      ctx.drawImage(img, frame * fw, 0, fw, fh, -w / 2, -h + 16, w, h);
+      ctx.restore();
+    } else {
+      ctx.drawImage(img, frame * fw, 0, fw, fh, u.x - w / 2, u.y + 7 + drawYOffset - h + 16, w, h);
+    }
   } else {
     ctx.fillStyle = f.color;
     ctx.beginPath();

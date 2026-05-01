@@ -137,26 +137,38 @@ Game.prototype.updateResources = function(dt) {
 
 Game.prototype.rebuildUnitSpatialIndex = function() {
   const bucketSize = 72;
-  this.unitBuckets = new Map();
-  this.unitBucketSize = bucketSize;
+  const buckets = this._unitBucketsArr;
+  for (let i = 0; i < buckets.length; i++) buckets[i].length = 0;
+  this._unitBucketCount = 0;
+  const map = this._unitBucketMap;
+  map.clear();
   for (const u of this.units) {
     if (u.dead || u.garrisoned) continue;
-    const key = `${Math.floor(u.x / bucketSize)},${Math.floor(u.y / bucketSize)}`;
-    let list = this.unitBuckets.get(key);
-    if (!list) this.unitBuckets.set(key, list = []);
+    const bx = (u.x / bucketSize) | 0, by = (u.y / bucketSize) | 0;
+    const key = bx * 73856093 ^ by * 19349663;
+    let list = map.get(key);
+    if (!list) {
+      if (this._unitBucketCount < buckets.length) { list = buckets[this._unitBucketCount++]; list.length = 0; }
+      else { list = []; this._unitBucketCount = buckets.push(list); }
+      map.set(key, list);
+    }
     list.push(u);
   }
+  this.unitBuckets = map;
+  this.unitBucketSize = bucketSize;
 };
 
 Game.prototype.nearbyUnits = function(x, y) {
   if (!this.unitBuckets) return this.units;
   const bucketSize = this.unitBucketSize || 72;
-  const bx = Math.floor(x / bucketSize), by = Math.floor(y / bucketSize);
-  const out = [];
+  const bx = (x / bucketSize) | 0, by = (y / bucketSize) | 0;
+  const map = this.unitBuckets;
+  const out = this._nearbyBuf;
+  out.length = 0;
   for (let oy = -1; oy <= 1; oy++) {
     for (let ox = -1; ox <= 1; ox++) {
-      const list = this.unitBuckets.get(`${bx + ox},${by + oy}`);
-      if (list) out.push(...list);
+      const list = map.get((bx + ox) * 73856093 ^ (by + oy) * 19349663);
+      if (list) for (let i = 0; i < list.length; i++) out.push(list[i]);
     }
   }
   return out;
@@ -166,26 +178,38 @@ Game.prototype.nearbyUnits = function(x, y) {
 Game.prototype.rebuildResourceSpatialIndex = function() {
   const bucketSize = 128;
   this.resourceBucketSize = bucketSize;
-  this.resourceBuckets = new Map();
+  const buckets = this._resBucketsArr;
+  for (let i = 0; i < buckets.length; i++) buckets[i].length = 0;
+  this._resBucketCount = 0;
+  const map = this._resBucketMap;
+  map.clear();
   for (const r of this.resources) {
     if (r.dead || r.amount <= 0) continue;
-    const key = `${Math.floor(r.x / bucketSize)},${Math.floor(r.y / bucketSize)}`;
-    let list = this.resourceBuckets.get(key);
-    if (!list) this.resourceBuckets.set(key, list = []);
+    const bx = (r.x / bucketSize) | 0, by = (r.y / bucketSize) | 0;
+    const key = bx * 73856093 ^ by * 19349663;
+    let list = map.get(key);
+    if (!list) {
+      if (this._resBucketCount < buckets.length) { list = buckets[this._resBucketCount++]; list.length = 0; }
+      else { list = []; this._resBucketCount = buckets.push(list); }
+      map.set(key, list);
+    }
     list.push(r);
   }
+  this.resourceBuckets = map;
 };
 
 Game.prototype.nearbyResources = function(x, y, range = 160) {
   if (!this.resourceBuckets) return this.resources;
   const bucketSize = this.resourceBucketSize || 128;
-  const bx = Math.floor(x / bucketSize), by = Math.floor(y / bucketSize);
+  const bx = (x / bucketSize) | 0, by = (y / bucketSize) | 0;
   const reach = Math.max(1, Math.ceil(range / bucketSize));
-  const out = [];
+  const map = this.resourceBuckets;
+  const out = this._nearbyResBuf;
+  out.length = 0;
   for (let oy = -reach; oy <= reach; oy++) {
     for (let ox = -reach; ox <= reach; ox++) {
-      const list = this.resourceBuckets.get(`${bx + ox},${by + oy}`);
-      if (list) out.push(...list);
+      const list = map.get((bx + ox) * 73856093 ^ (by + oy) * 19349663);
+      if (list) for (let i = 0; i < list.length; i++) out.push(list[i]);
     }
   }
   return out;
@@ -194,29 +218,57 @@ Game.prototype.nearbyResources = function(x, y, range = 160) {
 Game.prototype.rebuildBuildingSpatialIndex = function() {
   const bucketSize = 192;
   this.buildingBucketSize = bucketSize;
-  this.buildingBuckets = new Map();
+  const buckets = this._bldBucketsArr;
+  for (let i = 0; i < buckets.length; i++) buckets[i].length = 0;
+  this._bldBucketCount = 0;
+  const map = this._bldBucketMap;
+  map.clear();
   for (const b of this.buildings) {
     if (b.dead) continue;
-    const key = `${Math.floor(b.x / bucketSize)},${Math.floor(b.y / bucketSize)}`;
-    let list = this.buildingBuckets.get(key);
-    if (!list) this.buildingBuckets.set(key, list = []);
+    const bx = (b.x / bucketSize) | 0, by = (b.y / bucketSize) | 0;
+    const key = bx * 73856093 ^ by * 19349663;
+    let list = map.get(key);
+    if (!list) {
+      if (this._bldBucketCount < buckets.length) { list = buckets[this._bldBucketCount++]; list.length = 0; }
+      else { list = []; this._bldBucketCount = buckets.push(list); }
+      map.set(key, list);
+    }
     list.push(b);
   }
+  this.buildingBuckets = map;
 };
 
 Game.prototype.nearbyBuildings = function(x, y, range = 260) {
   if (!this.buildingBuckets) return this.buildings;
   const bucketSize = this.buildingBucketSize || 192;
-  const bx = Math.floor(x / bucketSize), by = Math.floor(y / bucketSize);
+  const bx = (x / bucketSize) | 0, by = (y / bucketSize) | 0;
   const reach = Math.max(1, Math.ceil(range / bucketSize));
-  const out = [];
+  const map = this.buildingBuckets;
+  const out = this._nearbyBldBuf;
+  out.length = 0;
   for (let oy = -reach; oy <= reach; oy++) {
     for (let ox = -reach; ox <= reach; ox++) {
-      const list = this.buildingBuckets.get(`${bx + ox},${by + oy}`);
-      if (list) out.push(...list);
+      const list = map.get((bx + ox) * 73856093 ^ (by + oy) * 19349663);
+      if (list) for (let i = 0; i < list.length; i++) out.push(list[i]);
     }
   }
   return out;
+};
+
+Game.prototype.rebuildDecorSpatialIndex = function() {
+  const bucketSize = 128;
+  this.decorBucketSize = bucketSize;
+  const map = this._decorBucketMap;
+  map.clear();
+  for (const d of this.decor) {
+    if (d.sky || d.water || PASSABLE_DECOR.has(d.kind)) continue;
+    const bx = (d.x / bucketSize) | 0, by = (d.y / bucketSize) | 0;
+    const key = bx * 73856093 ^ by * 19349663;
+    let list = map.get(key);
+    if (!list) { list = []; map.set(key, list); }
+    list.push(d);
+  }
+  this.decorBuckets = map;
 };
 
 Game.prototype.updateUnits = function(dt) {
@@ -359,7 +411,9 @@ Game.prototype.updateFighter = function(u, dt) {
         const d2 = dist2(u.x, u.y, u.goal.x, u.goal.y);
         if (d2 < 160 * 160) {
           let crowdBlocked = false;
-          for (const v of this.units) {
+          const near = this.nearbyUnits(u.x, u.y);
+          for (let i = 0; i < near.length; i++) {
+            const v = near[i];
             if (v !== u && !v.dead && v.faction === u.faction && v.order === 'idle') {
               if (dist2(u.x, u.y, v.x, v.y) < (u.r + v.r + 14) * (u.r + v.r + 14)) {
                 crowdBlocked = true;
@@ -532,44 +586,74 @@ Game.prototype.checkDefeat = function(fid) {
 
 Game.prototype.nearestEnemy = function(u, range, includeBuildings) {
     let best = null, bd = range * range;
-    for (const v of this.units) {
+    const nearUnits = this.nearbyUnits ? this.nearbyUnits(u.x, u.y) : this.units;
+    for (let i = 0; i < nearUnits.length; i++) {
+      const v = nearUnits[i];
       if (v.dead || v.garrisoned || v.faction === u.faction || !this.factions[v.faction].alive) continue;
       const d = dist2(u.x, u.y, v.x, v.y);
       if (d < bd) { bd = d; best = v; }
     }
     if (includeBuildings) {
-      for (const b of this.buildings) {
+      const nearBld = this.nearbyBuildings ? this.nearbyBuildings(u.x, u.y, range) : this.buildings;
+      for (let i = 0; i < nearBld.length; i++) {
+        const b = nearBld[i];
         if (b.dead || b.faction === u.faction || !this.factions[b.faction].alive || b.build < 1) continue;
         const d = dist2(u.x, u.y, b.x, b.y);
         if (d < bd) { bd = d; best = b; }
       }
     }
+    if (!best) {
+      for (let i = 0; i < this.units.length; i++) {
+        const v = this.units[i];
+        if (v.dead || v.garrisoned || v.faction === u.faction || !this.factions[v.faction].alive) continue;
+        const d = dist2(u.x, u.y, v.x, v.y);
+        if (d < bd) { bd = d; best = v; }
+      }
+      if (includeBuildings) {
+        for (let i = 0; i < this.buildings.length; i++) {
+          const b = this.buildings[i];
+          if (b.dead || b.faction === u.faction || !this.factions[b.faction].alive || b.build < 1) continue;
+          const d = dist2(u.x, u.y, b.x, b.y);
+          if (d < bd) { bd = d; best = b; }
+        }
+      }
+    }
     return best;
-  
 };
 
 Game.prototype.lowestHurtAlly = function(u, range) {
-    let best = null, pct = 1;
-    for (const v of this.units) {
+    let best = null, pct = 1, rangeSq = range * range;
+    const near = this.nearbyUnits ? this.nearbyUnits(u.x, u.y) : this.units;
+    for (let i = 0; i < near.length; i++) {
+      const v = near[i];
       if (v.dead || v.garrisoned || v.faction !== u.faction || v.hp >= v.maxHp) continue;
-      if (dist2(u.x, u.y, v.x, v.y) > range * range) continue;
+      if (dist2(u.x, u.y, v.x, v.y) > rangeSq) continue;
       const p = v.hp / v.maxHp;
       if (p < pct) { pct = p; best = v; }
     }
     return best;
-  
 };
 
 Game.prototype.nearestDropoff = function(fid, x, y) {
     let best = null, bd = Infinity;
-    for (const b of this.buildings) {
+    const near = this.nearbyBuildings ? this.nearbyBuildings(x, y, 800) : this.buildings;
+    for (let i = 0; i < near.length; i++) {
+      const b = near[i];
       if (b.faction !== fid || b.dead || b.build < 1) continue;
       if (b.type !== 'castle' && b.type !== 'house') continue;
       const d = dist2(x, y, b.x, b.y);
       if (d < bd) { bd = d; best = b; }
     }
+    if (!best) {
+      for (let i = 0; i < this.buildings.length; i++) {
+        const b = this.buildings[i];
+        if (b.faction !== fid || b.dead || b.build < 1) continue;
+        if (b.type !== 'castle' && b.type !== 'house') continue;
+        const d = dist2(x, y, b.x, b.y);
+        if (d < bd) { bd = d; best = b; }
+      }
+    }
     return best;
-  
 };
 
 Game.prototype.autoGather = function(u) {
@@ -583,14 +667,16 @@ Game.prototype.autoGather = function(u) {
 Game.prototype.nearestResource = function(x, y, type, range) {
   let best = null, bd = range * range;
   const candidates = this.nearbyResources ? this.nearbyResources(x, y, range) : this.resources;
-  for (const r of candidates) {
+  for (let i = 0; i < candidates.length; i++) {
+    const r = candidates[i];
     if (r.dead || r.amount <= 0) continue;
     if (type && r.type !== type) continue;
     const d = dist2(x, y, r.x, r.y);
     if (d < bd) { bd = d; best = r; }
   }
   if (!best && candidates !== this.resources) {
-    for (const r of this.resources) {
+    for (let i = 0; i < this.resources.length; i++) {
+      const r = this.resources[i];
       if (r.dead || r.amount <= 0) continue;
       if (type && r.type !== type) continue;
       const d = dist2(x, y, r.x, r.y);
@@ -816,10 +902,17 @@ Game.prototype.pickStrategicTarget = function(fid) {
 
 Game.prototype.population = function(fid) {
     let used = 0, cap = 0;
-    for (const u of this.units) if (u.faction === fid && !u.dead) used += UNITS[u.type].pop;
-    for (const b of this.buildings) if (b.faction === fid && !b.dead && b.build >= 1) cap += BUILDINGS[b.type].pop || 0;
+    const units = this.units;
+    for (let i = 0; i < units.length; i++) {
+      const u = units[i];
+      if (u.faction === fid && !u.dead) used += UNITS[u.type].pop;
+    }
+    const buildings = this.buildings;
+    for (let i = 0; i < buildings.length; i++) {
+      const b = buildings[i];
+      if (b.faction === fid && !b.dead && b.build >= 1) cap += BUILDINGS[b.type].pop || 0;
+    }
     return { used, cap: Math.max(4, cap) };
-  
 };
 
 Game.prototype.queueTrain = function(type) {
@@ -884,10 +977,9 @@ Game.prototype.updateEffects = function(dt) { for (const e of this.effects) e.ti
 Game.prototype.isWater = function(x, y) {
     if (x < 0 || y < 0 || x >= WORLD_W || y >= WORLD_H) return true;
     if (!this.landMap) return false;
-    const tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+    const tx = (x / TILE) | 0, ty = (y / TILE) | 0;
     if (tx < 0 || ty < 0 || tx >= this.landCols || ty >= this.landRows) return true;
     return this.landMap[ty * this.landCols + tx] !== 1;
-  
 };
 
 Game.prototype.finishGarrison = function(u, tower) {
@@ -1366,16 +1458,18 @@ Game.prototype.moveToward = function(u, x, y, dt, stop = 6) {
 
 Game.prototype.separate = function(u, dt) {
   let sx = 0, sy = 0;
-  for (const v of this.nearbyUnits(u.x, u.y)) {
+  const near = this.nearbyUnits(u.x, u.y);
+  for (let i = 0; i < near.length; i++) {
+    const v = near[i];
     if (v === u || v.dead) continue;
     let min = u.r + v.r + 2;
-    const sameGoal = u.goal && v.goal && dist2(u.goal.x, u.goal.y, v.goal.x, v.goal.y) < 18 * 18;
+    const sameGoal = u.goal && v.goal && dist2(u.goal.x, u.goal.y, v.goal.x, v.goal.y) < 324;
     if (sameGoal || (u.type === 'worker' && v.type === 'worker' && u.target && u.target === v.target)) min *= .55;
     const dx = u.x - v.x, dy = u.y - v.y;
     const d2 = dx * dx + dy * dy;
     if (d2 > 0 && d2 < min * min) { const d = Math.sqrt(d2); sx += dx / d * (min - d); sy += dy / d * (min - d); }
   }
-  if (sx || sy) {
+  if (sx !== 0 || sy !== 0) {
     const nx = u.x + sx * dt * 2.0;
     const ny = u.y + sy * dt * 2.0;
     if (!this.isBlocked(nx, ny, u)) { u.x = nx; u.y = ny; }
@@ -1482,10 +1576,28 @@ Game.prototype.damage = function(target, amount, sourceFaction) {
 };
 
 Game.prototype.cleanup = function() {
-  this.projectiles = this.projectiles.filter(p => !p.dead);
-  this.effects = this.effects.filter(e => e.time > 0);
-  this.selected = this.selected.filter(isAlive);
-  this.attackPings = (this.attackPings || []).filter(p => p.until > this.time);
+  let w = 0;
+  for (let i = 0; i < this.projectiles.length; i++) {
+    if (!this.projectiles[i].dead) this.projectiles[w++] = this.projectiles[i];
+  }
+  this.projectiles.length = w;
+  w = 0;
+  for (let i = 0; i < this.effects.length; i++) {
+    if (this.effects[i].time > 0) this.effects[w++] = this.effects[i];
+  }
+  this.effects.length = w;
+  w = 0;
+  for (let i = 0; i < this.selected.length; i++) {
+    if (isAlive(this.selected[i])) this.selected[w++] = this.selected[i];
+  }
+  this.selected.length = w;
+  if (this.attackPings) {
+    w = 0;
+    for (let i = 0; i < this.attackPings.length; i++) {
+      if (this.attackPings[i].until > this.time) this.attackPings[w++] = this.attackPings[i];
+    }
+    this.attackPings.length = w;
+  }
 };
 
 Game.prototype.update = function(dt) {
@@ -2321,20 +2433,42 @@ Game.prototype.isBlocked = function(x, y, u) {
   const rect = { x: x - r, y: y - r, w: r * 2, h: r * 2 };
   const ignoreBuilding = u && u.interactionBuilding;
   const buildingCandidates = this.nearbyBuildings ? this.nearbyBuildings(x, y, 260) : this.buildings;
-  for (const b of buildingCandidates) {
+  for (let i = 0; i < buildingCandidates.length; i++) {
+    const b = buildingCandidates[i];
     if (b.dead || b.build < 0.1 || b === ignoreBuilding) continue;
     const brect = getBuildingFootprintRect(b, undefined, undefined, 4);
     if (rectsOverlap(rect, brect)) return true;
   }
   const resourceCandidates = this.nearbyResources ? this.nearbyResources(x, y, 170) : this.resources;
-  for (const res of resourceCandidates) {
+  for (let i = 0; i < resourceCandidates.length; i++) {
+    const res = resourceCandidates[i];
     if (res.dead || res.amount <= 0 || res.animal) continue;
     const rr = Math.max(7, getResourceBlockingRadius(res) * .52);
     const resRect = { x: res.x - rr, y: res.y - rr, w: rr * 2, h: rr * 2 };
     if (rectsOverlap(rect, resRect) && (!u || u.target !== res)) return true;
   }
+  if (this.decorBuckets) {
+    const bucketSize = this.decorBucketSize || 128;
+    const bx = (x / bucketSize) | 0, by = (y / bucketSize) | 0;
+    const map = this.decorBuckets;
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        const list = map.get((bx + ox) * 73856093 ^ (by + oy) * 19349663);
+        if (!list) continue;
+        for (let i = 0; i < list.length; i++) {
+          const d = list[i];
+          const spec = DECOR_SPECS[d.kind] || DECOR_SPECS_bush1_cache;
+          const baseBlock = LIGHT_DECOR.has(d.kind) ? 8 : Math.max(10, Math.min(20, ((spec && spec.shadow && spec.shadow[0]) || 14) * .72));
+          const dr = baseBlock * (d.scale || 1);
+          if (x > d.x - dr && x < d.x + dr && y > d.y - dr && y < d.y + dr) return true;
+        }
+      }
+    }
+  }
   return false;
 };
+
+var DECOR_SPECS_bush1_cache = DECOR_SPECS.bush1 || { shadow: [18, 5] };
 
 
 // Pass 4: placement should honor only grass-contact footprints, not roof silhouettes.

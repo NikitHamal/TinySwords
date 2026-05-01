@@ -186,6 +186,7 @@ Game.prototype.renderActions = function() {
 
 
 // Pass 4: minimal in-game HUD, hidden empty panels, compact worker roles, and pause overlay.
+let _lastPopUsed = -1, _lastPopCap = -1, _lastResHtml = '';
 Game.prototype.renderUI = function() {
   const f = this.factions[0];
   const pop = this.population(0);
@@ -193,7 +194,12 @@ Game.prototype.renderUI = function() {
     const r = RESOURCES[k];
     return `<div class="res-pill"><img src="${IMAGE_PATHS[r.icon]}" alt="${r.label}"><span><b>${Math.floor(f.res[k])}</b><small>${r.label}</small></span></div>`;
   }).join('') + `<div class="res-pill pop-pill"><img src="${IMAGE_PATHS.iconHouse}" alt="Population"><span><b>${pop.used}/${pop.cap}</b><small>Pop</small></span></div>`;
-  this.setHudHtml(HUD.resources, resHtml);
+  if (resHtml !== _lastResHtml || pop.used !== _lastPopUsed || pop.cap !== _lastPopCap) {
+    _lastResHtml = resHtml;
+    _lastPopUsed = pop.used;
+    _lastPopCap = pop.cap;
+    this.setHudHtml(HUD.resources, resHtml);
+  }
   if (HUD.pauseOverlay) HUD.pauseOverlay.classList.toggle('hidden', !this.paused);
   this.renderSelectionPanel();
   this.renderActions();

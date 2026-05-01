@@ -176,7 +176,16 @@ Game.prototype.makeButton = function({ className = 'command', icon, title, sub, 
     b.innerHTML = `<img src="${IMAGE_PATHS[icon] || IMAGE_PATHS.iconMove}" alt=""><span class="txt"><b>${title}</b><span>${sub || ''}</span></span>`;
     b.addEventListener('click', () => { if (b.classList.contains('disabled')) { this.sfx.deny(); return; } this.sfx.click(); onClick && onClick(); });
     return b;
-  
+};
+
+Game.prototype.makeAction = function(hotkey, title, sub, icon, onClick, disabled = false) {
+    const b = document.createElement('button');
+    b.className = 'command' + (disabled ? ' disabled' : '');
+    b.type = 'button';
+    if (hotkey) b.dataset.hotkey = hotkey.toLowerCase();
+    b.innerHTML = `<img src="${IMAGE_PATHS[icon] || IMAGE_PATHS.iconMove}" alt=""><span class="txt"><b>${title}</b><span>${sub || ''}</span></span>`;
+    b.addEventListener('click', () => { if (b.classList.contains('disabled')) { this.sfx.deny(); return; } this.sfx.click(); onClick && onClick(); });
+    return b;
 };
 
 Game.prototype.startPlacing = function(type) {

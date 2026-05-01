@@ -472,7 +472,12 @@ function getBuildingDisplayRect(typeOrBuilding, x, y, pad = 0) {
   return { x: bx - def.w / 2 - pad, y: by - def.h / 2 - pad, w: def.w + pad * 2, h: def.h + pad * 2 };
 }
 
-function isAlive(e) { return e && !e.dead && (e.entity === 'resource' ? (e.amount > 0 || e.depleted) : (e.entity === 'decor' || (!e.entity && e.kind && !e.hp)) ? true : e.hp > 0); }
+function isAlive(e) {
+  if (!e || e.dead) return false;
+  if (e.entity === 'resource') return e.amount > 0 || e.depleted;
+  if (e.entity === 'decor' || (!e.entity && e.kind)) return true;
+  return e.hp > 0;
+}
 function faction(id) { return FACTIONS[id]; }
 function fmtCost(cost) {
   return `W${cost.wood || 0} G${cost.gold || 0}${cost.food ? ` F${cost.food}` : ''}`;
