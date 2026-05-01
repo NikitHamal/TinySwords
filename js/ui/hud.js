@@ -1,48 +1,54 @@
 // HUD rendering and command buttons.
 Game.prototype.renderUI = function() {
-    const f = this.factions[0];
-    const pop = this.population(0);
-    HUD.resources.innerHTML = Object.keys(RESOURCES).map(k => {
-      const r = RESOURCES[k];
-      return `<div class="res-pill"><img src="${IMAGE_PATHS[r.icon]}" alt="${r.label}"><span>${Math.floor(f.res[k])}</span></div>`;
-    }).join('') + `<div class="res-pill"><span>Pop</span><span>${pop.used}/${pop.cap}</span></div>`;
-    const enemiesAlive = this.factions.filter(x => x.id !== 0 && x.alive).length;
-    HUD.state.innerHTML = `${this.paused ? 'PAUSED' : 'LIVE RTS'}<br>${enemiesAlive} rival nation${enemiesAlive === 1 ? '' : 's'} standing<br>H help | B build | M minimap`;
-    this.renderSelectionPanel();
-    this.renderActions();
-  
+  const f = this.factions[0];
+  const pop = this.population(0);
+  HUD.resources.innerHTML = Object.keys(RESOURCES).map(k => {
+    const r = RESOURCES[k];
+    return `<div class="res-pill"><img src="${IMAGE_PATHS[r.icon]}" alt="${r.label}"><span>${Math.floor(f.res[k])}</span></div>`;
+  }).join('') + `<div class="res-pill"><img src="${IMAGE_PATHS.iconHouse}" alt="Population"><span>${pop.used}/${pop.cap}</span></div>`;
+  const enemiesAlive = this.factions.filter(x => x.id !== 0 && x.alive).length;
+  HUD.state.innerHTML = `<span>${this.paused ? 'Paused' : 'Live'}</span><span>${enemiesAlive} rivals</span><span>H help</span>`;
+  this.renderSelectionPanel();
+  this.renderActions();
 };
 
+
 Game.prototype.renderSelectionPanel = function() {
-    const s = this.selected.filter(isAlive);
-    if (!s.length) {
-      HUD.selectionHeader.textContent = 'No selection';
-      HUD.selectionBody.innerHTML = 'Drag-select units, click buildings, press <b>B</b> to build. Right-click orders are contextual.';
-      return;
-    }
-    const first = s[0];
-    if (s.length > 1) {
-      const groups = {};
-      for (const e of s) groups[e.type] = (groups[e.type] || 0) + 1;
-      HUD.selectionHeader.textContent = `${s.length} selected`;
-      HUD.selectionBody.innerHTML = Object.entries(groups).map(([t, n]) => `<div class="selection-row"><span>${n} x ${UNITS[t]?.label || BUILDINGS[t]?.label || t}</span></div>`).join('');
-      return;
-    }
-    if (first.entity === 'resource') {
-      HUD.selectionHeader.textContent = first.type === 'tree' ? 'Wood Grove' : first.type === 'gold' ? 'Gold Vein' : 'Sheep';
-      HUD.selectionBody.innerHTML = `<div class="selection-row"><span>Remaining</span><b>${Math.max(0, Math.floor(first.amount))}</b></div>`;
-      return;
-    }
-    const def = first.entity === 'unit' ? UNITS[first.type] : BUILDINGS[first.type];
-    const owner = faction(first.faction);
-    const hpPct = clamp(first.hp / first.maxHp * 100, 0, 100);
-    const extra = first.entity === 'building' && first.type === 'tower' ? `<div class="selection-row"><span>Archers inside</span><b>${first.garrison.length}/${BUILDINGS.tower.garrisonCap}</b></div>` : '';
-    const build = first.entity === 'building' && first.build < 1 ? `<div class="selection-row"><span>Construction</span><b>${Math.floor(first.build * 100)}%</b></div>` : '';
-    const queue = first.entity === 'building' && first.queue.length ? `<div class="selection-row"><span>Queue</span><b>${first.queue.map(q => UNITS[q.type].label).join(', ')}</b></div>` : '';
-    HUD.selectionHeader.textContent = `${def.label} - ${owner.name}`;
-    HUD.selectionBody.innerHTML = `<div class="selection-row"><span>HP</span><div class="hpbar"><span style="width:${hpPct}%"></span></div><b>${Math.ceil(first.hp)}/${first.maxHp}</b></div>${build}${extra}${queue}`;
-  
+  const s = this.selected.filter(isAlive);
+  if (!s.length) {
+    HUD.selectionHeader.innerHTML = '<span>No selection</span>';
+    HUD.selectionBody.innerHTML = 'Drag units or click a building. Right-click gives contextual orders.';
+    return;
+  }
+  const first = s[0];
+  const iconFor = (e) => {
+    if (e.entity === 'resource') return e.type === 'tree' ? IMAGE_PATHS.resWood : e.type === 'gold' ? IMAGE_PATHS.resGold : IMAGE_PATHS.resFood;
+    const def = e.entity === 'unit' ? UNITS[e.type] : BUILDINGS[e.type];
+    return IMAGE_PATHS[def.icon] || IMAGE_PATHS.iconMove;
+  };
+  if (s.length > 1) {
+    const groups = {};
+    for (const e of s) groups[e.type] = (groups[e.type] || 0) + 1;
+    HUD.selectionHeader.innerHTML = `<img src="${iconFor(first)}" alt=""><span>${s.length} selected</span>`;
+    HUD.selectionBody.innerHTML = Object.entries(groups).map(([t, n]) => `<div class="selection-row"><span>${n} x ${UNITS[t]?.label || BUILDINGS[t]?.label || t}</span></div>`).join('');
+    return;
+  }
+  if (first.entity === 'resource') {
+    HUD.selectionHeader.innerHTML = `<img src="${iconFor(first)}" alt=""><span>${first.type === 'tree' ? 'Wood Grove' : first.type === 'gold' ? 'Gold Vein' : first.animal ? getAnimalLabel(first) : 'Meat'}</span>`;
+    const hp = first.animal ? `<div class="selection-row"><span>Animal HP</span><b>${Math.max(0, Math.ceil(first.animalHp))}</b></div>` : '';
+    HUD.selectionBody.innerHTML = `${hp}<div class="selection-row"><span>Remaining</span><b>${Math.max(0, Math.floor(first.amount))}</b></div>`;
+    return;
+  }
+  const def = first.entity === 'unit' ? UNITS[first.type] : BUILDINGS[first.type];
+  const owner = faction(first.faction);
+  const hpPct = clamp(first.hp / first.maxHp * 100, 0, 100);
+  const extra = first.entity === 'building' && first.type === 'tower' ? `<div class="selection-row"><span>Archers inside</span><b>${first.garrison.length}/${BUILDINGS.tower.garrisonCap}</b></div>` : '';
+  const build = first.entity === 'building' && first.build < 1 ? `<div class="selection-row"><span>Construction</span><b>${Math.floor(first.build * 100)}%</b></div>` : '';
+  const queue = first.entity === 'building' && first.queue.length ? `<div class="selection-row"><span>Queue</span><b>${first.queue.map(q => UNITS[q.type].label).join(', ')}</b></div>` : '';
+  HUD.selectionHeader.innerHTML = `<img src="${iconFor(first)}" alt=""><span>${def.label}</span><em>${owner.name}</em>`;
+  HUD.selectionBody.innerHTML = `<div class="selection-row"><span>HP</span><div class="hpbar"><span style="width:${hpPct}%"></span></div><b>${Math.ceil(first.hp)}/${first.maxHp}</b></div>${build}${extra}${queue}`;
 };
+
 
 Game.prototype.renderActions = function() {
     HUD.actionBar.innerHTML = '';

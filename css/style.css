@@ -16,7 +16,6 @@ html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background:
 body {
   color: var(--text);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  cursor: url("../assets/Tiny Swords (Free Pack)/UI Elements/UI Elements/Cursors/Cursor_01.png") 4 4, auto;
   image-rendering: pixelated;
 }
 button { font: inherit; cursor: inherit; border: none; outline: none; }

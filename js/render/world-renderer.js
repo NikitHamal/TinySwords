@@ -56,8 +56,9 @@ Game.prototype.edgeSource = function(tx, ty) {
 Game.prototype.drawGrassGround = function(tx, ty, x, y) {
   const variant = this.groundVariant ? this.groundVariant[ty * this.landCols + tx] : 0;
   const palette = [assets.tileGrass, assets.tileAlt, assets.tileMoss, assets.tileDeep, assets.tileWarm].filter(Boolean);
-  const img = palette.length ? palette[variant % palette.length] : null;
   const edge = this.edgeSource(tx, ty);
+  const dryPatch = !edge.edge && (variant % 24 > 18 || rngHash(tx, ty, 2026) > .84);
+  const img = palette.length ? (dryPatch ? assets.tileWarm : palette[variant % palette.length]) : null;
 
   if (edge.edge && assets.waterFoam) {
     const foamFrame = Math.floor(this.time * 5.4 + rngHash(tx, ty, 619) * 16) % 16;
@@ -149,80 +150,139 @@ Game.prototype.drawShadow = function(x, y, w, h) {
   }
 };
 
+
+Game.prototype.drawSpriteFrameAnchored = function(img, sx, sy, fw, fh, x, baseY, scale, baseline, options = {}) {
+  if (!img) return;
+  const w = fw * scale;
+  const h = fh * scale;
+  const alpha = options.alpha === undefined ? 1 : options.alpha;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  if (options.flip && options.flip < 0) {
+    ctx.translate(x, baseY);
+    ctx.scale(-1, 1);
+    ctx.drawImage(img, sx, sy, fw, fh, -w / 2, -baseline * scale, w, h);
+  } else {
+    ctx.drawImage(img, sx, sy, fw, fh, x - w / 2, baseY - baseline * scale, w, h);
+  }
+  ctx.restore();
+};
+
+Game.prototype.drawLandShadow = function(x, y, w, h) {
+  if (w > 0 && h > 0) this.drawShadow(x, y, w, h);
+};
+
 Game.prototype.drawDecor = function(d) {
   const img = assets[d.kind];
   if (!img) return;
-  let fw = img.width, fh = img.height, fps = 0, frame = 0, sx = 0;
-  if (d.kind.startsWith('bush')) { fw = 128; fh = 128; fps = 1.05; }
-  else if (d.kind.startsWith('waterRock')) { fw = 64; fh = 64; fps = 3.5; }
-  else if (d.kind === 'rubberDuck') { fw = 32; fh = 32; fps = 2.2; }
-  else if (d.kind.startsWith('cloud')) { fw = img.width; fh = img.height; fps = 0; }
+  const spec = DECOR_SPECS[d.kind] || { fw: img.width, fh: img.height, baseline: img.height, shadow: [12, 4], fps: 0 };
+  let fw = spec.fw || img.width;
+  let fh = spec.fh || img.height;
+  if (d.kind.startsWith('cloud')) { fw = img.width; fh = img.height; }
   const frames = Math.max(1, Math.floor(img.width / fw));
-  if (fps) frame = Math.floor(this.time * fps + (d.id % frames)) % frames;
-  sx = frame * fw;
+  const frame = spec.fps ? Math.floor(this.time * spec.fps + (d.id % frames)) % frames : 0;
+  const sx = frame * fw;
   const bob = d.water ? Math.sin(this.time * 1.35 + (d.drift || 0)) * 2.2 : 0;
   const drift = d.sky ? Math.sin(this.time * (d.speed || 1) * .22 + d.drift) * 18 : 0;
   const cloudScale = d.sky ? CLOUD_BOOST : 1;
-  const w = fw * d.scale * cloudScale, h = fh * d.scale * cloudScale;
-  if (!d.water && !d.sky) this.drawShadow(d.x, d.y + 4, Math.min(22, w * .15), 5);
-  ctx.globalAlpha = d.sky ? .82 : 1;
-  ctx.drawImage(img, sx, 0, fw, fh, d.x - w / 2 + drift, d.y - h + 8 + bob, w, h);
-  ctx.globalAlpha = 1;
+  const scale = d.scale * cloudScale;
+  const baseY = d.y + bob;
+  const shadow = spec.shadow || [0, 0];
+  if (!d.water && !d.sky && shadow[0] > 0) this.drawLandShadow(d.x, d.y, shadow[0] * Math.max(.85, d.scale), shadow[1]);
+  const alpha = d.sky ? .82 : 1;
+  this.drawSpriteFrameAnchored(img, sx, 0, fw, fh, d.x + drift, baseY, scale, spec.baseline || fh, { alpha });
+};
+
+Game.prototype.drawHuntAnimal = function(r, moving) {
+  const spec = getHuntAnimal(r.animalKind);
+  if (!spec) return false;
+  const panic = (r.panic || 0) > 0;
+  const hurt = (r.hurtTimer || 0) > 0;
+  const anim = hurt ? 'hurt' : moving ? (panic ? 'run' : 'walk') : 'idle';
+  let key = spec[anim] || spec.idle;
+  if (!moving && !hurt && r.animalKind === 'sheep' && rngHash(r.id, 3, 66) > .82) key = 'sheepGrass';
+  const img = assets[key] || assets[spec.idle];
+  const shadow = assets[spec.shadowKey];
+  const bob = Math.sin(this.time * (moving ? 5 : 2) + r.bob) * (moving ? 1.1 : .8);
+  const baseY = r.y + bob;
+  if (!img) return false;
+  const fw = spec.fw || 32, fh = spec.fh || 32;
+  const frames = Math.max(1, Math.floor(img.width / fw));
+  const rows = Math.max(1, Math.floor(img.height / fh));
+  const row = clamp(r.animalDir || 0, 0, rows - 1);
+  const fps = (spec.fps && spec.fps[anim]) || (moving ? 6 : 2);
+  const fr = Math.floor(this.time * fps + r.bob) % frames;
+
+  if (shadow) {
+    const sframes = Math.max(1, Math.round(shadow.width / 32));
+    const srows = 4;
+    const sfw = shadow.width / sframes;
+    const sfh = shadow.height / srows;
+    
+    // Scale shadow up but cap its width relative to the animal's bounding box
+    const sw = sfw * spec.scale * 1.08;
+    const sh = sfh * spec.scale * 1.08;
+    
+    const sFr = fr % sframes;
+    const sRow = clamp(r.animalDir || 0, 0, srows - 1);
+    
+    ctx.globalAlpha = .58;
+    // Draw shadow exactly under the baseline without bobbing
+    ctx.drawImage(shadow, sFr * sfw, sRow * sfh, sfw, sfh, r.x - sw / 2, r.y + (fh - spec.baseline) * spec.scale - sh / 2, sw, sh);
+    ctx.globalAlpha = 1;
+  } else this.drawLandShadow(r.x, r.y, spec.shadow[0], spec.shadow[1]);
+
+  ctx.save();
+  if (r.flash > 0) ctx.filter = `brightness(1.55) sepia(1) hue-rotate(-50deg) saturate(3) opacity(${0.75 + r.flash * 0.25})`;
+  this.drawSpriteFrameAnchored(img, fr * fw, row * fh, fw, fh, r.x, baseY, spec.scale, spec.baseline, {});
+  if (r.flash > 0) ctx.filter = 'none';
+  ctx.restore();
+  if (this.selected.includes(r)) this.drawSelectionCircle(r.x, r.y, r.r + 8, '#f5d37d');
+  return true;
 };
 
 Game.prototype.drawResource = function(r) {
   const moving = r.type === 'food' && r.animal && Math.hypot(r.vx || 0, r.vy || 0) > 7;
+  if (r.type === 'food' && r.animal && this.drawHuntAnimal(r, moving)) return;
   let sprite = assets[r.sprite];
+  let spec = r.type === 'tree' ? RESOURCE_SPECS.tree : r.type === 'gold' ? RESOURCE_SPECS.gold : RESOURCE_SPECS.meat;
   if (r.type === 'tree' && r.depleted) {
-    sprite = assets.stump1 || sprite;
+    sprite = assets[r.sprite] || assets.stump1 || sprite;
+    spec = RESOURCE_SPECS.treeDepleted;
   }
-  if (r.type === 'food') {
-    if (!r.animal) sprite = assets.meat || sprite;
-    else if (moving) sprite = assets.sheepMove || sprite;
-    else if (rngHash(r.id, 3, 66) > .82) sprite = assets.sheepGrass || sprite;
-  }
-  const bob = r.type === 'food' && r.animal ? Math.sin(this.time * 2 + r.bob) * 1.8 : 0;
-  this.drawShadow(r.x, r.y + 4, r.type === 'tree' ? 19 : r.r * .8, 7);
-  
+  if (r.type === 'food' && !r.animal) { sprite = assets.meat || sprite; spec = RESOURCE_SPECS.meat; }
+  const bob = 0;
+  const baseY = r.y + bob;
+  const shadow = spec.shadow || [r.r * .8, 5];
+  this.drawLandShadow(r.x, r.y, shadow[0], shadow[1]);
   if (sprite) {
-    let frameW = sprite.width, frameH = sprite.height, fps = 0, scale = .5;
-    if (r.type === 'tree') { frameW = 192; frameH = 256; fps = r.depleted ? 0 : 4.0; scale = 0.65 * SPRITE_BOOST; }
-    else if (r.type === 'food' && r.animal) { frameW = 128; frameH = 128; fps = moving ? 6 : 2.5; scale = .50 * SPRITE_BOOST; }
-    else if (r.type === 'food') { frameW = 64; frameH = 64; fps = 0; scale = .78 * SPRITE_BOOST; }
-    else if (r.type === 'gold') { frameW = 128; frameH = 128; scale = .56 * SPRITE_BOOST; }
-    const frames = Math.max(1, Math.floor(sprite.width / frameW));
+    const fw = spec.fw, fh = spec.fh;
+    const frames = Math.max(1, Math.floor(sprite.width / fw));
+    const fps = r.type === 'tree' ? (r.depleted ? 0 : 4.0) : 0;
     const fr = fps ? Math.floor(this.time * fps + r.bob) % frames : 0;
-    const w = frameW * scale, h = frameH * scale;
-    
     ctx.save();
-    if (r.flash > 0) {
-      ctx.globalAlpha = 1;
-      // When sheep or resource flashes red on hit
-      ctx.filter = `brightness(1.5) sepia(1) hue-rotate(-50deg) saturate(3) opacity(${0.7 + r.flash * 0.3})`;
-    }
-    
-    ctx.drawImage(sprite, fr * frameW, 0, frameW, frameH, r.x - w / 2, r.y - h + 14 + bob, w, h);
-    
+    if (r.flash > 0) ctx.filter = `brightness(1.5) sepia(1) hue-rotate(-50deg) saturate(3) opacity(${0.7 + r.flash * 0.3})`;
+    this.drawSpriteFrameAnchored(sprite, fr * fw, 0, fw, fh, r.x, baseY, spec.scale, spec.baseline, {});
     if (r.flash > 0) ctx.filter = 'none';
-    
-    // Draw gold shine overlay
     if (r.type === 'gold') {
       const hlSprite = assets[r.sprite + '_hl'];
       if (hlSprite) {
-        ctx.globalAlpha = (Math.sin(this.time * 1.5 + r.bob) + 1) * 0.5 * 0.85;
-        ctx.drawImage(hlSprite, fr * frameW, 0, frameW, frameH, r.x - w / 2, r.y - h + 14 + bob, w, h);
+        const shine = (Math.sin(this.time * 1.5 + r.bob) + 1) * 0.5 * 0.85;
+        this.drawSpriteFrameAnchored(hlSprite, fr * fw, 0, fw, fh, r.x, baseY, spec.scale, spec.baseline, { alpha: shine });
       }
     }
-    
     ctx.restore();
-  } else { ctx.fillStyle = r.type === 'gold' ? '#e6ca59' : '#6fa75a'; ctx.fillRect(r.x - r.r, r.y - r.r, r.r * 2, r.r * 2); }
+  } else {
+    ctx.fillStyle = r.type === 'gold' ? '#e6ca59' : '#6fa75a';
+    ctx.fillRect(r.x - r.r, r.y - r.r, r.r * 2, r.r * 2);
+  }
   if (this.selected.includes(r)) this.drawSelectionCircle(r.x, r.y, r.r + 8, '#f5d37d');
 };
 
 Game.prototype.drawBuilding = function(b) {
   const def = BUILDINGS[b.type];
   const img = assets[`b_${faction(b.faction).key}_${b.sprite || b.type}`] || assets[`b_${faction(b.faction).key}_${b.type}`];
-  this.drawShadow(b.x, b.y + b.h * .30, b.w * .52, b.h * .20);
+  this.drawShadow(b.x, b.y + b.h * .18, b.w * .50, b.h * .18);
   if (img) {
     const w = img.width * def.scale * SPRITE_BOOST, h = img.height * def.scale * SPRITE_BOOST;
     ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1;
@@ -262,7 +322,7 @@ Game.prototype.drawUnit = function(u) {
   if (u.order === 'move' || u.order === 'attackMove' || u.order === 'garrison' || u.carry) anim = 'run';
   if (u.order === 'attack' && u.target) anim = dist(u, u.target) > def.range + 8 ? 'run' : 'attack';
   if (u.type === 'worker' && u.order === 'harvest' && !u.carry) anim = (u.gather > 0 || u.huntSwing > 0) ? (u.target && u.target.type === 'gold' ? 'mine' : 'chop') : 'run';
-  if (u.type === 'worker' && u.order === 'repair') anim = dist2(u.x, u.y, u.target.x, u.target.y) <= Math.pow(Math.hypot(u.target.w/2, u.target.h/2) + u.r + 8, 2) ? 'build' : 'run';
+  if (u.type === 'worker' && u.order === 'repair' && u.target) anim = dist2(u.x, u.y, u.target.x, u.target.y) <= Math.pow(Math.hypot(u.target.w/2, u.target.h/2) + u.r + 8, 2) ? 'build' : 'run';
   if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= def.range + 8) anim = 'fight';
 
   let key = `u_${f.key}_${u.type}_${anim}`;
@@ -275,21 +335,27 @@ Game.prototype.drawUnit = function(u) {
     else key = `u_${f.key}_worker_${anim === 'run' ? 'run' : 'idle'}`;
   }
   const img = assets[key] || assets[`u_${f.key}_${u.type}_idle`];
-  this.drawShadow(u.x, u.y + 6, u.r * 1.15, 8);
+  this.drawShadow(u.x, u.y + 3, u.r * 1.15, 8);
   if (u.selected) this.drawSelectionCircle(u.x, u.y, u.r + 8, '#f5d37d');
   if (img) {
     const fw = def.fw, fh = def.fh;
     const frames = Math.max(1, Math.floor(img.width / fw));
     const frame = Math.floor(u.anim) % frames;
-    const w = fw * def.scale * SPRITE_BOOST, h = fh * def.scale * SPRITE_BOOST;
+    const w = fw * def.scale * SPRITE_BOOST;
+    const h = fh * def.scale * SPRITE_BOOST;
     ctx.save();
-    ctx.translate(u.x, u.y + 10);
+    ctx.translate(u.x, u.y + 7);
     ctx.scale(u.face, 1);
     ctx.globalAlpha = u.flash > 0 ? .75 : 1;
     ctx.drawImage(img, frame * fw, 0, fw, fh, -w / 2, -h + 16, w, h);
     ctx.globalAlpha = 1;
     ctx.restore();
-  } else { ctx.fillStyle = f.color; ctx.beginPath(); ctx.arc(u.x, u.y, u.r, 0, Math.PI * 2); ctx.fill(); }
+  } else {
+    ctx.fillStyle = f.color;
+    ctx.beginPath();
+    ctx.arc(u.x, u.y, u.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
   if (u.hp < u.maxHp || u.faction !== 0) this.drawHpBar(u.x, u.y - 58, u.hp / u.maxHp, u.faction, 34);
 };
 
@@ -367,7 +433,7 @@ Game.prototype.drawPlacementGhost = function() {
   const img = assets[`b_blue_${type}`];
   if (img) {
     const w = img.width * def.scale * SPRITE_BOOST, h = img.height * def.scale * SPRITE_BOOST;
-    ctx.drawImage(img, this.pointer.wx - w / 2, this.pointer.wy - h + def.h * .46, w, h);
+    ctx.drawImage(img, this.pointer.wx - w / 2, this.pointer.wy - h + def.h * .38, w, h);
   }
   ctx.globalAlpha = 1;
 };

@@ -28,20 +28,91 @@ const HUD = {
 
 const VIEW_W = 1280;
 const VIEW_H = 720;
-const WORLD_W = 8200;
-const WORLD_H = 6000;
+const WORLD_W = 12400;
+const WORLD_H = 9000;
 const TILE = 64;
 const SPRITE_BOOST = 1.08;
 const CLOUD_BOOST = 3.0;
 const BASE = 'assets/Tiny Swords (Free Pack)/';
+const CRAFTPIX_BASE = 'assets/CraftPix Hunt Animals/';
+
+const DECOR_SPECS = {
+  bush1: { fw: 128, fh: 128, baseline: 79, shadow: [18, 5], fps: 1.05 },
+  bush2: { fw: 128, fh: 128, baseline: 79, shadow: [18, 5], fps: 1.05 },
+  bush3: { fw: 128, fh: 128, baseline: 79, shadow: [18, 5], fps: 1.05 },
+  bush4: { fw: 128, fh: 128, baseline: 79, shadow: [18, 5], fps: 1.05 },
+  rock1: { fw: 64, fh: 64, baseline: 51, shadow: [14, 4], fps: 0 },
+  rock2: { fw: 64, fh: 64, baseline: 51, shadow: [14, 4], fps: 0 },
+  rock3: { fw: 64, fh: 64, baseline: 51, shadow: [14, 4], fps: 0 },
+  rock4: { fw: 64, fh: 64, baseline: 51, shadow: [14, 4], fps: 0 },
+  waterRock1: { fw: 64, fh: 64, baseline: 56, shadow: [0, 0], fps: 3.5 },
+  waterRock2: { fw: 64, fh: 64, baseline: 56, shadow: [0, 0], fps: 3.5 },
+  waterRock3: { fw: 64, fh: 64, baseline: 56, shadow: [0, 0], fps: 3.5 },
+  waterRock4: { fw: 64, fh: 64, baseline: 56, shadow: [0, 0], fps: 3.5 },
+  rubberDuck: { fw: 32, fh: 32, baseline: 29, shadow: [0, 0], fps: 2.2 }
+};
+
+const NATURAL_DECOR_KINDS = ['bush1','bush2','bush3','bush4','rock1','rock2','rock3','rock4'];
+const PASSABLE_DECOR = new Set();
+const LIGHT_DECOR = new Set();
+
+const RESOURCE_SPECS = {
+  tree: { fw: 192, fh: 256, baseline: 241, scale: 0.65 * SPRITE_BOOST, shadow: [20, 6] },
+  treeDepleted: { fw: 192, fh: 256, baseline: 241, scale: 0.50 * SPRITE_BOOST, shadow: [13, 4] },
+  gold: { fw: 128, fh: 128, baseline: 79, scale: 0.56 * SPRITE_BOOST, shadow: [14, 5] },
+  meat: { fw: 64, fh: 64, baseline: 52, scale: 0.78 * SPRITE_BOOST, shadow: [13, 4] }
+};
+
+const HUNT_ANIMALS = {
+  deer: {
+    label: 'Deer', folder: 'Deer', prefix: 'Deer', weight: 1.05, hp: 42, yield: 24, radius: 15,
+    scale: 1.85, baseline: 28, shadow: [24, 7], walkSpeed: [14, 25], runSpeed: [56, 84], fps: { idle: 2.3, walk: 6.4, run: 9.2, hurt: 5.5 },
+    idle: 'animalDeerIdle', walk: 'animalDeerWalk', run: 'animalDeerRun', hurt: 'animalDeerHurt', death: 'animalDeerDeath', shadowKey: 'animalDeerShadow',
+    files: { idle: 'Deer_Idle.png', walk: 'Deer_Walk.png', run: 'Deer_Run.png', hurt: 'Deer_Hurt.png', death: 'Deer_Death.png', shadow: 'Deer_Shadow.png' }
+  },
+  boar: {
+    label: 'Boar', folder: 'Boar', prefix: 'Boar', weight: .82, hp: 54, yield: 28, radius: 16, retaliation: 4,
+    scale: 1.62, baseline: 28, shadow: [25, 8], walkSpeed: [12, 22], runSpeed: [48, 70], fps: { idle: 2.2, walk: 6.2, run: 8.6, hurt: 5.4 },
+    idle: 'animalBoarIdle', walk: 'animalBoarWalk', run: 'animalBoarRun', hurt: 'animalBoarHurt', death: 'animalBoarDeath', attack: 'animalBoarAttack', shadowKey: 'animalBoarShadow',
+    files: { idle: 'Boar_Idle.png', walk: 'Boar_Walk.png', run: 'Boar_Run.png', hurt: 'Boar_Hurt.png', death: 'Boar_Death.png', attack: 'Boar_Attack.png', shadow: 'Boar_shadow.png' }
+  },
+  hare: {
+    label: 'Hare', folder: 'Hare', prefix: 'Hare', weight: 1.38, hp: 18, yield: 12, radius: 10,
+    scale: 1.34, baseline: 28, shadow: [16, 5], walkSpeed: [18, 30], runSpeed: [68, 96], fps: { idle: 2.8, walk: 7.2, run: 10.8, hurt: 6 },
+    idle: 'animalHareIdle', walk: 'animalHareWalk', run: 'animalHareRun', hurt: 'animalHareHurt', death: 'animalHareDeath', shadowKey: 'animalHareShadow',
+    files: { idle: 'Hare_Idle.png', walk: 'Hare_Walk.png', run: 'Hare_Run.png', hurt: 'Hare_Hurt.png', death: 'Hare_Death.png', shadow: 'Hare_Shadow.png' }
+  },
+  fox: {
+    label: 'Fox', folder: 'Fox', prefix: 'Fox', weight: .72, hp: 26, yield: 16, radius: 12,
+    scale: 1.36, baseline: 28, shadow: [17, 5], walkSpeed: [16, 27], runSpeed: [62, 90], fps: { idle: 2.5, walk: 6.8, run: 10.2, hurt: 6 },
+    idle: 'animalFoxIdle', walk: 'animalFoxWalk', run: 'animalFoxRun', hurt: 'animalFoxHurt', death: 'animalFoxDeath', shadowKey: 'animalFoxShadow',
+    files: { idle: 'Fox_Idle.png', walk: 'Fox_walk.png', run: 'Fox_Run.png', hurt: 'Fox_Hurt.png', death: 'Fox_Death.png', shadow: 'Fox_Shadow.png' }
+  },
+  grouse: {
+    label: 'Black Grouse', folder: 'Black_grouse', prefix: 'Black_grouse', weight: .78, hp: 20, yield: 14, radius: 11,
+    scale: 1.32, baseline: 28, shadow: [16, 5], walkSpeed: [14, 26], runSpeed: [58, 86], fps: { idle: 2.6, walk: 6.8, run: 9.5, hurt: 6 },
+    idle: 'animalGrouseIdle', walk: 'animalGrouseWalk', run: 'animalGrouseFlight', hurt: 'animalGrouseHurt', death: 'animalGrouseDeath', shadowKey: 'animalGrouseShadow',
+    files: { idle: 'Black_grouse_Idle.png', walk: 'Black_grouse_Walk.png', run: 'Black_grouse_Flight.png', hurt: 'Black_grouse_Hurt.png', death: 'Black_grouse_Death.png', shadow: 'Black_grouse_Shadow.png' }
+  },
+  sheep: {
+    label: 'Sheep', folder: 'Sheep', prefix: 'Sheep', weight: 1.0, hp: 28, yield: 14, radius: 14,
+    fw: 128, fh: 128,
+    scale: 0.50 * SPRITE_BOOST, baseline: 86, shadow: [18, 6], walkSpeed: [10, 18], runSpeed: [30, 42], fps: { idle: 2.5, walk: 6, run: 8, hurt: 2.5 },
+    idle: 'sheepIdle', walk: 'sheepMove', run: 'sheepMove', hurt: 'sheepIdle', death: 'sheepIdle', shadowKey: null,
+    files: null
+  }
+};
+
+const ANIMAL_DIRECTION_ROWS = { down: 0, up: 1, left: 2, right: 3 };
+
 const MAX_DT = 1 / 24;
 
 const FACTIONS = [
-  { id: 0, key: 'blue', name: 'Blue Realm', folder: 'Blue', ai: false, color: '#61b7d9', dark: '#1f5670', base: { x: 1420, y: 1280 } },
-  { id: 1, key: 'red', name: 'Red Dominion', folder: 'Red', ai: true, color: '#db6060', dark: '#78232b', base: { x: 6780, y: 1280 } },
-  { id: 2, key: 'yellow', name: 'Golden Clan', folder: 'Yellow', ai: true, color: '#e6ca59', dark: '#80651e', base: { x: 1420, y: 4820 } },
-  { id: 3, key: 'purple', name: 'Violet Order', folder: 'Purple', ai: true, color: '#b071df', dark: '#4a246e', base: { x: 6780, y: 4820 } },
-  { id: 4, key: 'black', name: 'Iron Pact', folder: 'Black', ai: true, color: '#aeb3bd', dark: '#30353d', base: { x: 4100, y: 3000 } }
+  { id: 0, key: 'blue', name: 'Blue Realm', folder: 'Blue', ai: false, color: '#61b7d9', dark: '#1f5670', base: { x: 1700, y: 1500 } },
+  { id: 1, key: 'red', name: 'Red Dominion', folder: 'Red', ai: true, color: '#db6060', dark: '#78232b', base: { x: 10700, y: 1500 } },
+  { id: 2, key: 'yellow', name: 'Golden Clan', folder: 'Yellow', ai: true, color: '#e6ca59', dark: '#80651e', base: { x: 1700, y: 7500 } },
+  { id: 3, key: 'purple', name: 'Violet Order', folder: 'Purple', ai: true, color: '#b071df', dark: '#4a246e', base: { x: 10700, y: 7500 } },
+  { id: 4, key: 'black', name: 'Iron Pact', folder: 'Black', ai: true, color: '#aeb3bd', dark: '#30353d', base: { x: 6200, y: 4500 } }
 ];
 
 const RESOURCES = {
@@ -152,11 +223,22 @@ const IMAGE_PATHS = {
   redArrow: BASE + 'Units/Red Units/Archer/Arrow.png',
   yellowArrow: BASE + 'Units/Yellow Units/Archer/Arrow.png',
   purpleArrow: BASE + 'Units/Purple Units/Archer/Arrow.png',
-  blackArrow: BASE + 'Units/Black Units/Archer/Arrow.png',
-  cursorMove: BASE + 'UI Elements/UI Elements/Cursors/Cursor_02.png'
+  blackArrow: BASE + 'Units/Black Units/Archer/Arrow.png'
 };
 
 Object.assign(IMAGE_PATHS, ICON_PATHS);
+
+for (const def of Object.values(HUNT_ANIMALS)) {
+  if (!def.files) continue;
+  const base = `${CRAFTPIX_BASE}${def.folder}/`;
+  IMAGE_PATHS[def.idle] = base + def.files.idle;
+  IMAGE_PATHS[def.walk] = base + def.files.walk;
+  IMAGE_PATHS[def.run] = base + def.files.run;
+  IMAGE_PATHS[def.hurt] = base + def.files.hurt;
+  IMAGE_PATHS[def.death] = base + def.files.death;
+  if (def.attack && def.files.attack) IMAGE_PATHS[def.attack] = base + def.files.attack;
+  IMAGE_PATHS[def.shadowKey] = base + def.files.shadow;
+}
 
 for (const f of FACTIONS) {
   const bf = `${f.folder} Buildings`;
@@ -223,6 +305,40 @@ function pay(f, cost) {
 function addRes(f, type, amount) { f.res[type] = Math.min(9999, f.res[type] + amount); }
 function screenToWorld(game, x, y) { return { x: game.camera.x + x / game.camera.zoom, y: game.camera.y + y / game.camera.zoom }; }
 function worldToScreen(game, x, y) { return { x: (x - game.camera.x) * game.camera.zoom, y: (y - game.camera.y) * game.camera.zoom }; }
+
+function formationOffset(index, count, spacing = 44) {
+  if (count <= 1) return { x: 0, y: 0 };
+  const cols = Math.ceil(Math.sqrt(count));
+  const rows = Math.ceil(count / cols);
+  return {
+    x: ((index % cols) - (cols - 1) / 2) * spacing,
+    y: (Math.floor(index / cols) - (rows - 1) / 2) * spacing
+  };
+}
+
+function entityBaseY(e) {
+  if (!e) return 0;
+  if (e.entity === 'building') return e.y;
+  return e.y;
+}
+
+function getHuntAnimal(kind) {
+  return HUNT_ANIMALS[kind] || null;
+}
+
+function getAnimalLabel(r) {
+  const spec = getHuntAnimal(r && r.animalKind);
+  return spec ? spec.label : 'Wild Animal';
+}
+
+function getResourceVisualSpec(r) {
+  if (!r) return RESOURCE_SPECS.meat;
+  if (r.type === 'tree') return r.depleted ? RESOURCE_SPECS.treeDepleted : RESOURCE_SPECS.tree;
+  if (r.type === 'gold') return RESOURCE_SPECS.gold;
+  if (r.type === 'food' && r.animal) return getHuntAnimal(r.animalKind) || { fw: 32, fh: 32, baseline: 28, scale: 1.4, shadow: [16, 5] };
+  return RESOURCE_SPECS.meat;
+}
+
 
 function loadImages(paths) {
   const entries = Object.entries(paths);

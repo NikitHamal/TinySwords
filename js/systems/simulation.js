@@ -1,4 +1,4 @@
-// RTS simulation systems: movement, combat, economy, AI and cleanup.
+// Canonical RTS gameplay simulation: movement, combat, economy, construction, AI, and frame update.
 Game.prototype.updateCamera = function(dt) {
     const margin = 18;
     const sp = (keys.has('shift') ? 760 : 520) * dt / this.camera.zoom;
@@ -20,29 +20,32 @@ Game.prototype.updateCamera = function(dt) {
 };
 
 Game.prototype.updateBuildings = function(dt) {
-    for (const b of this.buildings) {
-      if (b.dead) continue;
-      b.flash = Math.max(0, b.flash - dt * 3);
-      if (b.build < 1) {
-        b.build = Math.min(1, b.build + dt / b.buildTime);
-        b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt / b.buildTime * .9);
-        if (b.build >= 1 && b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} completed.`, 1.4); this.sfx.build(); }
-        continue;
+  for (const b of this.buildings) {
+    if (b.dead) continue;
+    b.flash = Math.max(0, b.flash - dt * 3);
+    if (b.build < 1) {
+      b.build = Math.min(1, b.build + dt / b.buildTime);
+      b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt / b.buildTime * .9);
+      if (b.build >= 1) {
+        if (b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} completed.`, 1.4); this.sfx.build(); }
       }
-      if (b.queue.length) {
-        const q = b.queue[0]; q.time -= dt;
-        if (q.time <= 0) {
-          b.queue.shift();
-          const u = this.addUnit(b.faction, q.type, b.x + (Math.random() - .5) * 60, b.y + b.h * .48 + 26);
-          if (b.rally) this.orderMoveFormation([u], b.rally.x, b.rally.y, false);
-          if (b.faction === 0) this.uiDirty = true;
-        }
-      }
-      if (b.type === 'tower' && b.garrison.length) this.towerAttack(b, dt);
-      if (b.type === 'monastery') this.passiveHeal(b, dt);
+      continue;
     }
-  
+    if (b.queue.length) {
+      const q = b.queue[0]; q.time -= dt;
+      if (q.time <= 0) {
+        b.queue.shift();
+        const spawn = this.nearestLandPoint(b.x + (Math.random() - .5) * 70, b.y + b.h * .50 + 32, 180) || { x: b.x, y: b.y + b.h * .50 + 32 };
+        const u = this.addUnit(b.faction, q.type, spawn.x, spawn.y);
+        if (b.rally) this.orderMoveFormation([u], b.rally.x, b.rally.y, false);
+        if (b.faction === 0) this.uiDirty = true;
+      }
+    }
+    if (b.type === 'tower' && b.garrison.length) this.towerAttack(b, dt);
+    if (b.type === 'monastery') this.passiveHeal(b, dt);
+  }
 };
+
 
 Game.prototype.towerAttack = function(b, dt) {
     b.cd -= dt;
@@ -67,105 +70,183 @@ Game.prototype.passiveHeal = function(b, dt) {
   
 };
 
+Game.prototype.setAnimalDirection = function(r, vx, vy) {
+  if (!r || !r.animal) return;
+  if (Math.abs(vx) < 1 && Math.abs(vy) < 1) return;
+  if (Math.abs(vx) > Math.abs(vy) * 1.12) {
+    r.animalDir = vx >= 0 ? ANIMAL_DIRECTION_ROWS.right : ANIMAL_DIRECTION_ROWS.left;
+    r.face = vx >= 0 ? 1 : -1;
+  } else {
+    r.animalDir = vy >= 0 ? ANIMAL_DIRECTION_ROWS.down : ANIMAL_DIRECTION_ROWS.up;
+  }
+};
+
 Game.prototype.updateResources = function(dt) {
-    for (const r of this.resources) {
-      r.flash = Math.max(0, (r.flash || 0) - dt * 3.5);
-      if (r.dead || r.type !== 'food' || r.amount <= 0) continue;
-      r.wander -= dt;
-      if (r.wander <= 0) {
-        r.wander = 1.2 + Math.random() * 3.4;
-        const a = Math.random() * Math.PI * 2;
-        const sp = 10 + Math.random() * 22;
-        r.vx = Math.cos(a) * sp;
-        r.vy = Math.sin(a) * sp;
-      }
-      const nx = r.x + r.vx * dt;
-      const ny = r.y + r.vy * dt;
-      if (!this.isWater(nx, ny) && !this.occupiedByBase(nx, ny, 90)) {
-        let blocked = false;
-        for (const res of this.resources) {
-          if (res === r || res.dead || res.amount <= 0) continue;
-          if (dist2(nx, ny, res.x, res.y) < (r.r + res.r) * (r.r + res.r) * .7) { blocked = true; break; }
-        }
-        if (!blocked) { r.x = nx; r.y = ny; }
-        else { r.vx *= -0.6; r.vy *= -0.6; r.wander = .4; }
-      }
-      else { r.vx *= -0.6; r.vy *= -0.6; r.wander = .4; }
-      r.vx *= .985; r.vy *= .985;
+  for (const r of this.resources) {
+    r.flash = Math.max(0, (r.flash || 0) - dt * 3.5);
+    r.hurtTimer = Math.max(0, (r.hurtTimer || 0) - dt);
+    if (r.dead || r.type !== 'food' || r.amount <= 0 || !r.animal) continue;
+    const spec = getHuntAnimal(r.animalKind);
+    r.panic = Math.max(0, (r.panic || 0) - dt);
+    r.wander -= dt;
+    if (r.wander <= 0) {
+      const calm = spec ? spec.walkSpeed : [9, 18];
+      const flee = spec ? spec.runSpeed : [34, 62];
+      r.wander = r.panic > 0 ? .30 + Math.random() * .62 : 1.2 + Math.random() * 3.4;
+      const a = Math.random() * Math.PI * 2;
+      const speedRange = r.panic > 0 ? flee : calm;
+      const sp = speedRange[0] + Math.random() * (speedRange[1] - speedRange[0]);
+      r.vx = Math.cos(a) * sp;
+      r.vy = Math.sin(a) * sp;
+      this.setAnimalDirection(r, r.vx, r.vy);
     }
-  
+    const nx = r.x + r.vx * dt;
+    const ny = r.y + r.vy * dt;
+    if (!this.isWater(nx, ny) && !this.occupiedByBase(nx, ny, 90)) {
+      let blocked = false;
+      for (const res of this.resources) {
+        if (res === r || res.dead || res.amount <= 0) continue;
+        if (dist2(nx, ny, res.x, res.y) < (r.r + res.r) * (r.r + res.r) * .7) { blocked = true; break; }
+      }
+      if (!blocked) {
+        r.x = nx; r.y = ny;
+        this.setAnimalDirection(r, r.vx, r.vy);
+      } else { r.vx *= -0.65; r.vy *= -0.65; r.wander = .22; this.setAnimalDirection(r, r.vx, r.vy); }
+    }
+    else { r.vx *= -0.65; r.vy *= -0.65; r.wander = .22; this.setAnimalDirection(r, r.vx, r.vy); }
+    r.vx *= r.panic > 0 ? .992 : .982;
+    r.vy *= r.panic > 0 ? .992 : .982;
+  }
+};
+
+
+
+Game.prototype.rebuildUnitSpatialIndex = function() {
+  const bucketSize = 72;
+  this.unitBuckets = new Map();
+  this.unitBucketSize = bucketSize;
+  for (const u of this.units) {
+    if (u.dead || u.garrisoned) continue;
+    const key = `${Math.floor(u.x / bucketSize)},${Math.floor(u.y / bucketSize)}`;
+    let list = this.unitBuckets.get(key);
+    if (!list) this.unitBuckets.set(key, list = []);
+    list.push(u);
+  }
+};
+
+Game.prototype.nearbyUnits = function(x, y) {
+  if (!this.unitBuckets) return this.units;
+  const bucketSize = this.unitBucketSize || 72;
+  const bx = Math.floor(x / bucketSize), by = Math.floor(y / bucketSize);
+  const out = [];
+  for (let oy = -1; oy <= 1; oy++) {
+    for (let ox = -1; ox <= 1; ox++) {
+      const list = this.unitBuckets.get(`${bx + ox},${by + oy}`);
+      if (list) out.push(...list);
+    }
+  }
+  return out;
 };
 
 Game.prototype.updateUnits = function(dt) {
-    for (const u of this.units) {
-      if (u.dead || u.garrisoned) continue;
-      u.flash = Math.max(0, u.flash - dt * 4);
-      u.cd = Math.max(0, u.cd - dt);
-      u.lastWaterBounce = Math.max(0, (u.lastWaterBounce || 0) - dt);
-      u.anim += dt * (u.order === 'move' || u.order === 'attackMove' || u.order === 'garrison' ? 8 : u.order === 'attack' ? 7 : 4);
-      if (u.order === 'garrison') this.updateGarrisonUnit(u, dt);
-      else if (u.type === 'monk') this.updateMonk(u, dt);
-      else if (u.type === 'worker') this.updateWorker(u, dt);
-      else this.updateFighter(u, dt);
-      this.separate(u, dt);
-      if (this.isWater(u.x, u.y)) this.nudgeUnitToLand(u);
-      u.x = clamp(u.x, 20, WORLD_W - 20); u.y = clamp(u.y, 20, WORLD_H - 20);
-    }
+  this.rebuildUnitSpatialIndex();
+  for (const u of this.units) {
+    if (u.dead || u.garrisoned) continue;
+    u.flash = Math.max(0, u.flash - dt * 4);
+    u.cd = Math.max(0, u.cd - dt);
+    u.huntSwing = Math.max(0, (u.huntSwing || 0) - dt);
+    u.lastWaterBounce = Math.max(0, (u.lastWaterBounce || 0) - dt);
+    const activeMove = u.order === 'move' || u.order === 'attackMove' || u.order === 'garrison' || (u.order === 'harvest' && !u.gather && !u.huntSwing);
+    u.anim += dt * (activeMove ? 8 : u.order === 'attack' || u.huntSwing > 0 ? 8 : 4);
+    if (u.order === 'garrison') this.updateGarrisonUnit(u, dt);
+    else if (u.type === 'monk') this.updateMonk(u, dt);
+    else if (u.type === 'worker') this.updateWorker(u, dt);
+    else this.updateFighter(u, dt);
+    this.separate(u, dt);
+    if (this.isWater(u.x, u.y)) this.nudgeUnitToLand(u);
+    u.x = clamp(u.x, 20, WORLD_W - 20); u.y = clamp(u.y, 20, WORLD_H - 20);
+  }
 };
+
 
 Game.prototype.updateWorker = function(u, dt) {
     if (u.order === 'repair') {
       const b = u.target;
       if (!b || b.dead || (b.build >= 1 && b.hp >= b.maxHp)) { u.order = 'idle'; u.target = null; return; }
-      if (this.moveToward(u, b.x, b.y + b.h * 0.4, dt, 36)) {
+      if (this.moveToward(u, b.x, b.y, dt, Math.hypot(b.w/2, b.h/2) + u.r + 4)) {
         u.face = b.x >= u.x ? 1 : -1;
-        // The worker is now hammering! Handled in world-renderer
         if (Math.random() < dt * 2) this.effects.push({ kind: 'dust', x: u.x + (Math.random() - .5) * 10, y: u.y, time: .3, max: .3 });
-        
-        // Actually repair/build it over time
-        if (b.build < 1) {
-          b.build = Math.min(1, b.build + dt / b.buildTime * 1.5);
-          b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt / b.buildTime * 1.35);
-          if (b.build >= 1 && b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} constructed.`, 1.4); this.sfx.build(); u.order = 'idle'; }
-        } else if (b.hp < b.maxHp) {
-          b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt * 0.05);
-          if (b.hp >= b.maxHp) { u.order = 'idle'; this.toast(`${BUILDINGS[b.type].label} fully repaired.`, 1.4); }
+      
+      if (b.build < 1) {
+        b.build = Math.min(1, b.build + dt / b.buildTime * 1.5);
+        b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt / b.buildTime * 1.35);
+        if (b.build >= 1) { 
+          if (b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} constructed.`, 1.4); this.sfx.build(); }
+          u.order = 'idle'; u.target = null;
         }
+      } else if (b.hp < b.maxHp) {
+        b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt * 0.05);
+        if (b.hp >= b.maxHp) { u.order = 'idle'; u.target = null; this.toast(`${BUILDINGS[b.type].label} fully repaired.`, 1.4); }
+      }
+    }
+    return;
+  }
+
+  if (u.order === 'harvest') {
+    const res = u.target;
+    if (!res || res.dead || res.amount <= 0) { u.carry = null; u.order = 'idle'; u.target = null; u.gather = 0; return; }
+    if (u.carry) {
+      const drop = this.nearestDropoff(u.faction, u.x, u.y);
+      if (!drop) { u.order = 'idle'; u.target = null; return; }
+      if (this.moveToward(u, drop.x, drop.y, dt, Math.hypot(drop.w/2, drop.h/2) + u.r + 4)) {
+        addRes(this.factions[u.faction], u.carry.type, u.carry.amount);
+        u.carry = null; u.gather = 0;
+        if (res && !res.dead && res.amount > 0) { u.order = 'harvest'; }
+        else { u.order = 'idle'; u.target = null; this.autoGather(u); }
       }
       return;
     }
-    if (u.order === 'harvest') {
-      const res = u.target;
-      if (!res || res.dead || res.amount <= 0) { u.carry = null; u.order = 'idle'; u.target = null; return; }
-      if (u.carry) {
-        const drop = this.nearestDropoff(u.faction, u.x, u.y);
-        if (!drop) { u.order = 'idle'; return; }
-        if (this.moveToward(u, drop.x, drop.y + 36, dt, 24)) {
-          addRes(this.factions[u.faction], u.carry.type, u.carry.amount);
-          u.carry = null; u.gather = 0;
-        }
-        return;
-      }
-      if (this.moveToward(u, res.x, res.y, dt, res.r + 8)) {
+
+    if (res.type === 'food' && res.animal) {
+      const strikeRange = res.r + 6;
+      this.moveToward(u, res.x, res.y, dt, strikeRange);
+      if (dist2(u.x, u.y, res.x, res.y) <= (strikeRange + 22) * (strikeRange + 22)) {
+        u.face = res.x >= u.x ? 1 : -1;
         u.gather += dt;
-        if (u.gather >= (res.type === 'tree' ? 1.4 : res.type === 'gold' ? 1.65 : 1.1)) {
-          const amount = res.type === 'gold' ? 12 : res.type === 'food' ? 10 : 14;
-          res.amount -= amount;
-          u.carry = { type: res.type === 'tree' ? 'wood' : res.type, amount };
+        if (u.gather >= .55) {
           u.gather = 0;
-          if (res.amount <= 0) {
-            if (res.type === 'tree') { res.depleted = true; res.dead = false; res.amount = 0; res.sprite = choose(['stump1','stump2']); res.r = 12; }
-            else res.dead = true;
-            this.effects.push({ kind: 'dust', x: res.x, y: res.y, time: .65, max: .65 });
-          }
+          u.huntSwing = .42;
+          this.strikeAnimal(u, res);
         }
-      }
+      } else u.gather = 0;
       return;
     }
-    this.updateFighter(u, dt);
-    if (u.order === 'idle') this.autoGather(u);
-  
+
+    this.moveToward(u, res.x, res.y, dt, res.r + 6);
+    if (dist2(u.x, u.y, res.x, res.y) <= (res.r + 26) * (res.r + 26)) {
+      u.gather += dt;
+      u.face = res.x >= u.x ? 1 : -1;
+      const gatherTime = res.type === 'tree' ? 1.35 : res.type === 'gold' ? 1.6 : .82;
+      if (u.gather >= gatherTime) {
+        const amount = res.type === 'gold' ? 12 : res.type === 'food' ? 10 : 14;
+        res.amount -= amount;
+        u.carry = { type: res.type === 'tree' ? 'wood' : res.type, amount };
+        u.gather = 0;
+        if (res.amount <= 0) {
+          if (res.type === 'tree') { res.depleted = true; res.dead = false; res.amount = 0; res.sprite = choose(['stump1','stump2']); res.r = 12; }
+          else res.dead = true;
+          this.effects.push({ kind: 'dust', x: res.x, y: res.y, time: .65, max: .65 });
+        }
+      }
+    } else {
+      u.gather = 0;
+    }
+    return;
+  }
+  this.updateFighter(u, dt);
+  if (u.order === 'idle') this.autoGather(u);
 };
+
 
 Game.prototype.updateMonk = function(u, dt) {
     const ally = this.lowestHurtAlly(u, UNITS.monk.range);
@@ -204,55 +285,69 @@ Game.prototype.updateFighter = function(u, dt) {
 };
 
 Game.prototype.moveToward = function(u, x, y, dt, stop = 6) {
-    const dx = x - u.x, dy = y - u.y;
-    const d = Math.hypot(dx, dy);
-    if (d <= stop) return true;
-    const sp = u.speed * dt * (u.carry ? .77 : 1);
-    const step = Math.min(sp, Math.max(0, d - stop));
-    let nx = u.x + dx / d * step;
-    let ny = u.y + dy / d * step;
+  const dx = x - u.x, dy = y - u.y;
+  const d = Math.hypot(dx, dy);
+  if (d <= stop) return true;
+  const sp = u.speed * dt * (u.carry ? .77 : 1);
+  const step = Math.min(sp, Math.max(0, d - stop));
+  let nx = u.x + dx / d * step;
+  let ny = u.y + dy / d * step;
 
-    // Water-aware steering: units slide along shorelines instead of crossing ocean.
-    if (this.isWater(nx, ny)) {
-      const angle = Math.atan2(dy, dx);
-      let found = false;
-      for (const turn of [Math.PI / 5, -Math.PI / 5, Math.PI / 2, -Math.PI / 2, Math.PI * .82, -Math.PI * .82]) {
-        const a = angle + turn;
-        const tx = u.x + Math.cos(a) * step;
-        const ty = u.y + Math.sin(a) * step;
-        if (!this.isWater(tx, ty)) { nx = tx; ny = ty; found = true; break; }
+  if (this.isBlocked(nx, ny, u)) {
+    const angle = Math.atan2(dy, dx);
+    let found = false;
+    const bias = (u.pathProbe || 0) % 2 ? -1 : 1;
+    for (const turn of [Math.PI / 6 * bias, -Math.PI / 6 * bias, Math.PI / 3 * bias, -Math.PI / 3 * bias, Math.PI / 2, -Math.PI / 2, Math.PI * .82, -Math.PI * .82]) {
+      const a = angle + turn;
+      const tx = u.x + Math.cos(a) * step;
+      const ty = u.y + Math.sin(a) * step;
+      if (!this.isBlocked(tx, ty, u)) { nx = tx; ny = ty; found = true; break; }
+    }
+    if (!found) {
+      u.stuck = (u.stuck || 0) + dt;
+      if (u.stuck > .4) {
+        u.pathProbe = (u.pathProbe || 0) + 1;
+        const nudgeAngle = (u.pathProbe * 2.39996) % (Math.PI * 2);
+        const nudgeR = u.r + 20 + Math.random() * 30;
+        const gx = u.x + Math.cos(nudgeAngle) * nudgeR;
+        const gy = u.y + Math.sin(nudgeAngle) * nudgeR;
+        if (!this.isWater(gx, gy)) { u.x = gx; u.y = gy; }
+        else this.nudgeUnitToLand(u);
       }
-      if (!found) {
-        u.stuck = (u.stuck || 0) + dt;
-        if (u.lastWaterBounce <= 0) {
-          this.effects.push({ kind: 'splash', x: u.x, y: u.y + 10, time: .42, max: .42 });
-          u.lastWaterBounce = .65;
-        }
-        if (u.stuck > .65) this.nudgeUnitToLand(u);
-        return false;
-      }
-    } else u.stuck = 0;
+      return false;
+    }
+  } else u.stuck = 0;
 
-    u.x = nx;
-    u.y = ny;
-    u.face = dx >= 0 ? 1 : -1;
-    return false;
+  u.x = nx;
+  u.y = ny;
+  u.face = dx >= 0 ? 1 : -1;
+  return false;
 };
+
 
 Game.prototype.separate = function(u, dt) {
-    let sx = 0, sy = 0;
-    for (const v of this.units) {
-      if (v === u || v.dead || v.garrisoned) continue;
-      let min = u.r + v.r + 3;
-      if (u.type === 'worker' && v.type === 'worker' && u.order === 'harvest' && v.order === 'harvest' && u.target && u.target === v.target) {
-        min = u.r + 2; // Allow workers to pack tightly around the same resource
-      }
-      const dx = u.x - v.x, dy = u.y - v.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > 0 && d2 < min * min) { const d = Math.sqrt(d2); sx += dx / d * (min - d); sy += dy / d * (min - d); }
+  let sx = 0, sy = 0;
+  for (const v of this.nearbyUnits(u.x, u.y)) {
+    if (v === u || v.dead || v.garrisoned) continue;
+    let min = u.r + v.r + 3;
+    if (u.type === 'worker' && v.type === 'worker' && u.order === 'harvest' && v.order === 'harvest' && u.target && u.target === v.target) {
+      min = u.r + 2;
     }
-    u.x += sx * dt * 2.2; u.y += sy * dt * 2.2;
+    const dx = u.x - v.x, dy = u.y - v.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > 0 && d2 < min * min) {
+      const d = Math.sqrt(d2);
+      sx += dx / d * (min - d);
+      sy += dy / d * (min - d);
+    }
+  }
+  if (sx || sy) {
+    const nx = u.x + sx * dt * 2.2;
+    const ny = u.y + sy * dt * 2.2;
+    if (!this.isBlocked(nx, ny, u)) { u.x = nx; u.y = ny; }
+  }
 };
+
 
 Game.prototype.attackTarget = function(u, target) {
     const def = UNITS[u.type];
@@ -366,12 +461,12 @@ Game.prototype.nearestDropoff = function(fid, x, y) {
 };
 
 Game.prototype.autoGather = function(u) {
-    const f = this.factions[u.faction];
-    const need = f.res.wood < 180 ? 'tree' : f.res.gold < 160 ? 'gold' : f.res.food < 4 ? 'food' : choose(['tree', 'gold', 'food']);
-    const r = this.nearestResource(u.x, u.y, need, 1200) || this.nearestResource(u.x, u.y, null, 2000);
-    if (r) this.orderHarvest(u, r);
-  
+  const f = this.factions[u.faction];
+  const need = f.res.wood < 180 ? 'tree' : f.res.gold < 160 ? 'gold' : f.res.food < 4 ? 'food' : choose(['tree', 'gold', 'food']);
+  const r = this.nearestResource(u.x, u.y, need, 1200) || this.nearestResource(u.x, u.y, null, 2000);
+  if (r) this.orderHarvest(u, r);
 };
+
 
 Game.prototype.nearestResource = function(x, y, type, range) {
     let best = null, bd = range * range;
@@ -391,105 +486,116 @@ Game.prototype.setAutoWorkerOrders = function(fid) {
 };
 
 Game.prototype.updateAI = function(dt) {
-    for (const f of this.factions) {
-      if (!f.ai || !f.alive) continue;
-      f.underAttack = Math.max(0, f.underAttack - dt);
-      f.aiState.timer -= dt;
-      if (f.aiState.timer <= 0) {
-        f.aiState.timer = .9 + Math.random() * .8;
-        this.aiThink(f);
-      }
+  for (const f of this.factions) {
+    if (!f.ai || !f.alive) continue;
+    f.underAttack = Math.max(0, f.underAttack - dt);
+    f.aiState.timer -= dt;
+    if (f.aiState.timer <= 0) {
+      f.aiState.timer = .65 + Math.random() * .65;
+      this.aiThink(f);
     }
-  
+  }
 };
+
 
 Game.prototype.aiThink = function(f) {
-    this.setAutoWorkerOrders(f.id);
-    this.aiBuild(f);
-    this.aiTrain(f);
-    this.aiTactics(f);
-  
+  this.aiEconomyEmergency(f);
+  this.aiBuild(f);
+  this.aiTrain(f);
+  this.aiTactics(f);
+  this.reassignIdleWorkers(f.id);
 };
+
 
 Game.prototype.aiBuild = function(f) {
-    const ownB = this.buildings.filter(b => b.faction === f.id && !b.dead);
-    const count = (t) => ownB.filter(b => b.type === t).length;
-    const pop = this.population(f.id);
-    const candidates = [];
-    if (pop.cap - pop.used < 5) candidates.push('house');
-    if (count('barracks') < 1) candidates.push('barracks');
-    if (count('archery') < 1 && count('barracks') >= 1) candidates.push('archery');
-    if (count('tower') < 2 + f.aiState.expansion) candidates.push('tower');
-    if (count('monastery') < 1 && pop.used > 10) candidates.push('monastery');
-    if (pop.used > 20 && count('barracks') < 2) candidates.push('barracks');
-    if (!candidates.length && Math.random() < .25) candidates.push(choose(['house','tower','archery']));
-    for (const t of candidates) {
-      const def = BUILDINGS[t];
-      if (!canAfford(f, def.cost)) continue;
-      const pos = this.findBuildSpot(f.base.x, f.base.y, t, f.aiState.expansion);
-      if (pos && pay(f, def.cost)) { this.addBuilding(f.id, t, pos.x, pos.y, false); return; }
-    }
-  
+  const ownB = this.buildings.filter(b => b.faction === f.id && !b.dead);
+  const count = (t) => ownB.filter(b => b.type === t).length;
+  const pop = this.population(f.id);
+  const candidates = [];
+  if (pop.cap - pop.used < 5) candidates.push('house');
+  if (count('barracks') < 1) candidates.push('barracks');
+  if (count('archery') < 1 && count('barracks') >= 1) candidates.push('archery');
+  if (count('tower') < 2 + Math.floor(f.aiState.expansion)) candidates.push('tower');
+  if (count('monastery') < 1 && pop.used > 12) candidates.push('monastery');
+  if (pop.used > 24 && count('barracks') < 2) candidates.push('barracks');
+  if (pop.used > 28 && count('archery') < 2) candidates.push('archery');
+  if (!candidates.length && Math.random() < .18) candidates.push(choose(['house','tower','archery','barracks']));
+  for (const t of candidates) {
+    const def = BUILDINGS[t];
+    if (!canAfford(f, def.cost)) continue;
+    const anchor = this.aiBuildAnchor(f, t);
+    const pos = this.findBuildSpot(anchor.x, anchor.y, t, f.aiState.expansion);
+    if (pos && pay(f, def.cost)) { const b = this.addBuilding(f.id, t, pos.x, pos.y, false); b.aiIntent = t; return; }
+  }
 };
+
 
 Game.prototype.findBuildSpot = function(cx, cy, type, ring = 0) {
-    const base = 170 + ring * 60;
-    for (let i = 0; i < 20; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const r = base + Math.random() * 560;
-      const x = clamp(cx + Math.cos(a) * r, 120, WORLD_W - 120);
-      const y = clamp(cy + Math.sin(a) * r, 120, WORLD_H - 120);
-      if (this.canPlace(type, x, y)) return { x, y };
-    }
-    return null;
-  
+  const base = 190 + ring * 72;
+  for (let i = 0; i < 36; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const r = base + Math.random() * 640;
+    const x = clamp(cx + Math.cos(a) * r, 140, WORLD_W - 140);
+    const y = clamp(cy + Math.sin(a) * r, 140, WORLD_H - 140);
+    if (this.canPlace(type, x, y)) return { x, y };
+  }
+  return null;
 };
+
 
 Game.prototype.aiTrain = function(f) {
-    const pop = this.population(f.id);
-    for (const b of this.buildings) {
-      if (b.faction !== f.id || b.dead || b.build < 1 || b.queue.length >= 2) continue;
-      const trains = BUILDINGS[b.type].trains;
-      if (!trains.length) continue;
-      let desired = null;
-      const workers = this.units.filter(u => u.faction === f.id && u.type === 'worker' && !u.dead).length;
-      const army = this.units.filter(u => u.faction === f.id && u.type !== 'worker' && !u.dead).length;
-      if (b.type === 'castle' && workers < 9 + Math.floor(army / 8)) desired = 'worker';
-      else if (b.type === 'barracks') desired = Math.random() < .32 ? 'lancer' : 'warrior';
-      else if (b.type === 'archery') desired = 'archer';
-      else if (b.type === 'monastery' && army > 8 && Math.random() < .65) desired = 'monk';
-      if (!desired) continue;
-      const def = UNITS[desired];
-      if (pop.used + def.pop > pop.cap) continue;
-      if (pay(f, def.cost)) b.queue.push({ type: desired, time: def.time });
-    }
-  
+  const pop = this.population(f.id);
+  const counts = { worker: 0, warrior: 0, archer: 0, lancer: 0, monk: 0 };
+  for (const u of this.units) if (u.faction === f.id && !u.dead) counts[u.type] = (counts[u.type] || 0) + 1;
+  for (const b of this.buildings) {
+    if (b.faction !== f.id || b.dead || b.build < 1 || b.queue.length >= 2) continue;
+    const trains = BUILDINGS[b.type].trains;
+    if (!trains.length) continue;
+    let desired = null;
+    const army = counts.warrior + counts.archer + counts.lancer + counts.monk;
+    if (b.type === 'castle' && counts.worker < Math.min(16, 8 + Math.floor(army / 5))) desired = 'worker';
+    else if (b.type === 'barracks') desired = counts.lancer < counts.warrior * .35 && Math.random() < .42 ? 'lancer' : 'warrior';
+    else if (b.type === 'archery') desired = 'archer';
+    else if (b.type === 'monastery' && army > 7 && counts.monk < Math.ceil(army / 8)) desired = 'monk';
+    if (!desired) continue;
+    const def = UNITS[desired];
+    if (pop.used + def.pop > pop.cap) continue;
+    if (pay(f, def.cost)) b.queue.push({ type: desired, time: def.time });
+  }
 };
 
+
 Game.prototype.aiTactics = function(f) {
-    const army = this.units.filter(u => u.faction === f.id && u.type !== 'worker' && !u.dead && !u.garrisoned);
-    const idleArmy = army.filter(u => u.order === 'idle' || u.order === 'move' || u.order === 'attackMove');
-    const threat = this.nearestThreatToBase(f.id, f.base.x, f.base.y, 780);
-    if (threat && idleArmy.length) {
-      for (const u of idleArmy.slice(0, Math.min(idleArmy.length, 14))) this.orderAttack(u, threat, false);
-      return;
+  const army = this.units.filter(u => u.faction === f.id && u.type !== 'worker' && !u.dead && !u.garrisoned);
+  const idleArmy = army.filter(u => u.order === 'idle' || u.order === 'move' || u.order === 'attackMove');
+  const threat = this.nearestThreatToBase(f.id, f.base.x, f.base.y, 920);
+  if (threat && idleArmy.length) {
+    for (const u of idleArmy.slice(0, Math.min(idleArmy.length, 18))) this.orderAttack(u, threat, false);
+    return;
+  }
+
+  const towers = this.buildings.filter(b => b.faction === f.id && b.type === 'tower' && b.build >= 1 && b.garrison.length < BUILDINGS.tower.garrisonCap);
+  for (const tw of towers) {
+    const ar = idleArmy.find(u => u.type === 'archer' && dist2(u.x, u.y, tw.x, tw.y) < 720 * 720);
+    if (ar) this.garrisonArchers([ar], tw, true);
+  }
+
+  f.aiState.attackTimer -= 1;
+  if (idleArmy.length >= 4) {
+    const stage = { x: f.base.x + Math.cos(f.aiState.rallyAngle) * 360, y: f.base.y + Math.sin(f.aiState.rallyAngle) * 360 };
+    for (const u of idleArmy.slice(0, Math.min(idleArmy.length, 10))) if (dist2(u.x, u.y, f.base.x, f.base.y) < 520 * 520) this.orderMoveFormation([u], stage.x, stage.y, true);
+  }
+  if (f.aiState.attackTimer <= 0 && idleArmy.length >= 7) {
+    f.aiState.attackTimer = 9 + Math.random() * 11;
+    f.aiState.rallyAngle += .8 + Math.random() * .6;
+    const target = this.pickStrategicTarget(f.id);
+    if (target) {
+      const squad = idleArmy.slice(0, Math.min(idleArmy.length, 9 + Math.floor(Math.random() * 9)));
+      for (const u of squad) this.orderAttack(u, target, true);
     }
-    f.aiState.attackTimer -= 1;
-    if (f.aiState.attackTimer <= 0 && idleArmy.length >= 6) {
-      f.aiState.attackTimer = 8 + Math.random() * 9;
-      const target = this.pickStrategicTarget(f.id);
-      if (target) {
-        const squad = idleArmy.slice(0, Math.min(idleArmy.length, 8 + Math.floor(Math.random() * 8)));
-        for (const u of squad) this.orderAttack(u, target, true);
-      }
-    }
-    const towers = this.buildings.filter(b => b.faction === f.id && b.type === 'tower' && b.build >= 1 && b.garrison.length < BUILDINGS.tower.garrisonCap);
-    for (const tw of towers) {
-      const ar = idleArmy.find(u => u.type === 'archer' && dist2(u.x, u.y, tw.x, tw.y) < 600 * 600);
-      if (ar) this.garrisonArchers([ar], tw, true);
-    }
-  
+  }
 };
+
 
 Game.prototype.nearestThreatToBase = function(fid, x, y, range) {
     let best = null, bd = range * range;
@@ -503,18 +609,18 @@ Game.prototype.nearestThreatToBase = function(fid, x, y, range) {
 };
 
 Game.prototype.pickStrategicTarget = function(fid) {
-    let best = null, score = Infinity;
-    const own = this.factions[fid];
-    for (const b of this.buildings) {
-      if (b.dead || b.faction === fid || !this.factions[b.faction].alive || b.build < 1) continue;
-      const baseD = Math.sqrt(dist2(own.base.x, own.base.y, b.x, b.y));
-      const factionWeakness = this.population(b.faction).used;
-      const s = baseD + factionWeakness * 18 + Math.random() * 380 - (b.type === 'castle' ? 160 : 0);
-      if (s < score) { score = s; best = b; }
-    }
-    return best;
-  
+  let best = null, score = Infinity;
+  const own = this.factions[fid];
+  for (const b of this.buildings) {
+    if (b.dead || b.faction === fid || !this.factions[b.faction].alive || b.build < 1) continue;
+    const baseD = Math.sqrt(dist2(own.base.x, own.base.y, b.x, b.y));
+    const enemyArmyNear = this.units.filter(u => u.faction === b.faction && !u.dead && dist2(u.x, u.y, b.x, b.y) < 520 * 520).length;
+    const s = baseD + enemyArmyNear * 44 + Math.random() * 320 - (b.type === 'castle' ? 260 : b.type === 'tower' ? -80 : 0);
+    if (s < score) { score = s; best = b; }
+  }
+  return best;
 };
+
 
 Game.prototype.population = function(fid) {
     let used = 0, cap = 0;
@@ -633,4 +739,148 @@ Game.prototype.nudgeUnitToLand = function(u) {
     }
   }
   return false;
+};
+
+Game.prototype.canPlace = function(type, x, y) {
+  const def = BUILDINGS[type];
+  if (x < 120 || y < 120 || x > WORLD_W - 120 || y > WORLD_H - 120) return false;
+  const pads = [[0,0],[-def.w*.42,-def.h*.30],[def.w*.42,-def.h*.30],[-def.w*.42,def.h*.28],[def.w*.42,def.h*.28]];
+  if (!pads.every(([ox, oy]) => this.isSafeLand(x + ox, y + oy, 20))) return false;
+  const rect = { x: x - def.w / 2 - 14, y: y - def.h / 2 - 22, w: def.w + 28, h: def.h + 40 };
+  for (const b of this.buildings) if (!b.dead && rectsOverlap(rect, { x: b.x - b.w / 2, y: b.y - b.h / 2, w: b.w, h: b.h })) return false;
+  for (const r of this.resources) if (!r.dead && r.amount > 0 && rectsOverlap(rect, { x: r.x - r.r, y: r.y - r.r, w: r.r * 2, h: r.r * 2 })) return false;
+  return true;
+};
+
+Game.prototype.orderMoveFormation = function(units, x, y, attackMove) {
+  const land = this.nearestLandPoint(x, y, 320) || { x, y };
+  const n = units.length;
+  const cols = Math.ceil(Math.sqrt(n));
+  const spacing = 44;
+  units.forEach((u, i) => {
+    const ox = ((i % cols) - (cols - 1) / 2) * spacing;
+    const oy = (Math.floor(i / cols) - Math.floor(n / cols) / 2) * spacing;
+    const p = this.nearestLandPoint(clamp(land.x + ox, 30, WORLD_W - 30), clamp(land.y + oy, 30, WORLD_H - 30), 150) || land;
+    u.goal = { x: p.x, y: p.y };
+    u.order = attackMove ? 'attackMove' : 'move';
+    u.target = null; u.attackMove = attackMove; u.hold = false;
+  });
+  this.effects.push({ kind: attackMove ? 'attack' : 'move', x: land.x, y: land.y, time: .7, max: .7 });
+};
+
+Game.prototype.isBlocked = function(x, y, u) {
+  if (this.isWater(x, y)) return true;
+  const r = u ? u.r || 8 : 8;
+  const rect = { x: x - r, y: y - r, w: r * 2, h: r * 2 };
+  
+  for (const b of this.buildings) {
+    if (b.dead || b.build < 0.1) continue;
+    const brect = { x: b.x - b.w / 2, y: b.y - b.h / 2, w: b.w, h: b.h };
+    if (rectsOverlap(rect, brect)) return true;
+  }
+  
+  for (const res of this.resources) {
+    if (res.dead || res.amount <= 0 || res.animal) continue;
+    const resRect = { x: res.x - res.r * 0.7, y: res.y - res.r * 0.7, w: res.r * 1.4, h: res.r * 1.4 };
+    if (rectsOverlap(rect, resRect) && (!u || u.target !== res)) return true;
+  }
+  
+  for (const d of this.decor) {
+    if (d.sky || d.water || PASSABLE_DECOR.has(d.kind)) continue;
+    const spec = DECOR_SPECS[d.kind] || {};
+    const baseBlock = LIGHT_DECOR.has(d.kind) ? 8 : Math.max(10, Math.min(20, ((spec.shadow && spec.shadow[0]) || (d.kind.startsWith('bush') ? 18 : 14)) * .72));
+    const dr = baseBlock * (d.scale || 1);
+    const dRect = { x: d.x - dr, y: d.y - dr, w: dr * 2, h: dr * 2 };
+    if (rectsOverlap(rect, dRect)) return true;
+  }
+  
+  return false;
+};
+
+Game.prototype.strikeAnimal = function(u, res) {
+  if (!res || res.dead || !res.animal) return;
+  const spec = getHuntAnimal(res.animalKind);
+  const damage = spec && res.animalKind === 'boar' ? 10 : 11;
+  res.animalHp -= damage;
+  res.panic = spec && res.animalKind === 'hare' ? 3.0 : 2.4;
+  res.flash = 1;
+  res.hurtTimer = .26;
+  const dx = res.x - u.x, dy = res.y - u.y;
+  const d = Math.hypot(dx, dy) || 1;
+  const shove = spec && res.animalKind === 'deer' ? 78 : spec && res.animalKind === 'hare' ? 92 : 58;
+  res.vx += dx / d * shove;
+  res.vy += dy / d * shove;
+  this.setAnimalDirection(res, res.vx, res.vy);
+  this.effects.push({ kind: 'hit', x: res.x, y: res.y - 18, time: .18, max: .18 });
+
+  if (spec && spec.retaliation && dist2(u.x, u.y, res.x, res.y) <= 46 * 46 && Math.random() < .42) {
+    u.hp -= spec.retaliation;
+    u.flash = 1;
+    this.effects.push({ kind: 'hit', x: u.x, y: u.y - 22, time: .18, max: .18 });
+    if (u.hp <= 0) { u.dead = true; u.selected = false; this.checkDefeat(u.faction); }
+  }
+
+  if (res.animalHp <= 0) {
+    const foodAmount = Math.min(res.amount, spec ? spec.yield : 14);
+    res.dead = true;
+    res.amount = 0;
+    u.carry = { type: 'food', amount: foodAmount };
+    u.gather = 0;
+    this.effects.push({ kind: 'dust', x: res.x, y: res.y, time: .65, max: .65 });
+  }
+};
+
+Game.prototype.reassignIdleWorkers = function(fid) {
+  for (const u of this.units) {
+    if (u.faction === fid && u.type === 'worker' && u.order === 'idle' && !u.dead && !u.garrisoned) {
+      this.autoGather(u);
+    }
+  }
+};
+
+Game.prototype.aiEconomyEmergency = function(f) {
+  const workers = this.units.filter(u => u.faction === f.id && u.type === 'worker' && !u.dead).length;
+  if (workers < 3) { f.res.wood += 12; f.res.gold += 12; }
+  const pop = this.population(f.id);
+  if (pop.cap - pop.used <= 1) f.aiState.expansion = Math.min(4, f.aiState.expansion + .03);
+};
+
+Game.prototype.aiBuildAnchor = function(f, type) {
+  if (type === 'tower') {
+    const a = f.aiState.rallyAngle;
+    return { x: f.base.x + Math.cos(a) * 420, y: f.base.y + Math.sin(a) * 420 };
+  }
+  return f.base;
+};
+
+Game.prototype.run = function(ts) {
+  const dt = Math.min(MAX_DT, (ts - this.lastFrame) / 1000 || 0);
+  this.lastFrame = ts;
+  this.update(dt * (this.fast ? 1.7 : 1));
+  this.draw();
+  requestAnimationFrame(t => this.run(t));
+};
+
+Game.prototype.update = function(dt) {
+  this.time += dt;
+  if (this.toastTimer > 0) {
+    this.toastTimer -= dt;
+    if (this.toastTimer <= 0) HUD.message.classList.add('hidden');
+  }
+  this.updateCamera(dt);
+  if (!this.paused) {
+    this.updateBuildings(dt);
+    this.updateResources(dt);
+    this.updateUnits(dt);
+    this.updateProjectiles(dt);
+    this.updateEffects(dt);
+    this.updateAI(dt);
+    this.cleanup();
+  }
+  this.uiTimer -= dt;
+  if (this.uiDirty || this.uiTimer <= 0) {
+    this.renderUI();
+    this.uiTimer = .25;
+    this.uiDirty = false;
+  }
 };

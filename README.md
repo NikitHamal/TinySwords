@@ -1,8 +1,8 @@
-# Tiny Swords: Realm War RTS - Revamped Build
+# Tiny Swords: Realm War RTS - Hunting World Pass
 
-A self-contained HTML5 top-down RTS prototype using Pixel Frog's Tiny Swords free asset pack.
+A self-contained HTML5 top-down RTS using the uploaded Tiny Swords free asset pack and the user-provided CraftPix top-down hunting animal sprite pack.
 
-This version was rebuilt around the look of the Tiny Swords reference: water-first island terrain, animated shoreline foam, correctly cropped sprite-sheet frames, smaller readable props, and modular game systems instead of one giant script.
+This build removes the previously generated prop/terrain assets, expands the world substantially, and integrates real animated hunting animals into the economy loop.
 
 ## Run
 
@@ -11,68 +11,57 @@ Open `index.html` in a modern browser. For the cleanest result, run a local stat
 Node-only option, no install required:
 
 ```bash
-node -e "const http=require('http'),fs=require('fs'),path=require('path');const root=process.cwd();const mime={'.html':'text/html','.js':'application/javascript','.css':'text/css','.png':'image/png'};http.createServer((req,res)=>{let p=decodeURIComponent(req.url.split('?')[0]);if(p==='/')p='/index.html';p=path.normalize(path.join(root,p));if(!p.startsWith(root)){res.writeHead(403);return res.end();}fs.readFile(p,(e,d)=>{if(e){res.writeHead(404);return res.end('not found');}res.writeHead(200,{'Content-Type':mime[path.extname(p)]||'application/octet-stream'});res.end(d);});}).listen(8080,()=>console.log('http://localhost:8080'));"
+node -e "const http=require('http'),fs=require('fs'),path=require('path');const root=process.cwd();const mime={'.html':'text/html','.js':'application/javascript','.css':'text/css','.png':'image/png'};http.createServer((req,r)=>{let u=req.url==='/'?'/index.html':decodeURI(req.url.split('?')[0]);let f=path.join(root,u);if(!f.startsWith(root)||!fs.existsSync(f)){r.writeHead(404);return r.end('not found')}r.writeHead(200,{'Content-Type':mime[path.extname(f)]||'application/octet-stream'});fs.createReadStream(f).pipe(r)}).listen(8080,()=>console.log('http://localhost:8080'))"
 ```
 
-## Controls
+## What changed in this pass
 
-- WASD / Arrow keys: pan camera
-- Mouse edge: pan camera
-- Mouse wheel: zoom
-- Left click: select unit, building, or resource
-- Drag left mouse: box-select your units
-- Shift + select: add/remove from selection
-- Right click ground: move selected units or set selected building rally flag
-- Right click resource: selected workers gather
-- Right click enemy: attack
-- Right click tower with archers selected: archers walk over and garrison
-- B: open build menu
-- H: help
-- M: expand/collapse minimap
-- Space: pause
-- Esc: close/cancel
-- Ctrl + A: select army
-- 0: select all your units
+- Removed the previously generated `assets/Imported Free Pixel Pack` folder and removed all code references to that pack.
+- Added CraftPix hunting animals as runtime game assets: deer, boar, hare, fox, and black grouse.
+- Replaced single-sheep hunting spawns with species-weighted wildlife spawning.
+- Added species-specific animal HP, food yield, walk speed, panic speed, visual scale, and collision radius.
+- Added directional animal rendering using four-row top-down sprite sheets: down, up, right, left.
+- Added separate CraftPix shadow rendering so wildlife shadows align with the actual clickable/gameplay base.
+- Added animal hurt flashes and panic movement after worker strikes.
+- Added light boar retaliation so hunting boars is meaningfully riskier than hunting hares, foxes, grouse, or deer.
+- Expanded the world from 8200 x 6000 to 12400 x 9000.
+- Moved faction bases outward to match the larger world.
+- Rebuilt terrain generation around larger base lands, central staging land, more satellite islands, longer tactical corridors, and more water coves.
+- Scaled neutral resource clusters, wildlife density, natural decor, water details, and clouds with world area.
+- Kept the canonical no-override architecture from the prior production pass.
 
-## What was revamped
-
-### Visual pass
-
-- Rebuilt terrain generation into an ocean-first island/archipelago map with connected base islands, scenic satellites, coves, and central conflict lanes.
-- Reworked water rendering with animated shimmer, shore foam frames, splashes, water rocks, clouds, and rubber duck details.
-- Fixed the huge asset-sheet rendering issue: trees, bushes, water rocks, clouds, sheep, and stumps now draw cropped frames instead of the full sheet.
-- Added terrain color variation using all Tiny Swords tile palette variants.
-- Added house variants so villages no longer repeat the same building sprite.
-- Removed the remote Google Fonts dependency so the build works offline.
-
-### Gameplay / systems pass
-
-- Added water-aware movement so units steer around shorelines and get nudged back onto land instead of walking straight through the ocean.
-- Reworked tower garrisoning: archers now walk to towers before entering instead of teleporting in from anywhere.
-- Added projectile hit sparks and water splash feedback.
-- Improved minimap rendering so it uses the actual generated land/water map.
-- Increased starting resources slightly so the first minute feels better.
-
-### Refactor pass
-
-The old single large script has been split into feature modules:
+## Module map
 
 ```text
-js/core/config.js          constants, asset paths, helpers
-js/core/audio.js           WebAudio sfx
-js/core/game-state.js      Game state constructor
-js/systems/world.js        terrain generation, resources, spawns
-js/systems/input.js        input, selection, orders, placement
-js/systems/simulation.js   economy, combat, AI, movement, cleanup
-js/ui/hud.js               HUD and command buttons
-js/render/world-renderer.js canvas terrain, entities, FX, minimap
-js/main.js                 bootstrapping
+js/core/config.js           constants, asset paths, sprite anchor specs, animal specs, helpers
+js/core/audio.js            WebAudio sfx
+js/core/game-state.js       Game state constructor
+js/systems/world.js         terrain generation, wildlife/resources, spawns, decor placement
+js/systems/input.js         input, selection, orders, placement
+js/systems/simulation.js    economy, hunting, combat, AI, movement, update loop
+js/ui/hud.js                HUD, selection panel, command buttons
+js/render/world-renderer.js canvas terrain, anchored sprites, animals, entities, FX, minimap
+js/main.js                  bootstrapping
 ```
 
 ## Objective
 
-Build an economy, train troops, garrison towers with archers, defend your base, then destroy rival nations.
+Build an economy, hunt wildlife, train troops, garrison towers with archers, defend your base, then destroy rival nations.
 
-## Assets
+## Controls
 
-Tiny Swords assets are by Pixel Frog. Check the original asset page for license terms if you publish or redistribute beyond local/private play.
+- Left click: select
+- Drag: box-select units
+- Right click: move, harvest, attack, repair, or set rally point
+- B: build menu
+- M: minimap expand/collapse
+- H: help
+- Space: pause
+- Ctrl+A: select army
+- 0: select all units
+
+## Assets and licensing notes
+
+Tiny Swords assets are by Pixel Frog from the uploaded user-provided pack. Review the original itch.io page/license before publishing or redistributing beyond local/private development.
+
+CraftPix hunting animal assets come from the user-provided CraftPix free top-down hunt animals pixel sprite pack. The pack includes a license pointer to CraftPix file licenses. Only game-used PNG sheets are bundled here; source Aseprite files and unused pack contents are not included.

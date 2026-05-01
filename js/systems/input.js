@@ -156,16 +156,6 @@ Game.prototype.tryPlace = function(type, x, y) {
   
 };
 
-Game.prototype.canPlace = function(type, x, y) {
-    const def = BUILDINGS[type];
-    if (x < 120 || y < 120 || x > WORLD_W - 120 || y > WORLD_H - 120) return false;
-    if (this.isWater(x, y)) return false;
-    const rect = { x: x - def.w / 2 - 12, y: y - def.h / 2 - 18, w: def.w + 24, h: def.h + 34 };
-    for (const b of this.buildings) if (!b.dead && rectsOverlap(rect, { x: b.x - b.w / 2, y: b.y - b.h / 2, w: b.w, h: b.h })) return false;
-    for (const r of this.resources) if (!r.dead && r.amount > 0 && rectsOverlap(rect, { x: r.x - r.r, y: r.y - r.r, w: r.r * 2, h: r.r * 2 })) return false;
-    return true;
-  
-};
 
 Game.prototype.clickSelect = function(add) {
     const e = this.pickEntity(this.pointer.wx, this.pointer.wy);
@@ -214,10 +204,15 @@ Game.prototype.pickEntity = function(x, y) {
     }
     for (let i = this.resources.length - 1; i >= 0; i--) {
       const r = this.resources[i];
-      if (!r.dead && r.amount > 0 && dist2(x, y, r.x, r.y) <= (r.r + 9) * (r.r + 9)) return r;
+      if (r.dead || r.amount <= 0) continue;
+      const spec = getResourceVisualSpec(r);
+      const visualCenterY = r.y - ((spec.baseline || spec.fh || 0) * (spec.scale || 1)) * .48;
+      const visualRadius = Math.max(r.r + 10, Math.min(58, (spec.fh || r.r * 2) * (spec.scale || 1) * .38));
+      if (dist2(x, y, r.x, r.y) <= (r.r + 9) * (r.r + 9)
+        || dist2(x, y, r.x, visualCenterY) <= visualRadius * visualRadius) return r;
     }
     return null;
-  
+
 };
 
 Game.prototype.contextOrder = function(x, y) {
@@ -226,8 +221,9 @@ Game.prototype.contextOrder = function(x, y) {
     const ownBuildings = this.selected.filter(e => e.entity === 'building' && e.faction === 0 && e.build >= 1);
     const ownUnits = this.selected.filter(e => e.entity === 'unit' && e.faction === 0 && !e.garrisoned);
     if (ownBuildings.length && (!target || target.entity !== 'resource')) {
-      for (const b of ownBuildings) b.rally = { x, y };
-      this.effects.push({ kind: 'flag', x, y, time: 1.2, max: 1.2 });
+      const rally = this.nearestLandPoint(x, y, 320) || { x, y };
+      for (const b of ownBuildings) b.rally = { x: rally.x, y: rally.y };
+      this.effects.push({ kind: 'flag', x: rally.x, y: rally.y, time: 1.2, max: 1.2 });
       this.toast('Rally flag set.', 1.1);
       this.sfx.click();
     }
@@ -261,20 +257,6 @@ Game.prototype.contextOrder = function(x, y) {
   
 };
 
-Game.prototype.orderMoveFormation = function(units, x, y, attackMove) {
-    const n = units.length;
-    const cols = Math.ceil(Math.sqrt(n));
-    const spacing = 42;
-    units.forEach((u, i) => {
-      const ox = ((i % cols) - (cols - 1) / 2) * spacing;
-      const oy = (Math.floor(i / cols) - Math.floor(n / cols) / 2) * spacing;
-      u.goal = { x: clamp(x + ox, 30, WORLD_W - 30), y: clamp(y + oy, 30, WORLD_H - 30) };
-      u.order = attackMove ? 'attackMove' : 'move';
-      u.target = null; u.attackMove = attackMove; u.hold = false;
-    });
-    this.effects.push({ kind: attackMove ? 'attack' : 'move', x, y, time: .7, max: .7 });
-  
-};
 
 Game.prototype.orderAttack = function(u, target, attackMove) {
     u.target = target; u.order = 'attack'; u.goal = null; u.attackMove = attackMove; u.hold = false;
@@ -342,29 +324,4 @@ Game.prototype.toast = function(text, time = 2) {
   
 };
 
-Game.prototype.run = function(ts) {
-    const dt = Math.min(MAX_DT, (ts - this.lastFrame) / 1000 || 0);
-    this.lastFrame = ts;
-    this.update(dt * (this.fast ? 1.7 : 1));
-    this.draw();
-    requestAnimationFrame(t => this.run(t));
-  
-};
 
-Game.prototype.update = function(dt) {
-    this.time += dt;
-    if (this.toastTimer > 0) { this.toastTimer -= dt; if (this.toastTimer <= 0) HUD.message.classList.add('hidden'); }
-    this.updateCamera(dt);
-    if (!this.paused) {
-      this.updateBuildings(dt);
-      this.updateResources(dt);
-      this.updateUnits(dt);
-      this.updateProjectiles(dt);
-      this.updateEffects(dt);
-      this.updateAI(dt);
-      this.cleanup();
-    }
-    this.uiTimer -= dt;
-    if (this.uiDirty || this.uiTimer <= 0) { this.renderUI(); this.uiTimer = .25; this.uiDirty = false; }
-  
-};

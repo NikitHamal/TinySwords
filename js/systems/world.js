@@ -33,50 +33,57 @@ Game.prototype.generateWorld = function() {
   this.decor.length = 0;
   this.generateTerrain();
 
+  const worldScale = (WORLD_W * WORLD_H) / (8200 * 6000);
+  const naturalDecor = NATURAL_DECOR_KINDS;
+
   const addRing = (kind, cx, cy, count, minR, maxR, arc = Math.PI * 2, start = 0) => {
     let made = 0;
-    for (let i = 0; i < count * 8 && made < count; i++) {
-      const a = start + (i / Math.max(1, count)) * arc + (Math.random() - .5) * .7;
+    for (let i = 0; i < count * 10 && made < count; i++) {
+      const a = start + (i / Math.max(1, count)) * arc + (Math.random() - .5) * .72;
       const r = minR + Math.random() * (maxR - minR);
-      const x = cx + Math.cos(a) * r + (Math.random() - .5) * 92;
-      const y = cy + Math.sin(a) * r + (Math.random() - .5) * 92;
-      if (!this.isSafeLand(x, y, 42) || this.occupiedByBase(x, y, 170) || this.tooCloseResource(x, y, kind === 'tree' ? 54 : 64)) continue;
-      if (kind === 'decor') this.decor.push({ id: gid++, kind: choose(['bush1','bush2','bush3','bush4','rock1','rock2','rock3','rock4']), x, y, scale: .54 + Math.random() * .22, front: false });
-      else this.addResource(kind, x, y);
+      const x = cx + Math.cos(a) * r + (Math.random() - .5) * 104;
+      const y = cy + Math.sin(a) * r + (Math.random() - .5) * 104;
+      if (!this.isSafeLand(x, y, 42) || this.occupiedByBase(x, y, 180) || this.tooCloseResource(x, y, kind === 'tree' ? 54 : 64)) continue;
+      if (kind === 'decor') {
+        this.decor.push({ id: gid++, kind: choose(naturalDecor), x, y, scale: .54 + Math.random() * .24, front: false });
+      } else this.addResource(kind, x, y);
       made++;
     }
   };
 
   for (const f of FACTIONS) {
     const b = f.base;
-    addRing('tree', b.x - 140, b.y + 300, 22, 260, 690, Math.PI * 1.45, Math.PI * .08);
-    addRing('gold', b.x + 260, b.y - 190, 8, 280, 640, Math.PI * .95, -Math.PI * .35);
-    addRing('food', b.x - 360, b.y - 130, 7, 260, 610, Math.PI * 1.15, Math.PI * .78);
-    addRing('decor', b.x, b.y, 16, 420, 830);
+    addRing('tree', b.x - 180, b.y + 340, 34, 300, 850, Math.PI * 1.55, Math.PI * .06);
+    addRing('gold', b.x + 310, b.y - 230, 12, 320, 780, Math.PI * 1.05, -Math.PI * .38);
+    addRing('food', b.x - 430, b.y - 150, 12, 300, 760, Math.PI * 1.25, Math.PI * .72);
+    addRing('decor', b.x, b.y, 24, 470, 980);
   }
 
-  for (let g = 0; g < 52; g++) {
-    const p = this.randomLandPoint(280);
-    if (!p || this.occupiedByBase(p.x, p.y, 460)) continue;
-    const roll = rngHash(g, 55, 301);
-    const kind = roll < .62 ? 'tree' : roll < .84 ? 'gold' : 'food';
-    const count = kind === 'tree' ? 10 + Math.floor(Math.random() * 15) : 3 + Math.floor(Math.random() * 6);
-    const spread = kind === 'tree' ? 250 : 165;
+  const neutralClusterCount = Math.round(52 * worldScale);
+  for (let g = 0; g < neutralClusterCount; g++) {
+    const p = this.randomLandPoint(340);
+    if (!p || this.occupiedByBase(p.x, p.y, 540)) continue;
+    const roll = rngHash(g, Math.floor(p.x / 97), Math.floor(p.y / 89));
+    const kind = roll < .58 ? 'tree' : roll < .80 ? 'gold' : 'food';
+    const count = kind === 'tree' ? 12 + Math.floor(Math.random() * 18) : kind === 'gold' ? 4 + Math.floor(Math.random() * 7) : 5 + Math.floor(Math.random() * 8);
+    const spread = kind === 'tree' ? 290 : kind === 'gold' ? 190 : 230;
     for (let i = 0; i < count; i++) {
       const a = Math.random() * Math.PI * 2;
       const r = Math.random() * spread;
       const x = p.x + Math.cos(a) * r;
       const y = p.y + Math.sin(a) * r;
-      if (!this.isSafeLand(x, y, 38) || this.occupiedByBase(x, y, 240) || this.tooCloseResource(x, y, kind === 'tree' ? 48 : 60)) continue;
+      if (!this.isSafeLand(x, y, 38) || this.occupiedByBase(x, y, 260) || this.tooCloseResource(x, y, kind === 'tree' ? 48 : 62)) continue;
       this.addResource(kind, x, y);
     }
   }
 
-  for (let i = 0; i < 220; i++) {
-    const p = this.randomLandPoint(210);
-    if (!p || !this.isSafeLand(p.x, p.y, 34) || this.occupiedByBase(p.x, p.y, 300) || this.tooCloseResource(p.x, p.y, 38)) continue;
-    this.decor.push({ id: gid++, kind: choose(['bush1','bush2','bush3','bush4','rock1','rock2','rock3','rock4']), x: p.x, y: p.y, scale: .52 + Math.random() * .28, front: false });
+  const decorCount = Math.round(220 * worldScale);
+  for (let i = 0; i < decorCount; i++) {
+    const p = this.randomLandPoint(260);
+    if (!p || !this.isSafeLand(p.x, p.y, 34) || this.occupiedByBase(p.x, p.y, 330) || this.tooCloseResource(p.x, p.y, 38)) continue;
+    this.decor.push({ id: gid++, kind: choose(naturalDecor), x: p.x, y: p.y, scale: .52 + Math.random() * .30, front: false });
   }
+
   this.addWaterDetails();
   this.pruneInvalidWorldObjects();
 };
@@ -116,30 +123,36 @@ Game.prototype.generateTerrain = function() {
   for (const f of FACTIONS) {
     const sideX = f.base.x < center.x ? 1 : -1;
     const sideY = f.base.y < center.y ? 1 : -1;
-    paintEllipse(f.base.x, f.base.y + 24, 940, 680, 1, .055);
-    paintEllipse(f.base.x + sideX * 360, f.base.y + sideY * 330, 500, 360, 1, .075);
+    paintEllipse(f.base.x, f.base.y + 24, 1080, 760, 1, .055);
+    paintEllipse(f.base.x + sideX * 470, f.base.y + sideY * 410, 650, 440, 1, .075);
   }
-  paintEllipse(center.x, center.y, 1140, 830, 1, .07);
-  paintEllipse(center.x - 930, center.y - 120, 560, 360, 1, .08);
-  paintEllipse(center.x + 930, center.y + 110, 590, 380, 1, .08);
 
-  for (const f of FACTIONS) paintLine(f.base, center, 190, 1, 92);
-  paintLine(FACTIONS[0].base, FACTIONS[1].base, 150, 1, 148);
-  paintLine(FACTIONS[2].base, FACTIONS[3].base, 150, 1, 148);
-  paintLine(FACTIONS[0].base, FACTIONS[2].base, 140, 1, 104);
-  paintLine(FACTIONS[1].base, FACTIONS[3].base, 140, 1, 104);
+  paintEllipse(center.x, center.y, 1500, 1080, 1, .07);
+  paintEllipse(center.x - 1600, center.y - 360, 760, 500, 1, .08);
+  paintEllipse(center.x + 1600, center.y + 360, 780, 520, 1, .08);
+  paintEllipse(center.x - 1600, center.y + 360, 760, 500, 1, .08);
+  paintEllipse(center.x + 1600, center.y - 360, 780, 520, 1, .08);
+
+  for (const f of FACTIONS) paintLine(f.base, center, 220, 1, 124);
+  paintLine(FACTIONS[0].base, FACTIONS[1].base, 175, 1, 180);
+  paintLine(FACTIONS[2].base, FACTIONS[3].base, 175, 1, 180);
+  paintLine(FACTIONS[0].base, FACTIONS[2].base, 165, 1, 135);
+  paintLine(FACTIONS[1].base, FACTIONS[3].base, 165, 1, 135);
+  paintLine(FACTIONS[0].base, FACTIONS[3].base, 135, 1, 170);
+  paintLine(FACTIONS[1].base, FACTIONS[2].base, 135, 1, 170);
 
   const satellites = [
-    [.10, .50, 300, 205], [.29, .18, 390, 260], [.70, .16, 350, 235], [.90, .50, 380, 250],
-    [.29, .84, 390, 250], [.70, .84, 400, 260], [.50, .10, 285, 190], [.50, .91, 300, 205],
-    [.16, .31, 240, 170], [.84, .70, 250, 180]
+    [.08,.50,380,260], [.18,.26,430,285], [.18,.74,430,285], [.31,.14,480,310], [.31,.86,480,310],
+    [.50,.08,360,240], [.50,.92,380,250], [.69,.14,480,310], [.69,.86,480,310], [.82,.26,430,285],
+    [.82,.74,430,285], [.92,.50,400,270], [.38,.34,430,285], [.62,.66,450,300], [.38,.66,430,285],
+    [.62,.34,450,300], [.50,.28,360,240], [.50,.72,360,240]
   ];
   for (const [px, py, rx, ry] of satellites) paintEllipse(WORLD_W * px, WORLD_H * py, rx, ry, 1, .12);
 
   const coves = [
-    [.075, .095, 360, 270], [.24, .075, 330, 235], [.77, .065, 380, 250], [.94, .27, 350, 300],
-    [.075, .72, 320, 270], [.24, .94, 420, 270], [.76, .95, 430, 280], [.94, .73, 370, 280],
-    [.39, .37, 360, 250], [.62, .61, 430, 285], [.37, .63, 350, 255]
+    [.06,.10,440,330], [.20,.07,390,270], [.43,.13,400,270], [.57,.87,420,280], [.80,.07,430,295], [.94,.25,430,340],
+    [.06,.74,410,320], [.20,.94,470,300], [.43,.87,390,270], [.57,.13,420,285], [.80,.94,470,300], [.94,.75,430,340],
+    [.35,.43,400,285], [.65,.57,470,320], [.35,.57,420,300], [.65,.43,470,320], [.50,.50,310,220]
   ];
   for (const [px, py, rx, ry] of coves) paintEllipse(WORLD_W * px, WORLD_H * py, rx, ry, 0, .09);
 
@@ -155,10 +168,10 @@ Game.prototype.generateTerrain = function() {
   }
 
   for (const f of FACTIONS) {
-    paintEllipse(f.base.x, f.base.y + 20, 950, 690, 1, .02);
-    paintLine(f.base, center, 170, 1, 70);
+    paintEllipse(f.base.x, f.base.y + 20, 1120, 790, 1, .02);
+    paintLine(f.base, center, 190, 1, 82);
   }
-  paintEllipse(center.x, center.y, 1020, 750, 1, .035);
+  paintEllipse(center.x, center.y, 1370, 970, 1, .035);
 
   const landAt = (tx, ty) => tx >= 0 && ty >= 0 && tx < cols && ty < rows && this.landMap[ty * cols + tx] === 1;
   for (let ty = 0; ty < rows; ty++) for (let tx = 0; tx < cols; tx++) {
@@ -168,7 +181,7 @@ Game.prototype.generateTerrain = function() {
 };
 
 Game.prototype.randomLandPoint = function(margin = 0) {
-  for (let i = 0; i < 260; i++) {
+  for (let i = 0; i < 780; i++) {
     const x = margin + Math.random() * (WORLD_W - margin * 2);
     const y = margin + Math.random() * (WORLD_H - margin * 2);
     if (this.isSafeLand(x, y, 38)) return { x, y };
@@ -181,7 +194,7 @@ Game.prototype.addWaterDetails = function() {
   const nearShoreProps = ['waterRock1','waterRock2','waterRock3','waterRock4','rubberDuck'];
   const clouds = ['cloud1','cloud2','cloud3','cloud4','cloud5','cloud6','cloud7','cloud8'];
 
-  for (let i = 0; i < 135; i++) {
+  for (let i = 0; i < Math.round(135 * (WORLD_W * WORLD_H) / (8200 * 6000)); i++) {
     const x = 100 + Math.random() * (WORLD_W - 200);
     const y = 100 + Math.random() * (WORLD_H - 200);
     if (!this.isWater(x, y)) continue;
@@ -192,7 +205,7 @@ Game.prototype.addWaterDetails = function() {
     this.decor.push({ id: gid++, kind, x, y, scale, water: true, front: false, drift: Math.random() * Math.PI * 2 });
   }
 
-  for (let i = 0; i < 42; i++) {
+  for (let i = 0; i < Math.round(42 * (WORLD_W * WORLD_H) / (8200 * 6000)); i++) {
     const x = 170 + Math.random() * (WORLD_W - 340);
     const y = 170 + Math.random() * (WORLD_H - 340);
     if (!this.isWater(x, y)) continue;
@@ -212,16 +225,40 @@ Game.prototype.isSafeLand = function(x, y, radius = 28) {
   return probes.every(([ox, oy]) => !this.isWater(x + ox, y + oy));
 };
 
+Game.prototype.chooseAnimalKind = function(x, y) {
+  const entries = Object.entries(HUNT_ANIMALS);
+  const total = entries.reduce((sum, [, def]) => sum + (def.weight || 1), 0);
+  let pick = rngHash(Math.floor(x / 137), Math.floor(y / 149), 4301) * total;
+  for (const [kind, def] of entries) {
+    pick -= def.weight || 1;
+    if (pick <= 0) return kind;
+  }
+  return entries[0] ? entries[0][0] : null;
+};
+
 Game.prototype.addResource = function(type, x, y) {
   x = clamp(x, 90, WORLD_W - 90); y = clamp(y, 90, WORLD_H - 90);
   if (!this.isSafeLand(x, y, type === 'tree' ? 30 : 24)) return null;
-  const amount = type === 'tree' ? 105 + Math.floor(Math.random() * 80) : type === 'gold' ? 160 + Math.floor(Math.random() * 120) : 42 + Math.floor(Math.random() * 16);
-  const sprite = type === 'tree' ? choose(['tree1','tree2','tree3','tree4']) : type === 'gold' ? choose(['gold1','gold2','gold3','gold4','gold5','gold6']) : 'sheepIdle';
-  const r = type === 'tree' ? 18 : type === 'gold' ? 21 : 16;
+  const animalKind = type === 'food' ? this.chooseAnimalKind(x, y) : null;
+  const animalDef = animalKind ? HUNT_ANIMALS[animalKind] : null;
+  const amount = type === 'tree'
+    ? 105 + Math.floor(Math.random() * 80)
+    : type === 'gold'
+      ? 160 + Math.floor(Math.random() * 120)
+      : (animalDef ? animalDef.yield + Math.floor(Math.random() * Math.max(4, animalDef.yield * .35)) : 42 + Math.floor(Math.random() * 16));
+  const sprite = type === 'tree'
+    ? choose(['tree1','tree2','tree3','tree4'])
+    : type === 'gold'
+      ? choose(['gold1','gold2','gold3','gold4','gold5','gold6'])
+      : (animalDef ? animalDef.idle : 'meat');
+  const r = type === 'tree' ? 18 : type === 'gold' ? 21 : (animalDef ? animalDef.radius : 16);
+  const dirSeed = rngHash(Math.floor(x), Math.floor(y), 8221);
   const res = {
     id: gid++, entity: 'resource', type, sprite, x, y, r, amount, max: amount, dead: false, depleted: false,
     bob: Math.random() * 6, vx: 0, vy: 0, wander: Math.random() * 3,
-    animal: type === 'food', animalHp: type === 'food' ? 28 : 0, panic: 0, claimedBy: null
+    animal: type === 'food', animalKind, animalHp: animalDef ? animalDef.hp : (type === 'food' ? 28 : 0),
+    animalMaxHp: animalDef ? animalDef.hp : (type === 'food' ? 28 : 0), animalState: 'idle', animalDir: dirSeed < .25 ? 0 : dirSeed < .5 ? 1 : dirSeed < .75 ? 2 : 3,
+    panic: 0, hurtTimer: 0, claimedBy: null, face: Math.random() < .5 ? -1 : 1, flash: 0
   };
   this.resources.push(res);
   return res;
@@ -247,10 +284,6 @@ Game.prototype.addBuilding = function(fid, type, x, y, complete = false) {
     cd: Math.random(), garrison: [], dead: false, flash: 0, aiIntent: null
   };
   this.buildings.push(b);
-  if (complete && type === 'tower') {
-      const u = this.addUnit(fid, 'archer', x, y);
-      this.finishGarrison(u, b);
-  }
   this.uiDirty = true;
   return b;
 };
