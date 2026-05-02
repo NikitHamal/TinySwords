@@ -1,5 +1,6 @@
 package com.tinyswords.app.ui.components
 
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -9,6 +10,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -20,7 +24,29 @@ import com.tinyswords.app.ui.theme.GameTypography
 
 // ── Resource Pill ──
 @Composable
-fun ResourcePill(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
+fun AssetIcon(assetPath: String, fallbackColor: Color, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val bitmap = remember(assetPath) {
+        try {
+            context.assets.open(assetPath).use { BitmapFactory.decodeStream(it)?.asImageBitmap() }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = null,
+            modifier = modifier,
+            filterQuality = FilterQuality.None
+        )
+    } else {
+        Box(modifier = modifier.background(fallbackColor, RoundedCornerShape(2.dp)))
+    }
+}
+
+@Composable
+fun ResourcePill(value: String, color: Color, assetPath: String, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .background(GameColors.Panel, RoundedCornerShape(6.dp))
@@ -29,18 +55,14 @@ fun ResourcePill(label: String, value: String, color: Color, modifier: Modifier 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(9.dp)
-                .background(color, RoundedCornerShape(2.dp))
+        AssetIcon(
+            assetPath = assetPath,
+            fallbackColor = color,
+            modifier = Modifier.size(17.dp)
         )
         Text(
             text = value,
-            style = GameTypography.Body.copy(fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp),
-        )
-        Text(
-            text = label,
-            style = GameTypography.Small.copy(color = GameColors.TextSecondary, fontSize = 8.sp),
+            style = GameTypography.Body.copy(fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp),
         )
     }
 }
@@ -56,10 +78,10 @@ fun ResourceBar(
             .padding(6.dp),
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        ResourcePill("WOOD", wood.toString(), GameColors.WoodColor)
-        ResourcePill("GOLD", gold.toString(), GameColors.GoldColor)
-        ResourcePill("FOOD", food.toString(), GameColors.FoodColor)
-        ResourcePill("POP", "$popUsed/$popCap", GameColors.PopColor)
+        ResourcePill(wood.toString(), GameColors.WoodColor, "Tiny Swords (Free Pack)/Terrain/Resources/Wood/Wood Resource/Wood Resource.png")
+        ResourcePill(gold.toString(), GameColors.GoldColor, "Tiny Swords (Free Pack)/Terrain/Resources/Gold/Gold Resource/Gold_Resource.png")
+        ResourcePill(food.toString(), GameColors.FoodColor, "Tiny Swords (Free Pack)/Terrain/Resources/Meat/Meat Resource/Meat Resource.png")
+        ResourcePill("$popUsed/$popCap", GameColors.PopColor, "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_06.png")
     }
 }
 

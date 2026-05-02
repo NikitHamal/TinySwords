@@ -21,7 +21,7 @@ class GameRenderer(private val assets: AssetManager) {
     private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
     private val overlayPaint = Paint().apply { style = Paint.Style.FILL }
     private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.argb(92, 0, 0, 0)
+        color = SHADOW_UNIT_COLOR
         style = Paint.Style.FILL
     }
     private val selectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -60,11 +60,11 @@ class GameRenderer(private val assets: AssetManager) {
     private val buildingQueryBuffer = ArrayList<GameBuilding>(128)
     private val unitQueryBuffer = ArrayList<GameUnit>(512)
     private var terrainCacheKey: String = ""
-    private val terrainChunkTiles = 12
+    private val terrainChunkTiles = 16
     private val terrainChunkPx = (TILE * terrainChunkTiles).toInt()
-    private val terrainChunks = object : LinkedHashMap<Long, Bitmap>(96, 0.75f, true) {
+    private val terrainChunks = object : LinkedHashMap<Long, Bitmap>(72, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Bitmap>?): Boolean {
-            val remove = size > 96
+            val remove = size > 72
             if (remove) eldest?.value?.let { if (!it.isRecycled) it.recycle() }
             return remove
         }
@@ -311,23 +311,37 @@ class GameRenderer(private val assets: AssetManager) {
                 val halfW = unitShadowHalfW(e.type, def)
                 val halfH = unitShadowHalfH(e.type)
                 val centerY = e.y + 3f
-                canvas.drawOval(e.x - halfW, centerY - halfH, e.x + halfW, centerY + halfH, shadowPaint)
+                drawGroundShadow(canvas, e.x, centerY, halfW, halfH, SHADOW_UNIT_COLOR)
             }
             is GameBuilding -> {
                 val def = BUILDINGS[e.type] ?: return
-                val halfW = def.w * 0.50f
-                val halfH = def.h * 0.18f
-                val centerY = e.y + def.h * 0.18f
-                canvas.drawOval(e.x - halfW, centerY - halfH, e.x + halfW, centerY + halfH, shadowPaint)
+                val halfW = def.w * buildingShadowWFactor(e.type)
+                val halfH = def.h * buildingShadowHFactor(e.type)
+                val centerY = e.y + def.h * buildingShadowYOffsetFactor(e.type)
+                drawGroundShadow(canvas, e.x, centerY, halfW, halfH, SHADOW_BUILDING_COLOR)
             }
             is GameResource -> {
                 if (!e.isAnimal && e.type == ResourceType.FOOD) {
-                    canvas.drawOval(e.x - 13f, e.y - 4f, e.x + 13f, e.y + 4f, shadowPaint)
+                    drawGroundShadow(canvas, e.x, e.y, 13f, 4f, SHADOW_PROP_COLOR)
                 }
             }
             is GameDecor -> {
-                if (!e.isSky && !e.isWater && e.kind.startsWith("bush")) canvas.drawOval(e.x - 18f, e.y - 4f, e.x + 18f, e.y + 5f, shadowPaint)
+                if (!e.isSky && !e.isWater && e.kind.startsWith("bush")) drawGroundShadow(canvas, e.x, e.y, 18f, 5f, SHADOW_PROP_COLOR)
             }
+        }
+    }
+
+    private fun drawGroundShadow(canvas: Canvas, x: Float, y: Float, halfW: Float, halfH: Float, color: Int) {
+        shadowPaint.shader = null
+        val shadow = assets.get("shadow")
+        if (shadow != null) {
+            alphaPaint.alpha = Color.alpha(color).coerceIn(0, 255)
+            dstRect.set(x - halfW * 1.5f, y - halfH * 1.5f, x + halfW * 1.5f, y + halfH * 1.5f)
+            canvas.drawBitmap(shadow, null, dstRect, alphaPaint)
+            alphaPaint.alpha = 255
+        } else {
+            shadowPaint.color = color
+            canvas.drawOval(x - halfW, y - halfH, x + halfW, y + halfH, shadowPaint)
         }
     }
 
@@ -348,8 +362,7 @@ class GameRenderer(private val assets: AssetManager) {
         val scale = def.scale * SPRITE_BOOST
         if (unit.selected) {
             val r = (def.radius + 8f).coerceAtLeast(16f)
-            selectionPaint.color = Color.argb(150, 245, 211, 125)
-            canvas.drawOval(unit.x - r, unit.y - r * 0.44f, unit.x + r, unit.y + r * 0.44f, selectionPaint)
+            drawCursorSelectionOval(canvas, unit.x, unit.y, r)
         }
         if (sprite != null) {
             val frames = (sprite.width / def.fw).coerceAtLeast(1)
@@ -475,6 +488,28 @@ class GameRenderer(private val assets: AssetManager) {
 
     private fun unitShadowHalfH(type: String): Float = if (type == "lancer") 8f else 8f
 
+    private fun buildingShadowWFactor(type: String): Float = when (type) {
+        "castle" -> 0.42f
+        "house" -> 0.42f
+        "barracks", "archery", "monastery" -> 0.44f
+        "tower" -> 0.34f
+        else -> 0.40f
+    }
+
+    private fun buildingShadowHFactor(type: String): Float = when (type) {
+        "castle" -> 0.125f
+        "house" -> 0.125f
+        "tower" -> 0.105f
+        else -> 0.12f
+    }
+
+    private fun buildingShadowYOffsetFactor(type: String): Float = when (type) {
+        "castle" -> 0.18f
+        "house" -> 0.17f
+        "tower" -> 0.16f
+        else -> 0.17f
+    }
+
     private fun drawBuilding(canvas: Canvas, building: GameBuilding) {
         val def = BUILDINGS[building.type] ?: return
         val fKey = FACTIONS.getOrNull(building.faction)?.key ?: "blue"
@@ -497,8 +532,7 @@ class GameRenderer(private val assets: AssetManager) {
             canvas.drawRect(drawX, drawY, drawX + def.w, drawY + def.h, overlayPaint)
         }
         if (building.selected) {
-            selectionPaint.color = Color.argb(170, 245, 211, 125)
-            canvas.drawRect(drawX - 4f, drawY - 4f, drawX + def.w + 4f, drawY + def.h + 4f, selectionPaint)
+            drawCursorSelectionBox(canvas, drawX - 4f, drawY - 4f, drawX + def.w + 4f, drawY + def.h + 4f)
             if (building.hasRally) {
                 fillPaint.color = FACTIONS.getOrNull(building.faction)?.color ?: Color.WHITE
                 canvas.drawCircle(building.rallyX, building.rallyY, 8f, fillPaint)
@@ -527,13 +561,15 @@ class GameRenderer(private val assets: AssetManager) {
 
         when (res.type) {
             ResourceType.TREE -> {
-                val sprite = if (res.depleted) assets.get("stump${1 + res.variant % 2}") else assets.get("tree${1 + res.variant % 4}")
+                val treeIndex = 1 + res.variant % 4
+                val sprite = if (res.depleted) assets.get("stump${1 + res.variant % 2}") else assets.get("tree$treeIndex")
                 val fw = 192
-                val fh = 256
+                val fh = if (!res.depleted && (treeIndex == 3 || treeIndex == 4)) 192 else 256
                 val scale = (if (res.depleted) 0.46f else 0.60f) * SPRITE_BOOST
                 val frameCount = ((sprite?.width ?: fw) / fw).coerceAtLeast(1)
                 val frame = if (res.depleted) 0 else ((state.time * 4f + (res.id % frameCount)).toInt() % frameCount)
-                if (sprite != null) drawAnchoredFrame(canvas, sprite, frame * fw, 0, fw, fh, res.x, res.y, scale, 241f) else fallbackResource(canvas, res)
+                val baseline = if (res.depleted) stumpBaseline(1 + res.variant % 2) else treeBaseline(treeIndex)
+                if (sprite != null) drawAnchoredFrame(canvas, sprite, frame * fw, 0, fw, fh, res.x, res.y, scale, baseline) else fallbackResource(canvas, res)
             }
             ResourceType.GOLD -> {
                 val variant = 1 + res.variant % 6
@@ -556,9 +592,9 @@ class GameRenderer(private val assets: AssetManager) {
             }
         }
         if (res in state.selected) {
-            selectionPaint.color = Color.argb(170, 245, 211, 125)
-            val r = when (res.type) { ResourceType.TREE -> 38f; ResourceType.GOLD -> 30f; ResourceType.FOOD -> 22f }
-            canvas.drawOval(res.x - r, res.y - r * 0.45f, res.x + r, res.y + r * 0.45f, selectionPaint)
+            val ix = resourceInteractionX(res)
+            val iy = resourceInteractionY(res)
+            drawCursorSelectionOval(canvas, ix, iy, resourceFootprint(res) + 8f)
         }
     }
 
@@ -603,8 +639,7 @@ class GameRenderer(private val assets: AssetManager) {
             drawAnimalShadow(canvas, res)
             if (res in state.selected) {
                 val sr = (def.radius + 8f).coerceAtLeast(16f)
-                selectionPaint.color = Color.argb(160, 245, 211, 125)
-                canvas.drawOval(res.x - sr, res.y - sr * 0.42f, res.x + sr, res.y + sr * 0.42f, selectionPaint)
+                drawCursorSelectionOval(canvas, res.x, res.y, sr)
             }
             if (res.flash > 0f || hurt) spritePaint.colorFilter = PorterDuffColorFilter(Color.RED, PorterDuff.Mode.SRC_ATOP)
             drawAnchoredFrame(canvas, sprite, frame * fw, row * fh, fw, fh, res.x, res.y + bob, def.scale, def.baseline, face)
@@ -632,14 +667,11 @@ class GameRenderer(private val assets: AssetManager) {
 
     private fun drawAnimalShadow(canvas: Canvas, res: GameResource) {
         val def = HUNT_ANIMALS[res.animalKind] ?: return
-        // The CraftPix sprite-shadow sheets have inconsistent internal padding on
-        // Android Canvas and were the cause of the drifting/double-shadow look.
-        // Match the stabilized web build: one procedural ground-contact oval tied
-        // to the animal baseline, never to the transparent sprite frame bounds.
-        val alpha = if (res.animalKind == "sheep") 92 else 104
-        shadowPaint.alpha = alpha
-        canvas.drawOval(res.x - def.shadowW, res.y - def.shadowH, res.x + def.shadowW, res.y + def.shadowH, shadowPaint)
-        shadowPaint.alpha = 255
+        // Keep animal shadows on the same baseline discipline as units/buildings.
+        // Never mutate Paint.alpha globally: that caused later unit/building shadows
+        // to become fully opaque black after an animal was rendered on the prior frame.
+        val color = if (res.animalKind == "sheep") SHADOW_ANIMAL_LIGHT_COLOR else SHADOW_ANIMAL_COLOR
+        drawGroundShadow(canvas, res.x, res.y, def.shadowW, def.shadowH, color)
     }
 
     private fun drawDecor(canvas: Canvas, state: GameState, decor: GameDecor) {
@@ -696,12 +728,19 @@ class GameRenderer(private val assets: AssetManager) {
                 "heal" -> { fillPaint.color = Color.argb(alpha, 100, 255, 150); canvas.drawCircle(e.x, e.y - progress * 10f, 6f + progress * 14f, fillPaint) }
                 "explosion" -> { fillPaint.color = Color.argb(alpha, 255, 120, 30); canvas.drawCircle(e.x, e.y, 10f + progress * 40f, fillPaint) }
                 "moveMark" -> {
-                    strokePaint.color = Color.argb(alpha, 245, 211, 125)
-                    strokePaint.strokeWidth = 2.0f
-                    val r = (7f + progress * 16f) * e.scale
-                    canvas.drawCircle(e.x, e.y, r, strokePaint)
-                    fillPaint.color = Color.argb((alpha * 0.26f).toInt().coerceIn(0, 255), 245, 211, 125)
-                    canvas.drawCircle(e.x, e.y, 3.2f * e.scale, fillPaint)
+                    val r = (9f + progress * 15f) * e.scale
+                    val cursor = assets.get("cursorAction")
+                    if (cursor != null) {
+                        alphaPaint.alpha = alpha
+                        val size = r * 2.1f
+                        dstRect.set(e.x - size / 2f, e.y - size / 2f, e.x + size / 2f, e.y + size / 2f)
+                        canvas.drawBitmap(cursor, null, dstRect, alphaPaint)
+                        alphaPaint.alpha = 255
+                    } else {
+                        strokePaint.color = Color.argb(alpha, 245, 211, 125)
+                        strokePaint.strokeWidth = 2.0f
+                        canvas.drawCircle(e.x, e.y, r, strokePaint)
+                    }
                 }
             }
         }
@@ -757,6 +796,73 @@ class GameRenderer(private val assets: AssetManager) {
 
     private fun rectsOverlapCentered(ax: Float, ay: Float, aw: Float, ah: Float, bx: Float, by: Float, bw: Float, bh: Float): Boolean {
         return ax - aw / 2f < bx + bw / 2f && ax + aw / 2f > bx - bw / 2f && ay - ah / 2f < by + bh / 2f && ay + ah / 2f > by - bh / 2f
+    }
+
+    private fun treeBaseline(index: Int): Float = when (index) {
+        1 -> 241f
+        2 -> 249f
+        3 -> 170f
+        4 -> 168f
+        else -> 241f
+    }
+
+    private fun stumpBaseline(index: Int): Float = when (index) {
+        1 -> 240f
+        2 -> 245f
+        3 -> 232f
+        4 -> 228f
+        else -> 240f
+    }
+
+    private fun resourceFootprint(res: GameResource): Float = when {
+        res.isAnimal -> ((HUNT_ANIMALS[res.animalKind]?.radius ?: 12f) + 2f).coerceAtLeast(12f)
+        res.type == ResourceType.TREE && res.depleted -> 18f
+        res.type == ResourceType.TREE -> 34f
+        res.type == ResourceType.GOLD -> 24f
+        else -> 16f
+    }
+
+    private fun drawCursorSelectionOval(canvas: Canvas, x: Float, y: Float, r: Float) {
+        val cursor = assets.get("cursorSelect")
+        if (cursor == null) {
+            selectionPaint.color = Color.argb(170, 245, 211, 125)
+            canvas.drawOval(x - r, y - r * 0.45f, x + r, y + r * 0.45f, selectionPaint)
+            return
+        }
+        val w = r * 2.2f
+        val h = r * 1.5f
+        drawCursorCorners(canvas, x - w / 2f, y - h / 2f + 4f, x + w / 2f, y + h / 2f + 4f, cursor, 230)
+    }
+
+    private fun drawCursorSelectionBox(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float) {
+        val cursor = assets.get("cursorSelect")
+        if (cursor == null) {
+            selectionPaint.color = Color.argb(170, 245, 211, 125)
+            canvas.drawRect(left, top, right, bottom, selectionPaint)
+            return
+        }
+        drawCursorCorners(canvas, left, top, right, bottom, cursor, 230)
+    }
+
+    private fun drawCursorCorners(canvas: Canvas, left: Float, top: Float, right: Float, bottom: Float, cursor: Bitmap, alpha: Int) {
+        val cw = 42
+        val ch = 42
+        val dw = min(32f, max(10f, (right - left) / 2f - 1f))
+        val dh = min(32f, max(10f, (bottom - top) / 2f - 1f))
+        alphaPaint.alpha = alpha.coerceIn(0, 255)
+        srcRect.set(0, 0, cw, ch)
+        dstRect.set(left, top, left + dw, top + dh)
+        canvas.drawBitmap(cursor, srcRect, dstRect, alphaPaint)
+        srcRect.set(128 - cw, 0, 128, ch)
+        dstRect.set(right - dw, top, right, top + dh)
+        canvas.drawBitmap(cursor, srcRect, dstRect, alphaPaint)
+        srcRect.set(0, 128 - ch, cw, 128)
+        dstRect.set(left, bottom - dh, left + dw, bottom)
+        canvas.drawBitmap(cursor, srcRect, dstRect, alphaPaint)
+        srcRect.set(128 - cw, 128 - ch, 128, 128)
+        dstRect.set(right - dw, bottom - dh, right, bottom)
+        canvas.drawBitmap(cursor, srcRect, dstRect, alphaPaint)
+        alphaPaint.alpha = 255
     }
 
     private fun drawHpBar(canvas: Canvas, x: Float, y: Float, pct: Float, width: Float) {
@@ -883,4 +989,12 @@ class GameRenderer(private val assets: AssetManager) {
         minimapTerrain = null
         clearTerrainChunks()
     }
+    companion object {
+        private val SHADOW_UNIT_COLOR = Color.argb(70, 20, 23, 18)
+        private val SHADOW_ANIMAL_COLOR = Color.argb(74, 20, 23, 18)
+        private val SHADOW_ANIMAL_LIGHT_COLOR = Color.argb(58, 20, 23, 18)
+        private val SHADOW_BUILDING_COLOR = Color.argb(54, 20, 23, 18)
+        private val SHADOW_PROP_COLOR = Color.argb(42, 20, 23, 18)
+    }
+
 }

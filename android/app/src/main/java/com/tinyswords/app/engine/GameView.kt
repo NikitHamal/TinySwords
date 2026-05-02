@@ -48,6 +48,10 @@ class GameView(
     private var pinchActive = false
     private var pinchStartDist = 0f
     private var pinchStartZoom = 1f
+    private var pinchFocusWorldX = 0f
+    private var pinchFocusWorldY = 0f
+    private var pinchFocusScreenX = 0f
+    private var pinchFocusScreenY = 0f
 
     var minimapExpanded = false
     private var minimapTouching = false
@@ -58,6 +62,8 @@ class GameView(
     private var buildingDragOffsetY = 0f
     private var originalBuildingX = 0f
     private var originalBuildingY = 0f
+    private val buildingDragQueryBuffer = ArrayList<GameBuilding>(32)
+    private val resourceDragQueryBuffer = ArrayList<GameResource>(64)
 
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
@@ -205,7 +211,7 @@ class GameView(
         synchronized(state) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> handleTouchDown(event, viewW, viewH)
-                MotionEvent.ACTION_POINTER_DOWN -> handlePointerDown(event)
+                MotionEvent.ACTION_POINTER_DOWN -> handlePointerDown(event, viewW, viewH)
                 MotionEvent.ACTION_MOVE -> handleTouchMove(event, viewW, viewH)
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> handleTouchUp(event, viewW, viewH)
                 MotionEvent.ACTION_POINTER_UP -> handlePointerUp(event)
@@ -242,11 +248,16 @@ class GameView(
         }
     }
 
-    private fun handlePointerDown(event: MotionEvent) {
+    private fun handlePointerDown(event: MotionEvent, viewW: Float, viewH: Float) {
         if (event.pointerCount == 2) {
             pinchActive = true
             pinchStartDist = getPinchDistance(event)
-            pinchStartZoom = state.camera.targetZoom
+            pinchStartZoom = state.camera.zoom
+            pinchFocusScreenX = (event.getX(0) + event.getX(1)) * 0.5f
+            pinchFocusScreenY = (event.getY(0) + event.getY(1)) * 0.5f
+            val focus = screenToWorld(pinchFocusScreenX, pinchFocusScreenY, viewW, viewH)
+            pinchFocusWorldX = focus.first
+            pinchFocusWorldY = focus.second
         }
     }
 
@@ -260,7 +271,15 @@ class GameView(
             val newDist = getPinchDistance(event)
             if (pinchStartDist > 0f) {
                 val scale = newDist / pinchStartDist
-                state.camera.targetZoom = (pinchStartZoom * scale).coerceIn(CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM)
+                val newZoom = (pinchStartZoom * scale).coerceIn(CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM)
+                val midX = (event.getX(0) + event.getX(1)) * 0.5f
+                val midY = (event.getY(0) + event.getY(1)) * 0.5f
+                val cam = state.camera
+                cam.zoom = newZoom
+                cam.targetZoom = newZoom
+                cam.x = pinchFocusWorldX - (midX - viewW / 2f) / newZoom
+                cam.y = pinchFocusWorldY - (midY - viewH / 2f) / newZoom
+                clampCamera(viewW, viewH)
             }
             return
         }
@@ -289,7 +308,6 @@ class GameView(
             if (canMoveBuilding(candidate, nx, ny)) {
                 candidate.x = nx
                 candidate.y = ny
-                state.spatialRebuildTimer = 0f
             }
             return
         }
@@ -462,8 +480,10 @@ class GameView(
         var bestResDist = 48f * 48f
         for (r in state.resources) {
             if (r.dead || r.depleted) continue
-            val radius = when (r.type) { ResourceType.TREE -> 55f; ResourceType.GOLD -> 36f; ResourceType.FOOD -> 34f }
-            val d = dist2(wx, wy, r.x, r.y)
+            val ix = resourceInteractionX(r)
+            val iy = resourceInteractionY(r)
+            val radius = (resourceFootprint(r) + when (r.type) { ResourceType.TREE -> 30f; ResourceType.GOLD -> 18f; ResourceType.FOOD -> 16f }).coerceAtLeast(28f)
+            val d = dist2(wx, wy, ix, iy)
             if (d < min(bestResDist, radius * radius)) {
                 bestResDist = d
                 bestRes = r
@@ -552,15 +572,38 @@ class GameView(
         post { onSelectionChanged() }
     }
 
+    private fun resourceInteractionX(res: GameResource): Float = res.x
+
+    private fun resourceInteractionY(res: GameResource): Float = when {
+        res.isAnimal -> res.y
+        res.type == ResourceType.TREE && res.depleted -> res.y - 14f
+        res.type == ResourceType.TREE -> res.y - 42f
+        res.type == ResourceType.GOLD -> res.y - 16f
+        else -> res.y - 2f
+    }
+
+    private fun resourceFootprint(res: GameResource): Float = when {
+        res.isAnimal -> ((HUNT_ANIMALS[res.animalKind]?.radius ?: 12f) + 2f).coerceAtLeast(12f)
+        res.type == ResourceType.TREE && res.depleted -> 18f
+        res.type == ResourceType.TREE -> 34f
+        res.type == ResourceType.GOLD -> 24f
+        else -> 16f
+    }
+
     private fun canMoveBuilding(building: GameBuilding, x: Float, y: Float): Boolean {
         val def = BUILDINGS[building.type] ?: return false
         if (!state.isSafeLand(x, y, def.placeW / 2f)) return false
-        for (other in state.buildings) {
+
+        val pad = def.placeW.coerceAtLeast(def.placeH) + 96f
+        state.buildingIndex.queryRect(x - pad, y - pad, x + pad, y + pad, buildingDragQueryBuffer)
+        for (other in buildingDragQueryBuffer) {
             if (other.dead || other.id == building.id) continue
             val od = BUILDINGS[other.type] ?: continue
             if (rectsOverlap(x, y, def.placeW, def.placeH, other.x, other.y, od.placeW, od.placeH)) return false
         }
-        for (r in state.resources) {
+
+        state.resourceIndex.queryRect(x - pad, y - pad, x + pad, y + pad, resourceDragQueryBuffer)
+        for (r in resourceDragQueryBuffer) {
             if (r.dead || r.depleted) continue
             val blockRadius = if (r.isAnimal) (HUNT_ANIMALS[r.animalKind]?.radius ?: 12f) else when (r.type) {
                 ResourceType.TREE -> 30f

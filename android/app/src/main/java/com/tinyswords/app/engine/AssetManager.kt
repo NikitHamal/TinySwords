@@ -223,6 +223,8 @@ class AssetManager(private val context: Context) {
         add("iconBuild", "$uiDir/Icons/Icon_08.png")
         add("iconStop", "$uiDir/Buttons/TinyRoundRedButton.png")
         add("iconAttack", "$uiDir/Swords/Swords.png")
+        add("cursorSelect", "$uiDir/Cursors/Cursor_04.png")
+        add("cursorAction", "$uiDir/Cursors/Cursor_02.png")
         add("dust", "Tiny Swords (Free Pack)/Particle FX/Dust_01.png")
         add("explosion", "Tiny Swords (Free Pack)/Particle FX/Explosion_01.png")
         add("fire", "Tiny Swords (Free Pack)/Particle FX/Fire_03.png")
