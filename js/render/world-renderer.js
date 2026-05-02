@@ -150,8 +150,9 @@ Game.prototype.drawShadow = function(x, y, w, h) {
 };
 
 
-Game.prototype.drawSpriteFrameAnchored = function(img, sx, sy, fw, fh, x, baseY, scale, baseline, options = {}) {
+Game.prototype.drawSpriteFrameAnchored = function(img, x, baseY, options = {}) {
   if (!img) return;
+  const { sx = 0, sy = 0, fw = img.width, fh = img.height, scale = 1, baseline = img.height } = options;
   const w = fw * scale;
   const h = fh * scale;
   const alpha = options.alpha === undefined ? 1 : options.alpha;
@@ -189,7 +190,7 @@ Game.prototype.drawDecor = function(d) {
   const shadow = spec.shadow || [0, 0];
   if (!d.water && !d.sky && shadow[0] > 0) this.drawLandShadow(d.x, d.y, shadow[0] * Math.max(.85, d.scale), shadow[1]);
   const alpha = d.sky ? .82 : 1;
-  this.drawSpriteFrameAnchored(img, sx, 0, fw, fh, d.x + drift, baseY, scale, spec.baseline || fh, { alpha });
+  this.drawSpriteFrameAnchored(img, d.x + drift, baseY, { sx, sy: 0, fw, fh, scale, baseline: spec.baseline || fh, alpha });
   if (this.selected.includes(d)) {
     const sr = Math.max(14, (spec.fw || 64) * scale * .28);
     this.drawSelectionCircle(d.x, d.y, sr, '#f5d37d');
@@ -238,7 +239,7 @@ Game.prototype.drawHuntAnimal = function(r, moving) {
   ctx.save();
   if (r.flash > 0) ctx.filter = `brightness(1.55) sepia(1) hue-rotate(-50deg) saturate(3) opacity(${0.75 + r.flash * 0.25})`;
   const flip = (spec.flipByFacing || rows === 1) ? (r.face || 1) : 1;
-  this.drawSpriteFrameAnchored(img, fr * fw, row * fh, fw, fh, r.x, baseY, spec.scale, spec.baseline, { flip });
+  this.drawSpriteFrameAnchored(img, r.x, baseY, { sx: fr * fw, sy: row * fh, fw, fh, scale: spec.scale, baseline: spec.baseline, flip });
   if (r.flash > 0) ctx.filter = 'none';
   ctx.restore();
   if (this.selected.includes(r)) { const p = getResourceInteractionPoint(r); this.drawSelectionCircle(p.x, p.y, getResourceFootprint(r) + 8, '#f5d37d'); }
@@ -266,13 +267,13 @@ Game.prototype.drawResource = function(r) {
     const fr = fps ? Math.floor(this.time * fps + r.bob) % frames : 0;
     ctx.save();
     if (r.flash > 0) ctx.filter = `brightness(1.5) sepia(1) hue-rotate(-50deg) saturate(3) opacity(${0.7 + r.flash * 0.3})`;
-    this.drawSpriteFrameAnchored(sprite, fr * fw, 0, fw, fh, r.x, baseY, spec.scale, spec.baseline, {});
+    this.drawSpriteFrameAnchored(sprite, r.x, baseY, { sx: fr * fw, sy: 0, fw, fh, scale: spec.scale, baseline: spec.baseline });
     if (r.flash > 0) ctx.filter = 'none';
     if (r.type === 'gold') {
       const hlSprite = assets[r.sprite + '_hl'];
       if (hlSprite) {
         const shine = (Math.sin(this.time * 1.5 + r.bob) + 1) * 0.5 * 0.85;
-        this.drawSpriteFrameAnchored(hlSprite, fr * fw, 0, fw, fh, r.x, baseY, spec.scale, spec.baseline, { alpha: shine });
+        this.drawSpriteFrameAnchored(hlSprite, r.x, baseY, { sx: fr * fw, sy: 0, fw, fh, scale: spec.scale, baseline: spec.baseline, alpha: shine });
       }
     }
     ctx.restore();
