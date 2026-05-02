@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg_dark">#0d1426</color>
+    <color name="bg_panel">#152038</color>
+    <color name="bg_panel_light">#1d2c4a</color>
+    <color name="parchment">#f3d99c</color>
+    <color name="ink">#231a14</color>
+    <color name="gold">#f7dc62</color>
+    <color name="ribbon">#a23c3c</color>
+</resources>
