@@ -248,6 +248,7 @@ fun CommandButton(
 }
 
 // ── Action Dock ──
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun ActionDock(
     selected: List<GameEntity>,
@@ -309,6 +310,7 @@ fun ActionDock(
 }
 
 // ── Build Menu ──
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 fun BuildMenu(
     faction: FactionState,

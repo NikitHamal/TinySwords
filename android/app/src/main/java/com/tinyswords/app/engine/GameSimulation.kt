@@ -430,12 +430,12 @@ class GameSimulation(val state: GameState) {
             val wpD2 = dist2(unit.x, unit.y, wp.x, wp.y)
 
             if (wpD2 < 24f * 24f) {
-                val wpD = sqrt(wpD2)
                 unit.pathIndex++
                 if (unit.pathIndex >= unit.path.size) {
                     unit.path.clear()
                 }
             } else {
+                val wpD = sqrt(wpD2)
                 moveX = wpDx / wpD
                 moveY = wpDy / wpD
             }
