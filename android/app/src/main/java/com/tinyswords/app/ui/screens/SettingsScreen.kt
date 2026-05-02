@@ -8,13 +8,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tinyswords.app.audio.SoundBank
 import com.tinyswords.app.data.SaveSystem
+import com.tinyswords.app.ui.components.AssetIcon
 import com.tinyswords.app.ui.components.CommandButton
 import com.tinyswords.app.ui.theme.GameColors
 import com.tinyswords.app.ui.theme.GameTypography
@@ -26,42 +26,35 @@ fun SettingsScreen(
     onBack: () -> Unit
 ) {
     var settings by remember { mutableStateOf(saveSystem.loadGlobalSettings()) }
-
     BoxWithConstraints(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF0a1a2a), Color(0xFF11281f), Color(0xFF1a1a0a))
-                )
-            ),
+        modifier = Modifier.fillMaxSize().background(RealmMenuBackground()),
         contentAlignment = Alignment.Center
     ) {
         val compact = maxHeight < 430.dp
         Column(
             modifier = Modifier
-                .fillMaxWidth(if (compact) 0.74f else 0.48f)
-                .widthIn(max = 520.dp)
+                .fillMaxWidth(if (compact) 0.90f else 0.58f)
+                .widthIn(max = 620.dp)
                 .heightIn(max = maxHeight * 0.88f)
                 .verticalScroll(rememberScrollState())
-                .background(GameColors.Panel.copy(alpha = 0.97f), RoundedCornerShape(12.dp))
-                .border(2.dp, GameColors.PanelBorder, RoundedCornerShape(12.dp))
-                .padding(if (compact) 16.dp else 22.dp),
+                .background(GameColors.Panel.copy(alpha = 0.97f), RoundedCornerShape(14.dp))
+                .border(3.dp, GameColors.PanelBorder, RoundedCornerShape(14.dp))
+                .padding(if (compact) 14.dp else 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            verticalArrangement = Arrangement.spacedBy(13.dp)
         ) {
-            Text("SETTINGS", style = GameTypography.Title.copy(fontSize = if (compact) 22.sp else 28.sp))
-            Text(
-                text = "Audio and play options are saved globally.",
-                style = GameTypography.Small.copy(color = GameColors.TextSecondary),
-                textAlign = TextAlign.Center
-            )
+            AssetIcon("Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_05.png", GameColors.TextGold, Modifier.size(if (compact) 42.dp else 56.dp))
+            Text("SETTINGS", style = GameTypography.Title.copy(fontSize = if (compact) 22.sp else 30.sp))
+            Text("Global defaults. Existing saved worlds keep their own world settings.", style = GameTypography.Small.copy(color = GameColors.TextSecondary), textAlign = TextAlign.Center)
 
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "VOLUME ${(settings.volume * 100f).toInt()}%",
-                    style = GameTypography.Heading.copy(fontSize = 14.sp)
-                )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0x55000000), RoundedCornerShape(8.dp))
+                    .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(8.dp))
+                    .padding(12.dp)
+            ) {
+                Text("VOLUME ${(settings.volume * 100f).toInt()}%", style = GameTypography.Heading.copy(fontSize = 13.sp, color = GameColors.TextGold))
                 Slider(
                     value = settings.volume,
                     onValueChange = { value ->
@@ -73,44 +66,34 @@ fun SettingsScreen(
                 )
             }
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                SettingChip(
-                    label = "Autosave",
-                    value = if (settings.autosave) "ON" else "OFF",
-                    active = settings.autosave,
-                    modifier = Modifier.weight(1f)
-                ) {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SettingChip("Autosave", if (settings.autosave) "ON" else "OFF", settings.autosave, Modifier.weight(1f)) {
                     settings = settings.copy(autosave = !settings.autosave)
                     saveSystem.saveGlobalSettings(settings)
                 }
-                SettingChip(
-                    label = "Graphics",
-                    value = settings.graphics.uppercase(),
-                    active = true,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    val next = if (settings.graphics == "balanced") "performance" else "balanced"
+                SettingChip("Graphics", settings.graphics.uppercase(), true, Modifier.weight(1f)) {
+                    val next = when (settings.graphics) {
+                        "performance" -> "balanced"
+                        "balanced" -> "high"
+                        else -> "performance"
+                    }
                     settings = settings.copy(graphics = next)
                     saveSystem.saveGlobalSettings(settings)
                 }
             }
 
+            Text(
+                text = "Performance mode lowers spawn density and reduces frame pressure; use it on older devices.",
+                style = GameTypography.Small.copy(color = GameColors.TextSecondary),
+                textAlign = TextAlign.Center
+            )
             CommandButton("BACK", onClick = onBack, modifier = Modifier.fillMaxWidth())
         }
     }
 }
 
 @Composable
-private fun SettingChip(
-    label: String,
-    value: String,
-    active: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
+private fun SettingChip(label: String, value: String, active: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Column(
         modifier = modifier
             .height(72.dp)

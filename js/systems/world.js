@@ -362,9 +362,12 @@ Game.prototype.addUnit = function(fid, type, x, y) {
     order: 'idle', target: null, goal: null, attackMove: false,
     cd: Math.random() * .5, anim: Math.random() * 4, face: 1, carry: null, gather: 0,
     selected: false, dead: false, flash: 0, garrisoned: null, hold: false,
-    stuck: 0, lastWaterBounce: 0, pathProbe: 0, path: null, pathGoal: null, pathIndex: 0, pathVersion: 0, pathRetry: 0, huntSwing: 0
+    stuck: 0, lastWaterBounce: 0, pathProbe: 0, path: null, pathGoal: null, pathIndex: 0, pathVersion: 0, pathRetry: 0, huntSwing: 0,
+    scanTimer: Math.random() * 0.22
   };
   this.units.push(u);
+  this.unitBuckets = null;
+  this._shouldRebuildSpatial = true;
   return u;
 };
 

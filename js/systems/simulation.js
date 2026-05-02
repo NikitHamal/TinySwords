@@ -59,7 +59,7 @@ Game.prototype.setAnimalDirection = function(r, vx, vy) {
 };
 
 Game.prototype.updateResources = function(dt) {
-  this.rebuildResourceSpatialIndex();
+  if (this._shouldRebuildSpatial || !this.resourceBuckets) this.rebuildResourceSpatialIndex();
   for (const r of this.resources) {
     r.flash = Math.max(0, (r.flash || 0) - dt * 3.5);
     r.hurtTimer = Math.max(0, (r.hurtTimer || 0) - dt);
@@ -100,15 +100,16 @@ Game.prototype.updateResources = function(dt) {
 
 
 
-Game.prototype.nearbyUnits = function(x, y) {
+Game.prototype.nearbyUnits = function(x, y, range = 160) {
   if (!this.unitBuckets) return this.units;
   const bucketSize = this.unitBucketSize || 72;
   const bx = (x / bucketSize) | 0, by = (y / bucketSize) | 0;
+  const reach = Math.max(1, Math.ceil(range / bucketSize));
   const map = this.unitBuckets;
   const out = this._nearbyBuf;
   out.length = 0;
-  for (let oy = -1; oy <= 1; oy++) {
-    for (let ox = -1; ox <= 1; ox++) {
+  for (let oy = -reach; oy <= reach; oy++) {
+    for (let ox = -reach; ox <= reach; ox++) {
       const list = map.get((bx + ox) * 73856093 ^ (by + oy) * 19349663);
       if (list) for (let i = 0; i < list.length; i++) out.push(list[i]);
     }
@@ -219,7 +220,8 @@ Game.prototype.rebuildDecorSpatialIndex = function() {
 
 
 Game.prototype.updateFighter = function(u, dt) {
-    if ((u.order === 'idle' || u.order === 'attackMove') && !u.hold) {
+    if ((u.order === 'idle' || u.order === 'attackMove') && !u.hold && (u.scanTimer || 0) <= 0) {
+      u.scanTimer = (u.order === 'attackMove' ? .12 : .20) + ((u.id || 0) % 7) * .025;
       const enemy = this.nearestEnemy(u, u.attackMove ? 420 : 310, true);
       if (enemy) this.orderAttack(u, enemy, u.order === 'attackMove');
     }
@@ -241,7 +243,7 @@ Game.prototype.updateFighter = function(u, dt) {
         const d2 = dist2(u.x, u.y, u.goal.x, u.goal.y);
         if (d2 < 160 * 160) {
           let crowdBlocked = false;
-          const near = this.nearbyUnits(u.x, u.y);
+          const near = this.nearbyUnits(u.x, u.y, 120);
           for (let i = 0; i < near.length; i++) {
             const v = near[i];
             if (v !== u && !v.dead && v.faction === u.faction && v.order === 'idle') {
@@ -263,7 +265,6 @@ Game.prototype.updateFighter = function(u, dt) {
     }
   
 };
-
 
 
 
@@ -320,7 +321,7 @@ Game.prototype.checkDefeat = function(fid) {
 
 Game.prototype.nearestEnemy = function(u, range, includeBuildings) {
     let best = null, bd = range * range;
-    const nearUnits = this.nearbyUnits ? this.nearbyUnits(u.x, u.y) : this.units;
+    const nearUnits = this.nearbyUnits ? this.nearbyUnits(u.x, u.y, range) : this.units;
     for (let i = 0; i < nearUnits.length; i++) {
       const v = nearUnits[i];
       if (v.dead || v.garrisoned || v.faction === u.faction || !this.factions[v.faction].alive) continue;
@@ -336,28 +337,12 @@ Game.prototype.nearestEnemy = function(u, range, includeBuildings) {
         if (d < bd) { bd = d; best = b; }
       }
     }
-    if (!best) {
-      for (let i = 0; i < this.units.length; i++) {
-        const v = this.units[i];
-        if (v.dead || v.garrisoned || v.faction === u.faction || !this.factions[v.faction].alive) continue;
-        const d = dist2(u.x, u.y, v.x, v.y);
-        if (d < bd) { bd = d; best = v; }
-      }
-      if (includeBuildings) {
-        for (let i = 0; i < this.buildings.length; i++) {
-          const b = this.buildings[i];
-          if (b.dead || b.faction === u.faction || !this.factions[b.faction].alive || b.build < 1) continue;
-          const d = dist2(u.x, u.y, b.x, b.y);
-          if (d < bd) { bd = d; best = b; }
-        }
-      }
-    }
     return best;
 };
 
 Game.prototype.lowestHurtAlly = function(u, range) {
     let best = null, pct = 1, rangeSq = range * range;
-    const near = this.nearbyUnits ? this.nearbyUnits(u.x, u.y) : this.units;
+    const near = this.nearbyUnits ? this.nearbyUnits(u.x, u.y, range) : this.units;
     for (let i = 0; i < near.length; i++) {
       const v = near[i];
       if (v.dead || v.garrisoned || v.faction !== u.faction || v.hp >= v.maxHp) continue;
@@ -599,7 +584,7 @@ Game.prototype.pickStrategicTargetV2 = function(fid) {
     if (b.dead || b.faction === fid || !this.factions[b.faction].alive || b.build < 1) continue;
     const baseD = Math.sqrt(dist2(own.base.x, own.base.y, b.x, b.y));
     let enemyArmyNear = 0, friendlyPressure = 0;
-    const near = this.nearbyUnits(b.x, b.y);
+    const near = this.nearbyUnits(b.x, b.y, 760);
     for (let i = 0; i < near.length; i++) {
       const u = near[i];
       if (u.dead) continue;
@@ -617,7 +602,9 @@ Game.prototype.pickStrategicTargetV2 = function(fid) {
 
 Game.prototype.nearestThreatToBase = function(fid, x, y, range) {
     let best = null, bd = range * range;
-    for (const u of this.units) {
+    const candidates = this.nearbyUnits ? this.nearbyUnits(x, y, range) : this.units;
+    for (let i = 0; i < candidates.length; i++) {
+      const u = candidates[i];
       if (u.dead || u.faction === fid || u.garrisoned) continue;
       const d = dist2(x, y, u.x, u.y);
       if (d < bd) { bd = d; best = u; }
@@ -633,7 +620,7 @@ Game.prototype.pickStrategicTarget = function(fid) {
     if (b.dead || b.faction === fid || !this.factions[b.faction].alive || b.build < 1) continue;
     const baseD = Math.sqrt(dist2(own.base.x, own.base.y, b.x, b.y));
     let enemyArmyNear = 0;
-    const near = this.nearbyUnits(b.x, b.y);
+    const near = this.nearbyUnits(b.x, b.y, 620);
     for (let i = 0; i < near.length; i++) {
       const u = near[i];
       if (u.faction === b.faction && !u.dead && dist2(u.x, u.y, b.x, b.y) < 520 * 520) enemyArmyNear++;
@@ -792,16 +779,15 @@ Game.prototype.aiEconomyEmergency = function(f) {
 
 Game.prototype.run = function(ts) {
   if (!this.running) return;
-  const dt = Math.min(MAX_DT, (ts - this.lastFrame) / 1000 || 0);
+  const rawDt = Math.min(0.10, (ts - this.lastFrame) / 1000 || 0);
   this.lastFrame = ts;
-  this.update(dt * (this.fast ? 1.7 : 1));
+  this.update(Math.min(MAX_DT, rawDt) * (this.fast ? 1.7 : 1));
   this.draw();
-  // Use setTimeout to cap frame rate on mobile devices for better battery life
-  if (window.matchMedia('(max-width: 768px)').matches) {
-    setTimeout(() => requestAnimationFrame(t => this.run(t)), 16);
-  } else {
-    requestAnimationFrame(t => this.run(t));
-  }
+  const mobile = window.matchMedia('(max-width: 768px)').matches;
+  const perf = this.worldSettings && this.worldSettings.graphics === 'performance';
+  const delay = perf ? 33 : (mobile ? 20 : 0);
+  if (delay > 0) setTimeout(() => requestAnimationFrame(t => this.run(t)), delay);
+  else requestAnimationFrame(t => this.run(t));
 };
 
 
@@ -857,7 +843,7 @@ Game.prototype.assignBuildersTo = function(b, fid, maxBuilders = 2, preferSelect
 
 
 Game.prototype.updateBuildings = function(dt) {
-  this.rebuildBuildingSpatialIndex && this.rebuildBuildingSpatialIndex();
+  if (this._shouldRebuildSpatial || !this.buildingBuckets) this.rebuildBuildingSpatialIndex && this.rebuildBuildingSpatialIndex();
   for (const b of this.buildings) {
     if (b.dead) continue;
     if (b.type === 'tower') this.normalizeTowerStats(b);
@@ -890,12 +876,13 @@ Game.prototype.towerAttack = function(b, dt) {
 };
 
 Game.prototype.updateUnits = function(dt) {
-  this.rebuildUnitSpatialIndex();
+  if (this._shouldRebuildSpatial || !this.unitBuckets) this.rebuildUnitSpatialIndex();
   for (const u of this.units) {
     if (u.dead) continue;
     if (u.garrisoned) { u.garrisoned = null; if (u.order === 'garrison') u.order = 'idle'; }
     u.flash = Math.max(0, u.flash - dt * 4);
     u.cd = Math.max(0, u.cd - dt);
+    u.scanTimer = Math.max(0, (u.scanTimer || 0) - dt);
     u.huntSwing = Math.max(0, (u.huntSwing || 0) - dt);
     u.lastWaterBounce = Math.max(0, (u.lastWaterBounce || 0) - dt);
     const activeMove = u.order === 'move' || u.order === 'attackMove' || (u.order === 'harvest' && !u.gather && !u.huntSwing);
@@ -1090,6 +1077,12 @@ Game.prototype.update = function(dt) {
   if (this.toastTimer > 0) { this.toastTimer -= dt; if (this.toastTimer <= 0) HUD.message.classList.add('hidden'); }
   this.updateCamera(dt);
   if (!this.paused) {
+    this._spatialTimer = (this._spatialTimer || 0) - dt;
+    this._shouldRebuildSpatial = this._spatialTimer <= 0 || !this.unitBuckets || !this.resourceBuckets || !this.buildingBuckets;
+    if (this._shouldRebuildSpatial) {
+      const perf = this.worldSettings && this.worldSettings.graphics === 'performance';
+      this._spatialTimer = perf ? .14 : .08;
+    }
     this.updateBuildings(dt);
     this.updateResources(dt);
     this.updateUnits(dt);
@@ -1098,6 +1091,7 @@ Game.prototype.update = function(dt) {
     this.updateAI(dt);
     this.autosaveIfDue && this.autosaveIfDue(dt);
     this.cleanup();
+    this._shouldRebuildSpatial = false;
   }
   this.uiTimer -= dt;
   if (this.uiDirty || this.uiTimer <= 0) { this.renderUI(); this.uiTimer = .25; this.uiDirty = false; }
@@ -1222,16 +1216,26 @@ Game.prototype.aiHarassEconomy = function(f, idleArmy, diff) {
 // Pass 2: no-garrison spatial index override for old saved worlds.
 Game.prototype.rebuildUnitSpatialIndex = function() {
   const bucketSize = 72;
-  this.unitBuckets = new Map();
   this.unitBucketSize = bucketSize;
+  const buckets = this._unitBucketsArr;
+  for (let i = 0; i < buckets.length; i++) buckets[i].length = 0;
+  this._unitBucketCount = 0;
+  const map = this._unitBucketMap;
+  map.clear();
   for (const u of this.units) {
     if (u.dead) continue;
     if (u.garrisoned) u.garrisoned = null;
-    const key = `${Math.floor(u.x / bucketSize)},${Math.floor(u.y / bucketSize)}`;
-    let list = this.unitBuckets.get(key);
-    if (!list) this.unitBuckets.set(key, list = []);
+    const bx = (u.x / bucketSize) | 0, by = (u.y / bucketSize) | 0;
+    const key = bx * 73856093 ^ by * 19349663;
+    let list = map.get(key);
+    if (!list) {
+      if (this._unitBucketCount < buckets.length) { list = buckets[this._unitBucketCount++]; list.length = 0; }
+      else { list = []; this._unitBucketCount = buckets.push(list); }
+      map.set(key, list);
+    }
     list.push(u);
   }
+  this.unitBuckets = map;
 };
 
 
@@ -1696,7 +1700,10 @@ Game.prototype.updateWorker = function(u, dt) {
   }
 
   this.updateFighter(u, dt);
-  if (u.order === 'idle') this.resumeWorkerRole(u);
+  if (u.order === 'idle' && (u.scanTimer || 0) <= 0) {
+    u.scanTimer = .32 + ((u.id || 0) % 5) * .035;
+    this.resumeWorkerRole(u);
+  }
 };
 
 Game.prototype.isBlocked = function(x, y, u) {

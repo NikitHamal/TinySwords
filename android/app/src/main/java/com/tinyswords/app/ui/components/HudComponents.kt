@@ -49,9 +49,10 @@ fun AssetIcon(assetPath: String, fallbackColor: Color, modifier: Modifier = Modi
 fun ResourcePill(value: String, color: Color, assetPath: String, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
-            .background(GameColors.Panel, RoundedCornerShape(6.dp))
-            .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 3.dp),
+            .widthIn(min = 70.dp)
+            .background(GameColors.Panel.copy(alpha = 0.88f), RoundedCornerShape(5.dp))
+            .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(5.dp))
+            .padding(horizontal = 5.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -62,31 +63,65 @@ fun ResourcePill(value: String, color: Color, assetPath: String, modifier: Modif
         )
         Text(
             text = value,
-            style = GameTypography.Body.copy(fontWeight = FontWeight.Bold, color = Color.White, fontSize = 14.sp),
+            style = GameTypography.Body.copy(fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp),
         )
     }
 }
 
-// ── Top Resource Bar ──
+// ── Top-right Resource Stack ──
 @Composable
 fun ResourceBar(
     wood: Int, gold: Int, food: Int, popUsed: Int, popCap: Int,
     modifier: Modifier = Modifier
 ) {
-    Row(
-        modifier = modifier
-            .padding(6.dp),
-        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    Column(
+        modifier = modifier.padding(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalAlignment = Alignment.End
     ) {
         ResourcePill(wood.toString(), GameColors.WoodColor, "Tiny Swords (Free Pack)/Terrain/Resources/Wood/Wood Resource/Wood Resource.png")
         ResourcePill(gold.toString(), GameColors.GoldColor, "Tiny Swords (Free Pack)/Terrain/Resources/Gold/Gold Resource/Gold_Resource.png")
         ResourcePill(food.toString(), GameColors.FoodColor, "Tiny Swords (Free Pack)/Terrain/Resources/Meat/Meat Resource/Meat Resource.png")
-        ResourcePill("$popUsed/$popCap", GameColors.PopColor, "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_06.png")
+        ResourcePill("$popUsed/$popCap", GameColors.PopColor, "Tiny Swords (Free Pack)/Buildings/Blue Buildings/House1.png")
     }
 }
 
+@Composable
+fun IconCommandButton(
+    text: String,
+    iconPath: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+    isActive: Boolean = false
+) {
+    val bg = when {
+        !enabled -> GameColors.ButtonDisabled
+        isActive -> GameColors.ButtonPressed
+        else -> GameColors.ButtonNormal
+    }
+    Row(
+        modifier = modifier
+            .height(44.dp)
+            .background(bg.copy(alpha = 0.94f), RoundedCornerShape(5.dp))
+            .border(1.dp, if (isActive) GameColors.TextGold else GameColors.ButtonBorder, RoundedCornerShape(5.dp))
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        if (iconPath != null) {
+            AssetIcon(iconPath, GameColors.TextGold, Modifier.size(30.dp))
+        }
+        Column(modifier = Modifier.weight(1f, fill = true)) {
+            Text(text, style = GameTypography.Button.copy(fontSize = 10.sp))
+            if (subtitle != null) Text(subtitle, style = GameTypography.Small.copy(fontSize = 8.sp, color = GameColors.TextSecondary))
+        }
+    }
+}
 
-// ── Quick Selection Strip ──
+// ── Right-side RTS Control Stack ──
 @Composable
 fun QuickControlPanel(
     onWorkers: () -> Unit,
@@ -96,20 +131,21 @@ fun QuickControlPanel(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Row(
+    Column(
         modifier = modifier
-            .horizontalScroll(rememberScrollState())
+            .width(174.dp)
+            .heightIn(max = 300.dp)
+            .verticalScroll(rememberScrollState())
             .background(GameColors.Panel.copy(alpha = 0.78f), RoundedCornerShape(7.dp))
             .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(7.dp))
-            .padding(4.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(5.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        CommandButton("WRK", onClick = onWorkers)
-        CommandButton("ARM", onClick = onArmy)
-        CommandButton("ALL", onClick = onAll)
-        CommandButton("BASE", onClick = onHome)
-        CommandButton("CLR", onClick = onCancel)
+        IconCommandButton("Workers", "Tiny Swords (Free Pack)/Units/Blue Units/Pawn/Pawn_Idle.png", onWorkers, subtitle = "select economy")
+        IconCommandButton("Army", "Tiny Swords (Free Pack)/Units/Blue Units/Warrior/Warrior_Idle.png", onArmy, subtitle = "select fighters")
+        IconCommandButton("All Units", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_01.png", onAll)
+        IconCommandButton("Base", "Tiny Swords (Free Pack)/Buildings/Blue Buildings/Castle.png", onHome)
+        IconCommandButton("Clear", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Buttons/TinyRoundRedButton.png", onCancel)
     }
 }
 
@@ -317,19 +353,21 @@ fun ActionDock(
     val hasBuilding = selected.firstOrNull() is GameBuilding && (selected.first() as GameBuilding).faction == 0
     val hasWorkers = selected.any { it is GameUnit && it.type == "worker" && it.faction == 0 }
 
-    Row(
+    Column(
         modifier = modifier
-            .horizontalScroll(rememberScrollState())
-            .background(GameColors.Panel.copy(alpha = 0.86f), RoundedCornerShape(8.dp))
+            .width(190.dp)
+            .heightIn(max = 360.dp)
+            .verticalScroll(rememberScrollState())
+            .background(GameColors.Panel.copy(alpha = 0.84f), RoundedCornerShape(8.dp))
             .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(8.dp))
-            .padding(5.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(7.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
+        Text("COMMANDS", style = GameTypography.Heading.copy(fontSize = 11.sp, color = GameColors.TextGold))
         if (hasUnits) {
-            CommandButton("ATK", onClick = onAttackMove)
-            CommandButton("STOP", onClick = onStop)
-            CommandButton("HOLD", onClick = onHold)
+            IconCommandButton("Attack Move", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Swords/Swords.png", onAttackMove, subtitle = "engage on path")
+            IconCommandButton("Stop", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Buttons/TinyRoundRedButton.png", onStop)
+            IconCommandButton("Hold", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_05.png", onHold)
 
             val nextFormation = when (formationMode) {
                 "box" -> "line"
@@ -337,22 +375,31 @@ fun ActionDock(
                 "wedge" -> "split"
                 else -> "box"
             }
-            CommandButton("FORM ${formationMode.uppercase().take(3)}", onClick = { onFormation(nextFormation) }, isActive = true)
+            IconCommandButton(
+                "Formation",
+                "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_01.png",
+                { onFormation(nextFormation) },
+                subtitle = formationMode.uppercase(),
+                isActive = true
+            )
 
             if (hasWorkers) {
-                CommandButton("BUILD", onClick = onBuildMenu)
+                IconCommandButton("Build", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_08.png", onBuildMenu, subtitle = "structures")
             }
         }
 
         if (hasBuilding) {
             val building = selected.first() as GameBuilding
             val bdef = BUILDINGS[building.type]
-            if (bdef != null) {
-                for ((idx, unitType) in bdef.trains.withIndex()) {
+            if (bdef != null && bdef.trains.isNotEmpty()) {
+                Text("TRAIN", style = GameTypography.Small.copy(color = GameColors.TextSecondary))
+                for (unitType in bdef.trains) {
                     val udef = UNITS[unitType] ?: continue
-                    CommandButton(
-                        text = "${udef.label.take(4)} ${udef.costGold}G",
-                        onClick = { onTrain(unitType) }
+                    IconCommandButton(
+                        text = udef.label,
+                        iconPath = unitIconPath(unitType),
+                        onClick = { onTrain(unitType) },
+                        subtitle = "${udef.costGold}G ${udef.costWood}W ${udef.costFood}F"
                     )
                 }
             }
@@ -370,60 +417,53 @@ fun BuildMenu(
 ) {
     Column(
         modifier = modifier
-            .background(GameColors.Panel, RoundedCornerShape(8.dp))
+            .width(190.dp)
+            .heightIn(max = 380.dp)
+            .verticalScroll(rememberScrollState())
+            .background(GameColors.Panel.copy(alpha = 0.90f), RoundedCornerShape(8.dp))
             .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(8.dp))
-            .padding(8.dp)
+            .padding(7.dp),
+        verticalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Build",
-                style = GameTypography.Heading
-            )
+            Text("BUILD", style = GameTypography.Heading.copy(fontSize = 11.sp, color = GameColors.TextGold))
             CommandButton("X", onClick = onClose)
         }
-        Spacer(modifier = Modifier.height(6.dp))
 
-        Row(
-            modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            for ((type, bdef) in BUILDINGS) {
-                if (type == "castle") continue // Can't build castles
-                val canAfford = faction.canAfford(bdef.costWood, bdef.costGold, bdef.costFood)
-
-                Column(
-                    modifier = Modifier
-                        .width(80.dp)
-                        .background(
-                            if (canAfford) GameColors.ButtonNormal else GameColors.ButtonDisabled,
-                            RoundedCornerShape(4.dp)
-                        )
-                        .border(1.dp, GameColors.ButtonBorder, RoundedCornerShape(4.dp))
-                        .clickable(enabled = canAfford) { onBuild(type) }
-                        .padding(6.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Text(
-                        text = bdef.label,
-                        style = GameTypography.Button.copy(fontSize = 10.sp)
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "W${bdef.costWood}",
-                        style = GameTypography.Small.copy(color = GameColors.WoodColor, fontSize = 8.sp)
-                    )
-                    Text(
-                        text = "G${bdef.costGold}",
-                        style = GameTypography.Small.copy(color = GameColors.GoldColor, fontSize = 8.sp)
-                    )
-                }
-            }
+        for ((type, bdef) in BUILDINGS) {
+            if (type == "castle") continue
+            val canAfford = faction.canAfford(bdef.costWood, bdef.costGold, bdef.costFood)
+            IconCommandButton(
+                text = bdef.label,
+                iconPath = buildingIconPath(type),
+                onClick = { onBuild(type) },
+                subtitle = "${bdef.costWood}W ${bdef.costGold}G",
+                enabled = canAfford
+            )
         }
     }
+}
+
+private fun unitIconPath(type: String): String = when (type) {
+    "worker" -> "Tiny Swords (Free Pack)/Units/Blue Units/Pawn/Pawn_Idle.png"
+    "warrior" -> "Tiny Swords (Free Pack)/Units/Blue Units/Warrior/Warrior_Idle.png"
+    "archer" -> "Tiny Swords (Free Pack)/Units/Blue Units/Archer/Archer_Idle.png"
+    "lancer" -> "Tiny Swords (Free Pack)/Units/Blue Units/Lancer/Lancer_Idle.png"
+    "monk" -> "Tiny Swords (Free Pack)/Units/Blue Units/Monk/Idle.png"
+    else -> "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_01.png"
+}
+
+private fun buildingIconPath(type: String): String = when (type) {
+    "house" -> "Tiny Swords (Free Pack)/Buildings/Blue Buildings/House1.png"
+    "barracks" -> "Tiny Swords (Free Pack)/Buildings/Blue Buildings/Barracks.png"
+    "archery" -> "Tiny Swords (Free Pack)/Buildings/Blue Buildings/Archery.png"
+    "tower" -> "Tiny Swords (Free Pack)/Buildings/Blue Buildings/Tower.png"
+    "monastery" -> "Tiny Swords (Free Pack)/Buildings/Blue Buildings/Monastery.png"
+    else -> "Tiny Swords (Free Pack)/Buildings/Blue Buildings/Castle.png"
 }
 
 // ── Pause Overlay ──

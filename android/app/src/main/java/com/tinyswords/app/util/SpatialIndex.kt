@@ -4,22 +4,38 @@ import com.tinyswords.app.game.entities.GameEntity
 import kotlin.math.ceil
 import kotlin.math.floor
 
+/**
+ * Allocation-light grid index used by the simulation, renderer and touch hit tests.
+ *
+ * The old rebuild path cleared the map and allocated a new MutableList for every
+ * occupied bucket. On larger worlds this happened many times per second and caused
+ * visible GC spikes on Android. Bucket lists are now pooled and reused across
+ * rebuilds; query APIs keep their reusable result buffer behavior.
+ */
 class SpatialIndex<T : GameEntity>(private val cellSize: Float) {
-    private val buckets = HashMap<Long, MutableList<T>>()
-    private val resultBuffer = ArrayList<T>(64)
+    private val buckets = HashMap<Long, MutableList<T>>(256)
+    private val bucketPool = ArrayList<MutableList<T>>(256)
+    private val resultBuffer = ArrayList<T>(96)
 
     fun clear() {
+        if (buckets.isEmpty()) return
+        for (list in buckets.values) {
+            list.clear()
+            bucketPool.add(list)
+        }
         buckets.clear()
     }
 
     fun insert(entity: T) {
         val key = bucketKey(entity.x, entity.y)
-        buckets.getOrPut(key) { mutableListOf() }.add(entity)
+        val list = buckets.getOrPut(key) { obtainBucket() }
+        list.add(entity)
     }
 
     fun rebuild(entities: List<T>) {
         clear()
-        for (e in entities) {
+        for (i in entities.indices) {
+            val e = entities[i]
             if (!e.dead) insert(e)
         }
     }
@@ -30,8 +46,9 @@ class SpatialIndex<T : GameEntity>(private val cellSize: Float) {
         val by = floor(y / cellSize).toInt()
         for (dy in -radius..radius) {
             for (dx in -radius..radius) {
-                val key = packKey(bx + dx, by + dy)
-                buckets[key]?.let { resultBuffer.addAll(it) }
+                buckets[packKey(bx + dx, by + dy)]?.let { bucket ->
+                    for (i in bucket.indices) resultBuffer.add(bucket[i])
+                }
             }
         }
         return resultBuffer
@@ -51,7 +68,8 @@ class SpatialIndex<T : GameEntity>(private val cellSize: Float) {
         for (by in by0..by1) {
             for (bx in bx0..bx1) {
                 buckets[packKey(bx, by)]?.let { bucket ->
-                    for (entity in bucket) {
+                    for (i in bucket.indices) {
+                        val entity = bucket[i]
                         if (entity.x >= left && entity.x <= right && entity.y >= top && entity.y <= bottom) {
                             out.add(entity)
                         }
@@ -59,6 +77,10 @@ class SpatialIndex<T : GameEntity>(private val cellSize: Float) {
                 }
             }
         }
+    }
+
+    private fun obtainBucket(): MutableList<T> {
+        return if (bucketPool.isNotEmpty()) bucketPool.removeAt(bucketPool.lastIndex) else ArrayList(12)
     }
 
     private fun bucketKey(x: Float, y: Float): Long = packKey(floor(x / cellSize).toInt(), floor(y / cellSize).toInt())

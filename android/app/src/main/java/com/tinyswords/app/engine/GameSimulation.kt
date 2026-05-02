@@ -36,7 +36,7 @@ class GameSimulation(val state: GameState) {
         state.spatialRebuildTimer -= clampedDt
         if (state.spatialRebuildTimer <= 0f) {
             state.rebuildSpatialIndices()
-            state.spatialRebuildTimer = 0.10f
+            state.spatialRebuildTimer = 0.12f
         }
 
         // Update all systems
@@ -133,6 +133,7 @@ class GameSimulation(val state: GameState) {
             u.animTime += dt
             u.cd = max(0f, u.cd - dt)
             u.flash = max(0f, u.flash - dt)
+            u.scanTimer = max(0f, u.scanTimer - dt)
 
             when (u.order) {
                 UnitOrder.IDLE -> updateIdle(u, dt)
@@ -150,12 +151,18 @@ class GameSimulation(val state: GameState) {
         val def = UNITS[u.type] ?: return
 
         if (def.role == "worker") {
-            maybeAutoAssignWorker(u)
+            if (u.scanTimer <= 0f) {
+                u.scanTimer = 0.32f + (u.id % 5) * 0.035f
+                maybeAutoAssignWorker(u)
+            }
             return
         }
 
-        // Auto-acquire targets for military units
-        if (def.role != "worker") {
+        // Auto-acquire targets for military units. This used to scan every unit
+        // every simulation step; staggered scans keep responsiveness while removing
+        // large O(n²) spikes during battles.
+        if (def.role != "worker" && u.scanTimer <= 0f) {
+            u.scanTimer = 0.18f + (u.id % 7) * 0.025f
             val scanRange = if (def.role == "healer") def.range + 50f else 310f
             if (def.role == "healer") {
                 val ally = combat.lowestHurtAlly(u, scanRange)
@@ -314,15 +321,18 @@ class GameSimulation(val state: GameState) {
     private fun updateAttackMove(u: GameUnit, dt: Float) {
         val def = UNITS[u.type] ?: return
 
-        // Check for enemies while moving
-        val scanRange = if (def.role == "ranged") 320f else 200f
-        val enemy = combat.nearestEnemy(u, scanRange, includeBuildings = true)
+        // Check for enemies while moving, but not every fixed step for every unit.
+        if (u.scanTimer <= 0f) {
+            u.scanTimer = 0.14f + (u.id % 6) * 0.025f
+            val scanRange = if (def.role == "ranged") 320f else 200f
+            val enemy = combat.nearestEnemy(u, scanRange, includeBuildings = true)
 
-        if (enemy != null) {
-            u.order = UnitOrder.ATTACK
-            u.target = enemy
-            u.targetId = enemy.id
-            return
+            if (enemy != null) {
+                u.order = UnitOrder.ATTACK
+                u.target = enemy
+                u.targetId = enemy.id
+                return
+            }
         }
 
         // Continue moving to goal
@@ -541,6 +551,7 @@ class GameSimulation(val state: GameState) {
         state.units.removeAll { it.dead }
         state.buildings.removeAll { it.dead }
         state.resources.removeAll { it.dead && it.depleted && !it.isAnimal }
+        state.rebuildEntityIndex()
     }
 
     fun moveToward(unit: GameUnit, targetX: Float, targetY: Float, dt: Float, stopDistance: Float): Boolean {

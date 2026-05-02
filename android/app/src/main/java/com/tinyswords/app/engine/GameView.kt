@@ -102,7 +102,7 @@ class GameView(
     override fun run() {
         val targetFrameNs = 16_666_667L
         val fixedStep = 1f / 60f
-        val maxStepsPerFrame = 3
+        val maxStepsPerFrame = 2
 
         while (running) {
             val frameStart = System.nanoTime()
@@ -187,9 +187,9 @@ class GameView(
     private data class MiniRect(val x: Float, val y: Float, val w: Float, val h: Float)
 
     private fun minimapRect(viewW: Float, viewH: Float): MiniRect {
-        val w = if (minimapExpanded) (viewW * 0.30f).coerceIn(210f, 320f) else (viewW * 0.18f).coerceIn(132f, 220f)
-        val h = (w * 0.68f).coerceIn(90f, if (minimapExpanded) 220f else 150f)
-        return MiniRect(viewW - w - 14f, viewH - h - 14f, w, h)
+        val w = if (minimapExpanded) (viewW * 0.30f).coerceIn(220f, 340f) else (viewW * 0.18f).coerceIn(150f, 220f)
+        val h = (w * 0.68f).coerceIn(96f, if (minimapExpanded) 230f else 150f)
+        return MiniRect(viewW - w - 12f, 12f, w, h)
     }
 
     private fun drawMinimapOverlay(canvas: Canvas, viewW: Float, viewH: Float) {

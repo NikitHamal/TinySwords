@@ -9,11 +9,11 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tinyswords.app.data.SaveSystem
+import com.tinyswords.app.ui.components.AssetIcon
 import com.tinyswords.app.ui.components.CommandButton
 import com.tinyswords.app.ui.theme.GameColors
 import com.tinyswords.app.ui.theme.GameTypography
@@ -27,45 +27,44 @@ fun LoadGameScreen(
     onBack: () -> Unit
 ) {
     var worlds by remember { mutableStateOf(saveSystem.listWorlds()) }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    listOf(Color(0xFF0a1a2a), Color(0xFF1a2a1a))
-                )
-            ),
+    BoxWithConstraints(
+        modifier = Modifier.fillMaxSize().background(RealmMenuBackground()),
         contentAlignment = Alignment.Center
     ) {
+        val compact = maxHeight < 430.dp
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.72f)
-                .widthIn(max = 640.dp)
-                .fillMaxHeight(0.86f)
-                .background(GameColors.Panel, RoundedCornerShape(12.dp))
-                .border(2.dp, GameColors.PanelBorder, RoundedCornerShape(12.dp))
-                .padding(20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+                .fillMaxWidth(if (compact) 0.92f else 0.74f)
+                .widthIn(max = 760.dp)
+                .heightIn(max = maxHeight * 0.88f)
+                .background(GameColors.Panel.copy(alpha = 0.97f), RoundedCornerShape(14.dp))
+                .border(3.dp, GameColors.PanelBorder, RoundedCornerShape(14.dp))
+                .padding(if (compact) 12.dp else 18.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("SAVED REALMS", style = GameTypography.Title.copy(fontSize = 24.sp))
-            Spacer(modifier = Modifier.height(12.dp))
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                AssetIcon("Tiny Swords (Free Pack)/Buildings/Blue Buildings/Castle.png", GameColors.AccentBlue, Modifier.size(if (compact) 38.dp else 50.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("LOAD REALM", style = GameTypography.Title.copy(fontSize = if (compact) 22.sp else 30.sp))
+                    Text("Saved wars, persistent economy and generated maps.", style = GameTypography.Small.copy(color = GameColors.TextSecondary))
+                }
+                Text("${worlds.size}", style = GameTypography.Heading.copy(color = GameColors.TextGold, fontSize = 20.sp))
+            }
 
             if (worlds.isEmpty()) {
                 Box(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .background(Color(0x55000000), RoundedCornerShape(9.dp))
+                        .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(9.dp)),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "No saved worlds yet.\nStart a new game!",
-                        style = GameTypography.Body.copy(color = GameColors.TextSecondary),
-                    )
+                    Text("No saved realms yet. Create a realm first.", style = GameTypography.Body.copy(color = GameColors.TextSecondary))
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
+                LazyColumn(modifier = Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(worlds) { world ->
                         WorldCard(world, onLoad = { onLoad(world.id) }, onDelete = {
                             saveSystem.deleteWorld(world.id)
@@ -74,8 +73,6 @@ fun LoadGameScreen(
                     }
                 }
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
             CommandButton("BACK", onClick = onBack, modifier = Modifier.fillMaxWidth())
         }
     }
@@ -88,34 +85,27 @@ private fun WorldCard(
     onDelete: () -> Unit
 ) {
     val dateFormat = SimpleDateFormat("MMM d, HH:mm", Locale.getDefault())
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(GameColors.ButtonNormal, RoundedCornerShape(6.dp))
-            .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(6.dp))
+            .background(GameColors.ButtonNormal.copy(alpha = 0.96f), RoundedCornerShape(7.dp))
+            .border(1.5.dp, GameColors.ButtonBorder, RoundedCornerShape(7.dp))
             .clickable(onClick = onLoad)
-            .padding(10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(9.dp)
     ) {
+        AssetIcon("Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_01.png", GameColors.TextGold, Modifier.size(34.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = world.name,
-                style = GameTypography.Heading.copy(fontSize = 13.sp)
-            )
-            Text(
-                text = "${world.settings.difficulty.replaceFirstChar { it.uppercase() }} | ${world.settings.size.replaceFirstChar { it.uppercase() }}",
-                style = GameTypography.Small
-            )
-            Text(
-                text = "Played: ${formatTime(world.playTime)} | ${dateFormat.format(Date(world.updatedAt))}",
-                style = GameTypography.Small.copy(color = GameColors.TextSecondary)
-            )
+            Text(world.name, style = GameTypography.Heading.copy(fontSize = 13.sp, color = GameColors.TextGold))
+            Text("${world.settings.difficulty.cap()} · ${world.settings.size.cap()} · ${world.settings.mapStyle.cap()}", style = GameTypography.Small)
+            Text("Played ${formatTime(world.playTime)} · ${dateFormat.format(Date(world.updatedAt))}", style = GameTypography.Small.copy(color = GameColors.TextSecondary))
         }
-
         CommandButton("X", onClick = onDelete)
     }
 }
+
+private fun String.cap(): String = replaceFirstChar { it.uppercase() }
 
 private fun formatTime(seconds: Float): String {
     val mins = (seconds / 60).toInt()

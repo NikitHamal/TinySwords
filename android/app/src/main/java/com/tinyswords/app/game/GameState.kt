@@ -78,6 +78,7 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
     val resourceIndex = SpatialIndex<GameResource>(RESOURCE_BUCKET_SIZE)
     val buildingIndex = SpatialIndex<GameBuilding>(BUILDING_BUCKET_SIZE)
     val decorIndex = SpatialIndex<GameDecor>(DECOR_BUCKET_SIZE)
+    private val entityById = HashMap<Int, GameEntity>(1024)
 
     // Building placement mode
     var placingBuilding: String? = null
@@ -99,7 +100,16 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
         unitIndex.rebuild(units)
         resourceIndex.rebuild(resources)
         buildingIndex.rebuild(buildings)
-        decorIndex.rebuild(decor.filter { it.isSolid })
+        decorIndex.clear()
+        for (d in decor) if (!d.dead && d.isSolid) decorIndex.insert(d)
+        rebuildEntityIndex()
+    }
+
+    fun rebuildEntityIndex() {
+        entityById.clear()
+        for (u in units) if (!u.dead) entityById[u.id] = u
+        for (b in buildings) if (!b.dead) entityById[b.id] = b
+        for (r in resources) if (!r.dead) entityById[r.id] = r
     }
 
     fun isWater(x: Float, y: Float): Boolean {
@@ -140,9 +150,13 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
     }
 
     fun aliveEntity(id: Int): GameEntity? {
-        for (u in units) if (u.id == id && !u.dead) return u
-        for (b in buildings) if (b.id == id && !b.dead) return b
-        for (r in resources) if (r.id == id && !r.dead) return r
+        entityById[id]?.let { if (!it.dead) return it }
+
+        // Newly spawned entities may not have reached the next spatial/index rebuild yet.
+        // Fall back to a direct scan for correctness, then cache the result.
+        for (u in units) if (u.id == id && !u.dead) { entityById[id] = u; return u }
+        for (b in buildings) if (b.id == id && !b.dead) { entityById[id] = b; return b }
+        for (r in resources) if (r.id == id && !r.dead) { entityById[id] = r; return r }
         return null
     }
 }

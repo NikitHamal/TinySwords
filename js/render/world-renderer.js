@@ -15,27 +15,105 @@ Game.prototype.draw = function () {
   this.drawMinimap();
 };
 
+Game.prototype.terrainChunkCacheSeed = function () {
+  return `${this.worldSeed || ''}:${this.landCols || 0}:${this.landRows || 0}:${WORLD_W}:${WORLD_H}:${this.worldSettings?.graphics || 'balanced'}`;
+};
+
+Game.prototype.drawStaticTerrainTile = function (tctx, tx, ty, x, y, cols, rows) {
+  const isLand = tx >= 0 && ty >= 0 && tx < cols && ty < rows && this.landMap && this.landMap[ty * cols + tx] === 1;
+  if (!isLand) {
+    const img = assets.water;
+    if (img) tctx.drawImage(img, 0, 0, 64, 64, x, y, TILE, TILE);
+    else { tctx.fillStyle = '#47aaa6'; tctx.fillRect(x, y, TILE, TILE); }
+    if (assets.waterFoam) {
+      const landN = this.landAtTile(tx, ty - 1), landS = this.landAtTile(tx, ty + 1), landW = this.landAtTile(tx - 1, ty), landE = this.landAtTile(tx + 1, ty);
+      if (landN || landS || landW || landE) {
+        let fsx = 64, fsy = 64;
+        if (landN && !landS && !landW && !landE) { fsx = 64; fsy = 128; }
+        else if (landS && !landN && !landW && !landE) { fsx = 64; fsy = 0; }
+        else if (landW && !landN && !landS && !landE) { fsx = 128; fsy = 64; }
+        else if (landE && !landN && !landS && !landW) { fsx = 0; fsy = 64; }
+        else if (landN && landW) { fsx = 128; fsy = 128; }
+        else if (landN && landE) { fsx = 0; fsy = 128; }
+        else if (landS && landW) { fsx = 128; fsy = 0; }
+        else if (landS && landE) { fsx = 0; fsy = 0; }
+        tctx.globalAlpha = .66;
+        tctx.drawImage(assets.waterFoam, fsx, fsy, 64, 64, x, y, TILE, TILE);
+        tctx.globalAlpha = 1;
+      }
+    }
+    return;
+  }
+
+  const variant = this.groundVariant ? this.groundVariant[ty * this.landCols + tx] : 0;
+  const edge = this.edgeSource(tx, ty);
+  const img = this.getBiomeTile(tx, ty);
+  if (img) tctx.drawImage(img, edge.sx, edge.sy, 64, 64, x, y, TILE, TILE);
+  else { tctx.fillStyle = '#87bd62'; tctx.fillRect(x, y, TILE, TILE); }
+  const dryPatch = !edge.edge && (variant % 24 > 18 || (variant + tx * 7 + ty * 13) % 100 > 84);
+  if (dryPatch) {
+    tctx.fillStyle = 'rgba(244, 239, 141, .09)';
+    tctx.fillRect(x + 8 + (variant % 11), y + 14, 30, 3);
+  }
+};
+
+Game.prototype.getTerrainChunkCanvas = function (cx, cy, chunkTiles) {
+  const seed = this.terrainChunkCacheSeed();
+  if (this._terrainChunkKey !== seed) {
+    this._terrainChunkKey = seed;
+    this._terrainChunkCache = new Map();
+    this._terrainChunkOrder = [];
+  }
+  const key = `${cx},${cy}`;
+  const existing = this._terrainChunkCache.get(key);
+  if (existing) return existing;
+
+  const size = chunkTiles * TILE;
+  const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(size, size) : document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  const tctx = c.getContext('2d', { alpha: false });
+  tctx.imageSmoothingEnabled = false;
+  tctx.fillStyle = '#48aaa8';
+  tctx.fillRect(0, 0, size, size);
+  const cols = this.landCols || Math.ceil(WORLD_W / TILE);
+  const rows = this.landRows || Math.ceil(WORLD_H / TILE);
+  const startTx = cx * chunkTiles;
+  const startTy = cy * chunkTiles;
+  for (let ty = 0; ty < chunkTiles; ty++) {
+    for (let tx = 0; tx < chunkTiles; tx++) {
+      this.drawStaticTerrainTile(tctx, startTx + tx, startTy + ty, tx * TILE, ty * TILE, cols, rows);
+    }
+  }
+  this._terrainChunkCache.set(key, c);
+  this._terrainChunkOrder.push(key);
+  const maxChunks = this.worldSettings?.graphics === 'performance' ? 64 : 112;
+  while (this._terrainChunkOrder.length > maxChunks) {
+    const oldKey = this._terrainChunkOrder.shift();
+    this._terrainChunkCache.delete(oldKey);
+  }
+  return c;
+};
+
 Game.prototype.drawTerrain = function () {
+  const chunkTiles = this.worldSettings?.graphics === 'performance' ? 20 : 16;
   const sx = Math.floor(this.camera.x / TILE) - 2;
   const sy = Math.floor(this.camera.y / TILE) - 2;
   const ex = Math.ceil((this.camera.x + VIEW_W / this.camera.zoom) / TILE) + 2;
   const ey = Math.ceil((this.camera.y + VIEW_H / this.camera.zoom) / TILE) + 2;
-  const cols = this.landCols || Math.ceil(WORLD_W / TILE);
-  const rows = this.landRows || Math.ceil(WORLD_H / TILE);
+  const startChunkX = Math.floor(sx / chunkTiles);
+  const startChunkY = Math.floor(sy / chunkTiles);
+  const endChunkX = Math.floor(ex / chunkTiles);
+  const endChunkY = Math.floor(ey / chunkTiles);
+  const chunkPx = chunkTiles * TILE;
 
   ctx.fillStyle = '#48aaa8';
   ctx.fillRect(this.camera.x - 180, this.camera.y - 180, VIEW_W / this.camera.zoom + 360, VIEW_H / this.camera.zoom + 360);
-
-  // 1. Draw Water
-  for (let ty = sy; ty <= ey; ty++) for (let tx = sx; tx <= ex; tx++) {
-    const x = tx * TILE, y = ty * TILE;
-    if (tx < 0 || ty < 0 || tx >= cols || ty >= rows || !this.landMap || this.landMap[ty * cols + tx] !== 1) this.drawWaterTile(tx, ty, x, y);
-  }
-
-  // 2. Draw Grass
-  for (let ty = sy; ty <= ey; ty++) for (let tx = sx; tx <= ex; tx++) {
-    if (tx < 0 || ty < 0 || tx >= cols || ty >= rows || !this.landMap || this.landMap[ty * cols + tx] !== 1) continue;
-    this.drawGrassGround(tx, ty, tx * TILE, ty * TILE);
+  for (let cy = startChunkY; cy <= endChunkY; cy++) {
+    for (let cx = startChunkX; cx <= endChunkX; cx++) {
+      const c = this.getTerrainChunkCanvas(cx, cy, chunkTiles);
+      ctx.drawImage(c, cx * chunkPx, cy * chunkPx);
+    }
   }
 };
 
@@ -678,6 +756,42 @@ Game.prototype.buildMinimapTerrainCache = function () {
   this.minimapTerrain = c;
 };
 
+Game.prototype.getMinimapEntityLayer = function (w, h) {
+  const key = `${w}x${h}:${this.resources.length}:${this.buildings.length}:${this.units.length}:${this.attackPings ? this.attackPings.length : 0}`;
+  if (this._minimapEntityCanvas && this._minimapEntityKey === key && this.time - this._minimapEntityTime < .16) return this._minimapEntityCanvas;
+  const c = this._minimapEntityCanvas || (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : document.createElement('canvas'));
+  if (c.width !== w) c.width = w;
+  if (c.height !== h) c.height = h;
+  const ec = c.getContext('2d', { alpha: true });
+  ec.imageSmoothingEnabled = false;
+  ec.clearRect(0, 0, w, h);
+  const sx = w / WORLD_W, sy = h / WORLD_H;
+  for (let i = 0; i < this.resources.length; i++) {
+    const r = this.resources[i];
+    if (r.dead) continue;
+    ec.fillStyle = r.type === 'gold' ? '#e8ca4d' : r.type === 'tree' ? '#366f3f' : '#e8a765';
+    ec.fillRect(r.x * sx, r.y * sy, 1.8, 1.8);
+  }
+  for (let i = 0; i < this.buildings.length; i++) {
+    const b = this.buildings[i];
+    if (b.dead) continue;
+    ec.fillStyle = faction(b.faction).color;
+    const bw = b.type === 'castle' ? 6 : 4;
+    ec.fillRect(b.x * sx - 2, b.y * sy - 2, bw, bw);
+  }
+  const unitColors = ['#61b7d9', '#db6060', '#e6ca59', '#b071df', '#aeb3bd'];
+  for (let i = 0; i < this.units.length; i++) {
+    const u = this.units[i];
+    if (u.dead || u.garrisoned) continue;
+    ec.fillStyle = unitColors[u.faction] || '#aeb3bd';
+    ec.fillRect(u.x * sx, u.y * sy, 2, 2);
+  }
+  this._minimapEntityCanvas = c;
+  this._minimapEntityKey = key;
+  this._minimapEntityTime = this.time;
+  return c;
+};
+
 Game.prototype.drawMinimap = function () {
   this.resizeMini();
   const w = mini.width, h = mini.height;
@@ -685,27 +799,9 @@ Game.prototype.drawMinimap = function () {
   if (!this.minimapTerrain) this.buildMinimapTerrainCache();
   if (this.minimapTerrain) mctx.drawImage(this.minimapTerrain, 0, 0, w, h);
   else { mctx.fillStyle = '#1f6773'; mctx.fillRect(0, 0, w, h); }
+  const layer = this.getMinimapEntityLayer(w, h);
+  if (layer) mctx.drawImage(layer, 0, 0);
   const sx = w / WORLD_W, sy = h / WORLD_H;
-  for (let i = 0; i < this.resources.length; i++) {
-    const r = this.resources[i];
-    if (r.dead) continue;
-    mctx.fillStyle = r.type === 'gold' ? '#e8ca4d' : r.type === 'tree' ? '#366f3f' : '#e8a765';
-    mctx.fillRect(r.x * sx, r.y * sy, 1.8, 1.8);
-  }
-  for (let i = 0; i < this.buildings.length; i++) {
-    const b = this.buildings[i];
-    if (b.dead) continue;
-    mctx.fillStyle = faction(b.faction).color;
-    const bw = b.type === 'castle' ? 6 : 4;
-    mctx.fillRect(b.x * sx - 2, b.y * sy - 2, bw, bw);
-  }
-  const unitColors = ['#61b7d9', '#db6060', '#e6ca59', '#b071df', '#aeb3bd'];
-  for (let i = 0; i < this.units.length; i++) {
-    const u = this.units[i];
-    if (u.dead || u.garrisoned) continue;
-    mctx.fillStyle = unitColors[u.faction] || '#aeb3bd';
-    mctx.fillRect(u.x * sx, u.y * sy, 2, 2);
-  }
   for (let i = 0, pLen = this.attackPings ? this.attackPings.length : 0; i < pLen; i++) {
     const p = this.attackPings[i];
     const age = this.time - p.start;

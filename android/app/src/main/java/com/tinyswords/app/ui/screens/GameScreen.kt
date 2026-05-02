@@ -1,13 +1,20 @@
 package com.tinyswords.app.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.tinyswords.app.audio.SoundBank
 import com.tinyswords.app.data.SaveSystem
@@ -15,7 +22,18 @@ import com.tinyswords.app.engine.*
 import com.tinyswords.app.game.*
 import com.tinyswords.app.game.entities.*
 import com.tinyswords.app.ui.components.*
+import com.tinyswords.app.ui.theme.GameColors
+import com.tinyswords.app.ui.theme.GameTypography
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+
+private data class GameBundle(
+    val gameState: GameState,
+    val simulation: GameSimulation,
+    val assetManager: AssetManager,
+    val renderer: GameRenderer
+)
 
 @Composable
 fun GameScreen(
@@ -25,23 +43,68 @@ fun GameScreen(
     soundBank: SoundBank,
     onExit: () -> Unit
 ) {
-    val context = LocalContext.current
+    val appContext = LocalContext.current.applicationContext
+    val loadKey = "${worldId ?: "unsaved"}:${worldSettings.seed}:${worldSettings.size}:${worldSettings.mapStyle}"
+    var bundle by remember(loadKey) { mutableStateOf<GameBundle?>(null) }
+    var loadingStage by remember(loadKey) { mutableStateOf("Preparing realm...") }
+    var loadingProgress by remember(loadKey) { mutableStateOf(0.05f) }
 
-    val gameState = remember(worldId, worldSettings.seed) { GameState(worldSettings) }
-    val simulation = remember(worldId, worldSettings.seed) {
-        GameSimulation(gameState).also { sim ->
-            // Build deterministic terrain/decor first, then overlay saved gameplay
-            // entities. The previous order loaded entities and then regenerated a
-            // fresh world on top of them, which made Load Game appear broken.
-            sim.initialize()
-            if (worldId != null) {
-                val loaded = saveSystem.loadGame(worldId, gameState)
-                if (!loaded) saveSystem.saveGame(worldId, gameState)
-            }
+    LaunchedEffect(loadKey) {
+        bundle = null
+        loadingStage = "Reading world settings"
+        loadingProgress = 0.10f
+        val gameState = GameState(worldSettings)
+        val simulation = GameSimulation(gameState)
+
+        loadingStage = "Generating terrain and paths"
+        loadingProgress = 0.30f
+        withContext(Dispatchers.Default) { simulation.initialize() }
+
+        if (worldId != null) {
+            loadingStage = "Loading saved armies and economy"
+            loadingProgress = 0.55f
+            val loaded = withContext(Dispatchers.IO) { saveSystem.loadGame(worldId, gameState) }
+            if (!loaded) withContext(Dispatchers.IO) { saveSystem.saveGame(worldId, gameState) }
+            withContext(Dispatchers.Default) { gameState.rebuildSpatialIndices() }
         }
+
+        loadingStage = "Warming pixel art assets"
+        loadingProgress = 0.76f
+        val assets = withContext(Dispatchers.Default) { AssetManager(appContext).also { it.preload() } }
+
+        loadingStage = "Opening battlefield"
+        loadingProgress = 0.94f
+        val renderer = GameRenderer(assets)
+        bundle = GameBundle(gameState, simulation, assets, renderer)
     }
-    val assetManager = remember(context) { AssetManager(context).also { it.preload() } }
-    val renderer = remember(assetManager) { GameRenderer(assetManager) }
+
+    val loadedBundle = bundle
+    if (loadedBundle == null) {
+        RealmLoadingScreen(stage = loadingStage, progress = loadingProgress, onCancel = onExit)
+        return
+    }
+
+    ActiveGameScreen(
+        bundle = loadedBundle,
+        worldId = worldId,
+        saveSystem = saveSystem,
+        soundBank = soundBank,
+        onExit = onExit
+    )
+}
+
+@Composable
+private fun ActiveGameScreen(
+    bundle: GameBundle,
+    worldId: String?,
+    saveSystem: SaveSystem,
+    soundBank: SoundBank,
+    onExit: () -> Unit
+) {
+    val gameState = bundle.gameState
+    val simulation = bundle.simulation
+    val renderer = bundle.renderer
+    val assetManager = bundle.assetManager
 
     var gameView by remember { mutableStateOf<GameView?>(null) }
     var selectionVersion by remember { mutableStateOf(0) }
@@ -81,7 +144,7 @@ fun GameScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
@@ -114,7 +177,9 @@ fun GameScreen(
                 food = food,
                 popUsed = popUsed,
                 popCap = popCap,
-                modifier = Modifier.align(Alignment.TopStart)
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 4.dp, end = 236.dp)
             )
 
             val currentSelection = remember(selectionVersion, uiTick) {
@@ -125,20 +190,6 @@ fun GameScreen(
                 modifier = Modifier
                     .align(Alignment.CenterStart)
                     .padding(start = 8.dp)
-            )
-
-            QuickControlPanel(
-                onWorkers = { gameView?.selectAllWorkers() },
-                onArmy = { gameView?.selectAllMilitary() },
-                onAll = { gameView?.selectAllUnits() },
-                onHome = { gameView?.focusPlayerBase() },
-                onCancel = {
-                    showBuildMenu = false
-                    gameView?.cancelPlacement()
-                },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 8.dp, end = 82.dp)
             )
 
             if (currentSelection.isNotEmpty()) {
@@ -169,8 +220,22 @@ fun GameScreen(
                         }
                     },
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 8.dp)
+                        .align(Alignment.TopEnd)
+                        .padding(top = 134.dp, end = 8.dp)
+                )
+            } else {
+                QuickControlPanel(
+                    onWorkers = { gameView?.selectAllWorkers() },
+                    onArmy = { gameView?.selectAllMilitary() },
+                    onAll = { gameView?.selectAllUnits() },
+                    onHome = { gameView?.focusPlayerBase() },
+                    onCancel = {
+                        showBuildMenu = false
+                        gameView?.cancelPlacement()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 134.dp, end = 8.dp)
                 )
             }
 
@@ -183,19 +248,19 @@ fun GameScreen(
                     },
                     onClose = { showBuildMenu = false },
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 64.dp)
+                        .align(Alignment.TopEnd)
+                        .padding(top = 320.dp, end = 8.dp)
                 )
             }
 
             CommandButton(
-                text = "||",
+                text = "II",
                 onClick = {
                     isPaused = true
                     gameView?.pause()
                 },
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
+                    .align(Alignment.TopStart)
                     .padding(8.dp)
             )
         }
@@ -233,6 +298,42 @@ fun GameScreen(
                 },
                 onExit = onExit
             )
+        }
+    }
+}
+
+@Composable
+private fun RealmLoadingScreen(stage: String, progress: Float, onCancel: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    listOf(Color(0xFF07111B), Color(0xFF123327), Color(0xFF1F210B))
+                )
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 430.dp)
+                .fillMaxWidth(0.72f)
+                .background(GameColors.Panel.copy(alpha = 0.96f), RoundedCornerShape(14.dp))
+                .border(2.dp, GameColors.PanelBorder, RoundedCornerShape(14.dp))
+                .padding(22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(13.dp)
+        ) {
+            Text("GENERATING REALM", style = GameTypography.Title.copy(fontSize = 26.sp), textAlign = TextAlign.Center)
+            Text(stage, style = GameTypography.Body.copy(color = GameColors.TextSecondary), textAlign = TextAlign.Center)
+            LinearProgressIndicator(
+                progress = { progress.coerceIn(0f, 1f) },
+                modifier = Modifier.fillMaxWidth().height(10.dp),
+                color = GameColors.TextGold,
+                trackColor = Color(0x66000000)
+            )
+            Text("Terrain, navigation, saved entities and sprites are prepared here before the battlefield opens.", style = GameTypography.Small, textAlign = TextAlign.Center)
+            CommandButton("CANCEL", onClick = onCancel, modifier = Modifier.fillMaxWidth())
         }
     }
 }

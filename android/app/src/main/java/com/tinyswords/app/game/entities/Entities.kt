@@ -65,6 +65,7 @@ class GameUnit : GameEntity() {
     var trafficJam: Float = 0f
     var lastX: Float = 0f
     var lastY: Float = 0f
+    var scanTimer: Float = 0f // Throttles expensive target-acquisition scans.
 
     // Worker
     var workerRole: WorkerRole = WorkerRole.AUTO
