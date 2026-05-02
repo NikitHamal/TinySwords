@@ -66,4 +66,5 @@ target/
 *.Z
 *.lz
 *.lzo
-```
+```app/src/main/assets/
+app/build/

@@ -1,0 +1,43 @@
+name: Android Release Build
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Rename APK with Commit Hash
+        id: rename_apk
+        run: |
+          COMMIT_HASH=$(git rev-parse --short HEAD)
+          APK_PATH=$(find app/build/outputs/apk/release -name "*.apk" | head -n 1)
+          NEW_APK_NAME="tinyswords-release-${COMMIT_HASH}.apk"
+          mv "$APK_PATH" "app/build/outputs/apk/release/$NEW_APK_NAME"
+          echo "apk_path=app/build/outputs/apk/release/$NEW_APK_NAME" >> $GITHUB_ENV
+          echo "apk_name=$NEW_APK_NAME" >> $GITHUB_ENV
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.apk_name }}
+          path: ${{ env.apk_path }}
