@@ -67,3 +67,8 @@ target/
 *.lz
 *.lzo
 ```
+# Android local outputs
+local.properties
+*.apk
+*.aab
+release-apks/

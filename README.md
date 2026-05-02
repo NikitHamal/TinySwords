@@ -4,6 +4,19 @@ A self-contained HTML5 top-down RTS using the uploaded Tiny Swords free asset pa
 
 This build removes the previously generated prop/terrain assets, expands the world substantially, and integrates real animated hunting animals into the economy loop.
 
+
+## Native Android rebuild
+
+This repository now includes a complete native Android game rebuild under `app/`. It is written in Kotlin and Jetpack Compose, renders the original Tiny Swords/CraftPix art as packaged Android assets, and does not use a WebView. See `ANDROID_AUDIT.md` for the audit summary, implementation map, controls, signing, CI, and validation notes.
+
+Local Android build, with an Android SDK available:
+
+```bash
+./gradlew --no-daemon :app:assembleRelease
+```
+
+The release APK is signed with `app/signing/tinyswords-public-release.jks`. The GitHub Actions workflow builds on every push and uploads a renamed APK artifact containing the short commit hash.
+
 ## Run
 
 Open `index.html` in a modern browser. For the cleanest result, run a local static server from this folder and open the localhost URL.
