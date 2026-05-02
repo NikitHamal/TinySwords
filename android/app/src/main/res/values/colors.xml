@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ts_panel_deep">#FF081119</color>
+    <color name="ts_panel">#EB121F23</color>
+    <color name="ts_gold">#FFF2CF63</color>
+    <color name="ts_text">#FFFBFFE7</color>
+    <color name="ts_muted">#FFABC8BD</color>
+    <color name="ts_green">#FF78D777</color>
+    <color name="ts_red">#FFE36B62</color>
+    <color name="ts_water">#FF1F6773</color>
+    <color name="ts_grass">#FF82BB6A</color>
+</resources>

@@ -1,4 +1,3 @@
-```
 # Compiled and build artifacts
 *.pyc
 __pycache__/
@@ -66,4 +65,17 @@ target/
 *.Z
 *.lz
 *.lzo
-```
+
+# Android build outputs
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/captures/
+android/.cxx/
+android/.kotlin/
+
+# IMPORTANT: keystore is intentionally tracked so CI can sign release APKs without
+# additional secrets. The repo is private, so committing the .jks is acceptable.
+!android/keystore/release.jks
+!android/keystore.properties
