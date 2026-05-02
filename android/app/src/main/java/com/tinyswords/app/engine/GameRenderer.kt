@@ -52,9 +52,6 @@ class GameRenderer(private val assets: AssetManager) {
 
     private var minimapTerrain: Bitmap? = null
     private var minimapKey: String = ""
-    private var minimapEntities: Bitmap? = null
-    private var minimapEntitiesKey: String = ""
-    private var minimapEntitiesTime: Float = -99f
 
     private val drawablesBuffer = ArrayList<DrawableEntity>(1536)
     private val drawablePool = ArrayList<DrawableEntity>(1536)
@@ -114,68 +111,30 @@ class GameRenderer(private val assets: AssetManager) {
     }
 
     private fun drawTerrain(canvas: Canvas, state: GameState, left: Float, top: Float, right: Float, bottom: Float) {
-        val worldKey = "${state.landCols}:${state.landRows}:${state.worldW}:${state.worldH}:${state.settings.seed}:${state.landMap.size}"
-        if (worldKey != terrainCacheKey) {
-            clearTerrainChunks()
-            terrainCacheKey = worldKey
-        }
-
         fillPaint.color = Color.rgb(72, 170, 168)
         canvas.drawRect(left - 180f, top - 180f, right + 180f, bottom + 180f, fillPaint)
 
-        val startChunkCol = floor(left / terrainChunkPx).toInt() - 1
-        val endChunkCol = ceil(right / terrainChunkPx).toInt() + 1
-        val startChunkRow = floor(top / terrainChunkPx).toInt() - 1
-        val endChunkRow = ceil(bottom / terrainChunkPx).toInt() + 1
+        val startCol = max(0, floor(left / TILE).toInt() - 1)
+        val endCol = min(state.landCols - 1, ceil(right / TILE).toInt() + 1)
+        val startRow = max(0, floor(top / TILE).toInt() - 1)
+        val endRow = min(state.landRows - 1, ceil(bottom / TILE).toInt() + 1)
 
-        for (chunkRow in startChunkRow..endChunkRow) {
-            for (chunkCol in startChunkCol..endChunkCol) {
-                val bitmap = terrainChunkBitmap(state, chunkCol, chunkRow) ?: continue
-                canvas.drawBitmap(bitmap, (chunkCol * terrainChunkPx).toFloat(), (chunkRow * terrainChunkPx).toFloat(), spritePaint)
-            }
-        }
-    }
-
-    private fun terrainChunkBitmap(state: GameState, chunkCol: Int, chunkRow: Int): Bitmap? {
-        val key = (chunkCol.toLong() shl 32) xor (chunkRow.toLong() and 0xFFFFFFFFL)
-        terrainChunks[key]?.let { if (!it.isRecycled) return it }
-        if (terrainChunkPx <= 0) return null
-        val bitmap = Bitmap.createBitmap(terrainChunkPx, terrainChunkPx, Bitmap.Config.RGB_565)
-        val c = Canvas(bitmap)
-        fillPaint.color = Color.rgb(72, 170, 168)
-        c.drawRect(0f, 0f, terrainChunkPx.toFloat(), terrainChunkPx.toFloat(), fillPaint)
-        val baseCol = chunkCol * terrainChunkTiles
-        val baseRow = chunkRow * terrainChunkTiles
-
-        for (rowOff in 0 until terrainChunkTiles) {
-            for (colOff in 0 until terrainChunkTiles) {
-                val col = baseCol + colOff
-                val row = baseRow + rowOff
+        for (row in startRow..endRow) {
+            for (col in startCol..endCol) {
                 if (!landAtTile(state, col, row)) {
-                    drawWaterTile(c, state, col, row, colOff * TILE, rowOff * TILE)
+                    drawWaterTile(canvas, state, col, row, col * TILE, row * TILE)
                 }
             }
         }
-        for (rowOff in 0 until terrainChunkTiles) {
-            for (colOff in 0 until terrainChunkTiles) {
-                val col = baseCol + colOff
-                val row = baseRow + rowOff
+        for (row in startRow..endRow) {
+            for (col in startCol..endCol) {
                 if (landAtTile(state, col, row)) {
                     val idx = row * state.landCols + col
                     val biome = state.biomeMap.getOrElse(idx) { 0 }.coerceIn(0, 4)
-                    drawGrassTile(c, state, col, row, colOff * TILE, rowOff * TILE, biomeTileKeys[biome])
+                    drawGrassTile(canvas, state, col, row, col * TILE, row * TILE, biomeTileKeys[biome])
                 }
             }
         }
-        terrainChunks[key] = bitmap
-        return bitmap
-    }
-
-    private fun clearTerrainChunks() {
-        for ((_, bitmap) in terrainChunks) {
-            if (!bitmap.isRecycled) bitmap.recycle()
-        }
-        terrainChunks.clear()
     }
 
     private fun landAtTile(state: GameState, col: Int, row: Int): Boolean {
@@ -371,9 +330,8 @@ class GameRenderer(private val assets: AssetManager) {
             val frames = (sprite.width / def.fw).coerceAtLeast(1)
             val fps = unitAnimationFps(unit, key)
             val frame = ((unit.animTime * fps).toInt() % frames).coerceIn(0, frames - 1)
-            if (unit.flash > 0f) spritePaint.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_ATOP)
-            drawAnchoredFrame(canvas, sprite, frame * def.fw, 0, def.fw, def.fh, unit.x, unit.y, scale, unitVisualBaseline(unit.type), unit.face)
-            spritePaint.colorFilter = null
+            val paint = if (unit.flash > 0f) whiteFlashPaint else spritePaint
+            drawAnchoredFrame(canvas, sprite, frame * def.fw, 0, def.fw, def.fh, unit.x, unit.y, scale, unitVisualBaseline(unit.type), unit.face, paint = paint)
         } else {
             fillPaint.color = FACTIONS.getOrNull(unit.faction)?.color ?: Color.BLUE
             canvas.drawCircle(unit.x, unit.y, def.radius, fillPaint)
@@ -385,44 +343,66 @@ class GameRenderer(private val assets: AssetManager) {
     }
 
     private fun getUnitAnimKey(unit: GameUnit, fKey: String): String {
-        return when (unit.type) {
+        val carryingCode = when(unit.carrying) {
+            "wood" -> 1
+            "gold" -> 2
+            "food" -> 3
+            else -> 0
+        }
+        val orderCode = unit.order.ordinal
+        val closeEnough = when (unit.order) {
+            UnitOrder.HARVEST -> {
+                val target = unit.target
+                if (target is GameResource) hypot(unit.x - resourceInteractionX(target), unit.y - resourceInteractionY(target)) <= 30f else false
+            }
+            UnitOrder.ATTACK -> {
+                val target = unit.target
+                if (target != null) hypot(unit.x - target.x, unit.y - target.y) <= ((UNITS[unit.type]?.range ?: 22f) + 8f) else false
+            }
+            UnitOrder.REPAIR -> {
+                val target = unit.target as? GameBuilding
+                if (target != null) isUnitAtBuildingWorkRange(unit, target) else false
+            }
+            else -> false
+        }
+        
+        val stateHash = (unit.type.hashCode().toLong() shl 32) or (carryingCode.toLong() shl 16) or (orderCode.toLong() shl 8) or (if (closeEnough) 1L else 0L)
+        if (unit.spriteStateHash == stateHash && unit.currentSpriteKey != null) {
+            return unit.currentSpriteKey!!
+        }
+        unit.spriteStateHash = stateHash
+
+        val suffix = when (unit.type) {
             "worker" -> {
-                val base = "u_${fKey}_worker"
                 when {
-                    unit.carrying != null && unit.order != UnitOrder.IDLE -> "${base}_carry_${unit.carrying}"
-                    unit.carrying != null -> "${base}_idle_${unit.carrying}"
+                    unit.carrying != null && unit.order != UnitOrder.IDLE -> "carry_${unit.carrying}"
+                    unit.carrying != null -> "idle_${unit.carrying}"
                     unit.order == UnitOrder.HARVEST -> {
                         val target = unit.target
-                        if (target is GameResource) {
-                            val workX = resourceInteractionX(target)
-                            val workY = resourceInteractionY(target)
-                            val closeEnough = hypot(unit.x - workX, unit.y - workY) <= 30f
-                            if (!closeEnough) "${base}_run" else when (target.type) {
-                                ResourceType.TREE -> "${base}_chop"
-                                ResourceType.GOLD -> "${base}_mine"
-                                ResourceType.FOOD -> "${base}_fight"
+                        if (target is GameResource && closeEnough) {
+                            when (target.type) {
+                                ResourceType.TREE -> "chop"
+                                ResourceType.GOLD -> "mine"
+                                ResourceType.FOOD -> "fight"
                             }
-                        } else "${base}_idle"
+                        } else if (target is GameResource) "run" else "idle"
                     }
-                    unit.order == UnitOrder.REPAIR -> {
-                        val target = unit.target as? GameBuilding
-                        if (target != null && isUnitAtBuildingWorkRange(unit, target)) "${base}_build" else "${base}_run"
-                    }
-                    unit.order == UnitOrder.MOVE || unit.order == UnitOrder.ATTACK_MOVE || unit.order == UnitOrder.GARRISON -> "${base}_run"
-                    unit.order == UnitOrder.ATTACK -> {
-                        val target = unit.target
-                        val closeEnough = target != null && hypot(unit.x - target.x, unit.y - target.y) <= ((UNITS[unit.type]?.range ?: 22f) + 8f)
-                        if (closeEnough) "${base}_fight" else "${base}_run"
-                    }
-                    else -> "${base}_idle"
+                    unit.order == UnitOrder.REPAIR -> if (closeEnough) "build" else "run"
+                    unit.order == UnitOrder.MOVE || unit.order == UnitOrder.ATTACK_MOVE || unit.order == UnitOrder.GARRISON -> "run"
+                    unit.order == UnitOrder.ATTACK -> if (closeEnough) "fight" else "run"
+                    else -> "idle"
                 }
             }
-            "warrior" -> "u_${fKey}_warrior_" + unitCombatAnim(unit, "attack")
-            "archer" -> "u_${fKey}_archer_" + unitCombatAnim(unit, "shoot")
-            "lancer" -> "u_${fKey}_lancer_" + unitCombatAnim(unit, "attack")
-            "monk" -> "u_${fKey}_monk_" + unitCombatAnim(unit, "heal")
-            else -> "u_${fKey}_worker_idle"
+            "warrior" -> unitCombatAnim(unit, "attack")
+            "archer" -> unitCombatAnim(unit, "shoot")
+            "lancer" -> unitCombatAnim(unit, "attack")
+            "monk" -> unitCombatAnim(unit, "heal")
+            else -> "idle"
         }
+        
+        val key = "u_${fKey}_${unit.type}_$suffix"
+        unit.currentSpriteKey = key
+        return key
     }
 
     private fun unitCombatAnim(unit: GameUnit, attackAnim: String): String {
@@ -928,10 +908,44 @@ class GameRenderer(private val assets: AssetManager) {
         val terrain = getMinimapTerrain(state, w, h)
         if (terrain != null) canvas.drawBitmap(terrain, 0f, 0f, null) else canvas.drawColor(Color.rgb(20, 51, 64))
 
-        getMinimapEntities(state, w, h)?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-
         val scaleX = mapW / state.worldW
         val scaleY = mapH / state.worldH
+
+        fillPaint.color = Color.rgb(26, 90, 0)
+        for (r in state.resources) {
+            if (r.dead || r.depleted || r.type != ResourceType.TREE) continue
+            val rx = r.x * scaleX; val ry = r.y * scaleY
+            canvas.drawRect(rx - 1f, ry - 1f, rx + 1f, ry + 1f, fillPaint)
+        }
+        fillPaint.color = Color.rgb(212, 160, 23)
+        for (r in state.resources) {
+            if (r.dead || r.depleted || r.type != ResourceType.GOLD) continue
+            val rx = r.x * scaleX; val ry = r.y * scaleY
+            canvas.drawRect(rx - 1.5f, ry - 1.5f, rx + 1.5f, ry + 1.5f, fillPaint)
+        }
+        fillPaint.color = Color.rgb(204, 102, 51)
+        for (r in state.resources) {
+            if (r.dead || r.depleted || r.type != ResourceType.FOOD) continue
+            val rx = r.x * scaleX; val ry = r.y * scaleY
+            canvas.drawRect(rx - 1f, ry - 1f, rx + 1f, ry + 1f, fillPaint)
+        }
+
+        for (f in 0..4) {
+            val fColor = FACTIONS.getOrNull(f)?.color ?: Color.BLUE
+            fillPaint.color = fColor
+            for (b in state.buildings) {
+                if (b.dead || b.faction != f) continue
+                val s = if (b.type == "castle") 4.8f else 3f
+                val bx = b.x * scaleX; val by = b.y * scaleY
+                canvas.drawRect(bx - s, by - s, bx + s, by + s, fillPaint)
+            }
+            for (u in state.units) {
+                if (u.dead || u.garrisoned || u.faction != f) continue
+                val ux = u.x * scaleX; val uy = u.y * scaleY
+                canvas.drawRect(ux - 1.5f, uy - 1.5f, ux + 1.5f, uy + 1.5f, fillPaint)
+            }
+        }
+
         val cam = state.camera
         strokePaint.color = Color.rgb(255, 246, 96)
         strokePaint.strokeWidth = 1.7f
@@ -942,46 +956,6 @@ class GameRenderer(private val assets: AssetManager) {
         val right = (cam.x + visibleW / 2f) * scaleX
         val bottom = (cam.y + visibleH / 2f) * scaleY
         canvas.drawRect(left, top, right, bottom, strokePaint)
-    }
-
-    private fun getMinimapEntities(state: GameState, w: Int, h: Int): Bitmap? {
-        val key = "$w:$h:${state.units.size}:${state.buildings.size}:${state.resources.size}:${state.navVersion}"
-        if (key == minimapEntitiesKey && minimapEntities?.isRecycled == false && state.time - minimapEntitiesTime < 0.16f) {
-            return minimapEntities
-        }
-        if (minimapEntities?.width != w || minimapEntities?.height != h || minimapEntities?.isRecycled != false) {
-            minimapEntities?.recycle()
-            minimapEntities = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        }
-        minimapEntitiesKey = key
-        minimapEntitiesTime = state.time
-        val bitmap = minimapEntities ?: return null
-        val c = Canvas(bitmap)
-        c.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-        val scaleX = w.toFloat() / state.worldW
-        val scaleY = h.toFloat() / state.worldH
-
-        for (r in state.resources) {
-            if (r.dead || r.depleted) continue
-            fillPaint.color = when (r.type) {
-                ResourceType.TREE -> Color.rgb(26, 90, 0)
-                ResourceType.GOLD -> Color.rgb(212, 160, 23)
-                ResourceType.FOOD -> Color.rgb(204, 102, 51)
-            }
-            c.drawCircle(r.x * scaleX, r.y * scaleY, 1.7f, fillPaint)
-        }
-        for (b in state.buildings) {
-            if (b.dead) continue
-            fillPaint.color = FACTIONS.getOrNull(b.faction)?.color ?: Color.BLUE
-            val s = if (b.type == "castle") 4.8f else 3f
-            c.drawRect(b.x * scaleX - s, b.y * scaleY - s, b.x * scaleX + s, b.y * scaleY + s, fillPaint)
-        }
-        for (u in state.units) {
-            if (u.dead || u.garrisoned) continue
-            fillPaint.color = FACTIONS.getOrNull(u.faction)?.color ?: Color.BLUE
-            c.drawCircle(u.x * scaleX, u.y * scaleY, 1.6f, fillPaint)
-        }
-        return bitmap
     }
 
     private fun getMinimapTerrain(state: GameState, w: Int, h: Int): Bitmap? {
@@ -1012,10 +986,8 @@ class GameRenderer(private val assets: AssetManager) {
     fun destroy() {
         minimapTerrain?.recycle()
         minimapTerrain = null
-        minimapEntities?.recycle()
-        minimapEntities = null
-        clearTerrainChunks()
     }
+
     companion object {
         private val SHADOW_UNIT_COLOR = Color.argb(70, 20, 23, 18)
         private val SHADOW_ANIMAL_COLOR = Color.argb(74, 20, 23, 18)
@@ -1023,5 +995,4 @@ class GameRenderer(private val assets: AssetManager) {
         private val SHADOW_BUILDING_COLOR = Color.argb(54, 20, 23, 18)
         private val SHADOW_PROP_COLOR = Color.argb(42, 20, 23, 18)
     }
-
 }

@@ -9,6 +9,8 @@ jobs:
   build:
     name: Build Signed Release APK
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout repository
@@ -21,7 +23,7 @@ jobs:
           distribution: 'temurin'
 
       - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
 
       - name: Grant execute permission for gradlew
         working-directory: android

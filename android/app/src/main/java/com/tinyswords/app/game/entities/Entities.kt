@@ -76,6 +76,9 @@ class GameUnit : GameEntity() {
     // Pop cost
     var pop: Int = 1
 
+    var spriteStateHash: Long = 0L
+    var currentSpriteKey: String? = null
+
     companion object {
         fun create(type: String, factionId: Int, x: Float, y: Float, nextId: () -> Int): GameUnit {
             val def = UNITS[type] ?: UNITS["worker"]!!
