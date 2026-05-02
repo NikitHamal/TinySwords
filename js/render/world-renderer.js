@@ -1,11 +1,11 @@
 // Canvas renderer: terrain, animated water, entities, FX, minimap.
-Game.prototype.draw = function() {
+Game.prototype.draw = function () {
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.fillStyle = '#143340';
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
   ctx.save();
   ctx.scale(this.camera.zoom, this.camera.zoom);
-  ctx.translate(-this.camera.x, -this.camera.y);
+  ctx.translate(Math.round(-this.camera.x), Math.round(-this.camera.y));
   this.drawTerrain();
   this.drawWorldEntities();
   this.drawPlacementGhost();
@@ -15,7 +15,7 @@ Game.prototype.draw = function() {
   this.drawMinimap();
 };
 
-Game.prototype.drawTerrain = function() {
+Game.prototype.drawTerrain = function () {
   const sx = Math.floor(this.camera.x / TILE) - 2;
   const sy = Math.floor(this.camera.y / TILE) - 2;
   const ex = Math.ceil((this.camera.x + VIEW_W / this.camera.zoom) / TILE) + 2;
@@ -26,21 +26,26 @@ Game.prototype.drawTerrain = function() {
   ctx.fillStyle = '#48aaa8';
   ctx.fillRect(this.camera.x - 180, this.camera.y - 180, VIEW_W / this.camera.zoom + 360, VIEW_H / this.camera.zoom + 360);
 
+  // 1. Draw Water
   for (let ty = sy; ty <= ey; ty++) for (let tx = sx; tx <= ex; tx++) {
     const x = tx * TILE, y = ty * TILE;
     if (tx < 0 || ty < 0 || tx >= cols || ty >= rows || !this.landMap || this.landMap[ty * cols + tx] !== 1) this.drawWaterTile(tx, ty, x, y);
   }
+
+  // 2. Draw Grass
   for (let ty = sy; ty <= ey; ty++) for (let tx = sx; tx <= ex; tx++) {
     if (tx < 0 || ty < 0 || tx >= cols || ty >= rows || !this.landMap || this.landMap[ty * cols + tx] !== 1) continue;
     this.drawGrassGround(tx, ty, tx * TILE, ty * TILE);
   }
 };
 
-Game.prototype.landAtTile = function(tx, ty) {
+
+
+Game.prototype.landAtTile = function (tx, ty) {
   return this.landMap && tx >= 0 && ty >= 0 && tx < this.landCols && ty < this.landRows && this.landMap[ty * this.landCols + tx] === 1;
 };
 
-Game.prototype.edgeSource = function(tx, ty) {
+Game.prototype.edgeSource = function (tx, ty) {
   const n = !this.landAtTile(tx, ty - 1), s = !this.landAtTile(tx, ty + 1), w = !this.landAtTile(tx - 1, ty), e = !this.landAtTile(tx + 1, ty);
   if (n && w) return { sx: 0, sy: 0, edge: true, n, s, w, e };
   if (n && e) return { sx: 128, sy: 0, edge: true, n, s, w, e };
@@ -53,19 +58,41 @@ Game.prototype.edgeSource = function(tx, ty) {
   return { sx: 64, sy: 64, edge: false, n, s, w, e };
 };
 
-Game.prototype.drawGrassGround = function(tx, ty, x, y) {
+// Biome system: Voronoi territories based on nearest faction base.
+// Each faction owns a unique grass tileset that reflects their identity.
+// Blue=tileGrass, Red=tileWarm, Yellow=tileAlt, Purple=tileMoss, Black/neutral=tileDeep
+const FACTION_BIOME_KEYS = ['tileGrass', 'tileWarm', 'tileAlt', 'tileMoss', 'tileDeep'];
+const FACTION_BIOME_COLORS = ['#82bb6a', '#c2ba72', '#a8c255', '#6a9060', '#5a9050'];
+const FACTION_BIOME_EDGE_COLORS = ['#6fa75a', '#9a9a5a', '#8aaa45', '#5a8050', '#4e7a48'];
+
+Game.prototype.getNearestFactionIndex = function (tx, ty) {
+  const wx = tx * TILE + TILE * 0.5;
+  const wy = ty * TILE + TILE * 0.5;
+  let nearest = 0, minD2 = Infinity;
+  for (let i = 0; i < FACTIONS.length; i++) {
+    const b = FACTIONS[i].base;
+    const d2 = (wx - b.x) * (wx - b.x) + (wy - b.y) * (wy - b.y);
+    if (d2 < minD2) { minD2 = d2; nearest = i; }
+  }
+  return nearest;
+};
+
+Game.prototype.getBiomeTile = function (tx, ty) {
+  const i = this.getNearestFactionIndex(tx, ty);
+  return assets[FACTION_BIOME_KEYS[i]] || assets.tileGrass;
+};
+
+Game.prototype.getBiomeMinimapColor = function (tx, ty, isEdge) {
+  const i = this.getNearestFactionIndex(tx, ty);
+  return isEdge ? FACTION_BIOME_EDGE_COLORS[i] : FACTION_BIOME_COLORS[i];
+};
+
+Game.prototype.drawGrassGround = function (tx, ty, x, y) {
   const variant = this.groundVariant ? this.groundVariant[ty * this.landCols + tx] : 0;
   const edge = this.edgeSource(tx, ty);
-  const dryPatch = !edge.edge && (variant % 24 > 18 || (variant + tx * 7 + ty * 13) % 100 > 84);
-  const img = dryPatch ? assets.tileWarm : (variant % 5 === 0 ? assets.tileMoss : variant % 5 === 1 ? assets.tileDeep : variant % 5 === 2 ? assets.tileAlt : assets.tileGrass);
-  if (!img && !edge.edge) { ctx.fillStyle = '#87bd62'; ctx.fillRect(x, y, TILE, TILE); return; }
+  const img = this.getBiomeTile(tx, ty);
 
-  if (edge.edge && assets.waterFoam) {
-    const foamFrame = (Math.floor(this.time * 5.4 + ((tx * 31 + ty * 17) & 15)) & 15);
-    ctx.globalAlpha = .68;
-    ctx.drawImage(assets.waterFoam, foamFrame * 192 + edge.sx, edge.sy, 64, 64, x, y, TILE, TILE);
-    ctx.globalAlpha = 1;
-  }
+  if (!img && !edge.edge) { ctx.fillStyle = '#87bd62'; ctx.fillRect(x, y, TILE, TILE); return; }
 
   if (img) {
     ctx.drawImage(img, edge.sx, edge.sy, 64, 64, x, y, TILE, TILE);
@@ -74,17 +101,47 @@ Game.prototype.drawGrassGround = function(tx, ty, x, y) {
     ctx.fillRect(x, y, TILE, TILE);
   }
 
+  // Subtle dry patches on interior warm-biome tiles
+  const dryPatch = !edge.edge && (variant % 24 > 18 || (variant + tx * 7 + ty * 13) % 100 > 84);
   if (!edge.edge && dryPatch) {
-    ctx.fillStyle = 'rgba(244, 239, 141, .10)';
+    ctx.fillStyle = 'rgba(244, 239, 141, .09)';
     ctx.fillRect(x + 8 + (variant % 11), y + 14, 30, 3);
   }
 };
 
-Game.prototype.drawWaterTile = function(tx, ty, x, y) {
+Game.prototype.drawWaterTile = function (tx, ty, x, y) {
   const img = assets.water;
   if (img) ctx.drawImage(img, 0, 0, 64, 64, x, y, TILE, TILE);
   else { ctx.fillStyle = '#47aaa6'; ctx.fillRect(x, y, TILE, TILE); }
 
+  // Animated water foam on shore water tiles.
+  // The waterFoam sheet (3072×192) has 16 frames × 3×3 edge tile grid (192×192 each frame).
+  // Drawn on the water tile, touching the adjacent land.
+  if (assets.waterFoam) {
+    const landN = this.landAtTile(tx, ty - 1);
+    const landS = this.landAtTile(tx, ty + 1);
+    const landW = this.landAtTile(tx - 1, ty);
+    const landE = this.landAtTile(tx + 1, ty);
+    if (landN || landS || landW || landE) {
+      let fsx = 64, fsy = 64;
+      // Invert mapping: if land is North, this water is South of land, so we use South edge foam (sy=128)
+      if (landN && !landS && !landW && !landE) { fsx = 64; fsy = 128; }
+      else if (landS && !landN && !landW && !landE) { fsx = 64; fsy = 0; }
+      else if (landW && !landN && !landS && !landE) { fsx = 128; fsy = 64; }
+      else if (landE && !landN && !landS && !landW) { fsx = 0; fsy = 64; }
+      else if (landN && landW) { fsx = 128; fsy = 128; } // Inner corner SE
+      else if (landN && landE) { fsx = 0; fsy = 128; } // Inner corner SW
+      else if (landS && landW) { fsx = 128; fsy = 0; } // Inner corner NE
+      else if (landS && landE) { fsx = 0; fsy = 0; } // Inner corner NW
+
+      const foamFrame = (Math.floor(this.time * 5.4 + ((tx * 31 + ty * 17) & 15)) & 15);
+      ctx.globalAlpha = .78;
+      ctx.drawImage(assets.waterFoam, foamFrame * 192 + fsx, fsy, 64, 64, x, y, TILE, TILE);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // Subtle interior shimmer
   const n = (tx * 31 + ty * 17 + 731) & 1023;
   if (n < 389) {
     const phase = this.time * 1.35 + tx * .73 + ty * .41;
@@ -102,7 +159,7 @@ Game.prototype.drawWaterTile = function(tx, ty, x, y) {
   }
 };
 
-Game.prototype.drawShoreLines = function(sx, sy, ex, ey) {
+Game.prototype.drawShoreLines = function (sx, sy, ex, ey) {
   if (!this.landMap) return;
   for (let ty = sy; ty <= ey; ty++) for (let tx = sx; tx <= ex; tx++) {
     if (this.landAtTile(tx, ty)) continue;
@@ -120,7 +177,7 @@ Game.prototype.drawShoreLines = function(sx, sy, ex, ey) {
   }
 };
 
-Game.prototype.drawWorldEntities = function() {
+Game.prototype.drawWorldEntities = function () {
   const drawables = [];
   const inView = (x, y, pad = 180) => x > this.camera.x - pad && y > this.camera.y - pad && x < this.camera.x + VIEW_W / this.camera.zoom + pad && y < this.camera.y + VIEW_H / this.camera.zoom + pad;
   for (const d of this.decor) if (inView(d.x, d.y, d.sky ? 360 : 100)) drawables.push({ y: d.sky ? d.y + 900000 : d.y + (d.front ? 6 : -18), kind: 'decor', item: d });
@@ -138,10 +195,10 @@ Game.prototype.drawWorldEntities = function() {
   for (const e of this.effects) if (inView(e.x, e.y, 180)) this.drawEffect(e);
 };
 
-Game.prototype.drawShadow = function(x, y, w, h) {
+Game.prototype.drawShadow = function (x, y, w, h) {
   if (assets.shadow) {
     ctx.globalAlpha = 0.45;
-    ctx.drawImage(assets.shadow, x - w * 1.5, y - h * 1.5, w * 3, h * 3);
+    ctx.drawImage(assets.shadow, Math.round(x - w * 1.5), Math.round(y - h * 1.5), Math.round(w * 3), Math.round(h * 3));
     ctx.globalAlpha = 1;
   } else {
     ctx.fillStyle = 'rgba(0,0,0,.22)';
@@ -150,28 +207,30 @@ Game.prototype.drawShadow = function(x, y, w, h) {
 };
 
 
-Game.prototype.drawSpriteFrameAnchored = function(img, sx, sy, fw, fh, x, baseY, scale, baseline, options = {}) {
+Game.prototype.drawSpriteFrameAnchored = function (img, sx, sy, fw, fh, x, baseY, scale, baseline, options = {}) {
   if (!img) return;
-  const w = fw * scale;
-  const h = fh * scale;
+  const w = Math.round(fw * scale);
+  const h = Math.round(fh * scale);
+  const rx = Math.round(x);
+  const ry = Math.round(baseY);
   const alpha = options.alpha === undefined ? 1 : options.alpha;
   ctx.save();
   ctx.globalAlpha = alpha;
   if (options.flip && options.flip < 0) {
-    ctx.translate(x, baseY);
+    ctx.translate(rx, ry);
     ctx.scale(-1, 1);
-    ctx.drawImage(img, sx, sy, fw, fh, -w / 2, -baseline * scale, w, h);
+    ctx.drawImage(img, sx, sy, fw, fh, Math.round(-w / 2), Math.round(-baseline * scale), w, h);
   } else {
-    ctx.drawImage(img, sx, sy, fw, fh, x - w / 2, baseY - baseline * scale, w, h);
+    ctx.drawImage(img, sx, sy, fw, fh, Math.round(rx - w / 2), Math.round(ry - baseline * scale), w, h);
   }
   ctx.restore();
 };
 
-Game.prototype.drawLandShadow = function(x, y, w, h) {
+Game.prototype.drawLandShadow = function (x, y, w, h) {
   if (w > 0 && h > 0) this.drawShadow(x, y, w, h);
 };
 
-Game.prototype.drawDecor = function(d) {
+Game.prototype.drawDecor = function (d) {
   const img = assets[d.kind];
   if (!img) return;
   const spec = DECOR_SPECS[d.kind] || { fw: img.width, fh: img.height, baseline: img.height, shadow: [12, 4], fps: 0 };
@@ -196,7 +255,7 @@ Game.prototype.drawDecor = function(d) {
   }
 };
 
-Game.prototype.drawHuntAnimal = function(r, moving) {
+Game.prototype.drawHuntAnimal = function (r, moving) {
   const spec = getHuntAnimal(r.animalKind);
   if (!spec) return false;
   const panic = (r.panic || 0) > 0;
@@ -221,14 +280,14 @@ Game.prototype.drawHuntAnimal = function(r, moving) {
     const srows = 4;
     const sfw = shadow.width / sframes;
     const sfh = shadow.height / srows;
-    
+
     // Scale shadow up but cap its width relative to the animal's bounding box
     const sw = sfw * spec.scale * 1.08;
     const sh = sfh * spec.scale * 1.08;
-    
+
     const sFr = fr % sframes;
     const sRow = clamp(r.animalDir || 0, 0, srows - 1);
-    
+
     ctx.globalAlpha = .58;
     // Draw shadow exactly under the baseline without bobbing
     ctx.drawImage(shadow, sFr * sfw, sRow * sfh, sfw, sfh, r.x - sw / 2, r.y + (fh - spec.baseline) * spec.scale - sh / 2, sw, sh);
@@ -245,7 +304,7 @@ Game.prototype.drawHuntAnimal = function(r, moving) {
   return true;
 };
 
-Game.prototype.drawResource = function(r) {
+Game.prototype.drawResource = function (r) {
   const moving = r.type === 'food' && r.animal && Math.hypot(r.vx || 0, r.vy || 0) > 7;
   if (r.type === 'food' && r.animal && this.drawHuntAnimal(r, moving)) return;
   let sprite = assets[r.sprite];
@@ -283,7 +342,7 @@ Game.prototype.drawResource = function(r) {
   if (this.selected.includes(r)) { const p = getResourceInteractionPoint(r); this.drawSelectionCircle(p.x, p.y, getResourceFootprint(r) + 8, '#f5d37d'); }
 };
 
-Game.prototype.getBuildingDrawMetrics = function(b) {
+Game.prototype.getBuildingDrawMetrics = function (b) {
   const def = BUILDINGS[b.type];
   const img = assets[`b_${faction(b.faction).key}_${b.sprite || b.type}`] || assets[`b_${faction(b.faction).key}_${b.type}`];
   if (!img) {
@@ -307,7 +366,7 @@ Game.prototype.getBuildingDrawMetrics = function(b) {
   };
 };
 
-Game.prototype.drawBuilding = function(b) {
+Game.prototype.drawBuilding = function (b) {
   const def = BUILDINGS[b.type];
   const metrics = this.getBuildingDrawMetrics ? this.getBuildingDrawMetrics(b) : (() => {
     const fallbackImg = assets[`b_${faction(b.faction).key}_${b.sprite || b.type}`] || assets[`b_${faction(b.faction).key}_${b.type}`];
@@ -318,7 +377,7 @@ Game.prototype.drawBuilding = function(b) {
   this.drawShadow(b.x, b.y + b.h * .18, b.w * .50, b.h * .18);
   if (img) {
     ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1;
-    ctx.drawImage(img, b.x - metrics.w / 2, metrics.drawY, metrics.w, metrics.h);
+    ctx.drawImage(img, Math.round(b.x - metrics.w / 2), Math.round(metrics.drawY), Math.round(metrics.w), Math.round(metrics.h));
     ctx.globalAlpha = 1;
   } else { ctx.fillStyle = faction(b.faction).color; ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
   if (b.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${b.flash * .25})`; ctx.fillRect(b.x - b.w / 2, b.y - b.h, b.w, b.h); }
@@ -338,16 +397,16 @@ Game.prototype.drawBuilding = function(b) {
       // Animate archer slightly
       const frames = Math.max(1, Math.floor(archerImg.width / fw));
       const fr = Math.floor(this.time * 4) % frames;
-      
+
       // Draw archer on top of tower
-      ctx.drawImage(archerImg, fr * fw, 0, fw, fh, b.x - w / 2 + 2, b.y - b.h + 20, w, h);
+      ctx.drawImage(archerImg, fr * fw, 0, fw, fh, Math.round(b.x - w / 2 + 2), Math.round(b.y - b.h + 20), Math.round(w), Math.round(h));
     }
-    ctx.fillStyle = '#fff4b8'; ctx.font = 'bold 12px monospace'; 
+    ctx.fillStyle = '#fff4b8'; ctx.font = 'bold 12px monospace';
     ctx.fillText(`${b.garrison.length}/2`, b.x - 10, b.y - b.h * .75);
   }
 };
 
-Game.prototype.drawUnit = function(u) {
+Game.prototype.drawUnit = function (u) {
   const f = faction(u.faction);
   const def = UNITS[u.type];
   let anim = 'idle';
@@ -355,7 +414,7 @@ Game.prototype.drawUnit = function(u) {
   if (u.carry && u.order !== 'idle') anim = 'run';
   if (u.order === 'attack' && u.target) anim = dist(u, u.target) > def.range + 8 ? 'run' : 'attack';
   if (u.type === 'worker' && u.order === 'harvest' && !u.carry) anim = (u.gather > 0 || u.huntSwing > 0) ? (u.target && u.target.type === 'gold' ? 'mine' : 'chop') : 'run';
-  if (u.type === 'worker' && u.order === 'repair' && u.target) anim = dist2(u.x, u.y, u.target.x, u.target.y) <= Math.pow(Math.hypot(u.target.w/2, u.target.h/2) + u.r + 8, 2) ? 'build' : 'run';
+  if (u.type === 'worker' && u.order === 'repair' && u.target) anim = dist2(u.x, u.y, u.target.x, u.target.y) <= Math.pow(Math.hypot(u.target.w / 2, u.target.h / 2) + u.r + 8, 2) ? 'build' : 'run';
   if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= def.range + 8) anim = 'fight';
 
   let key = `u_${f.key}_${u.type}_${anim}`;
@@ -377,10 +436,10 @@ Game.prototype.drawUnit = function(u) {
     const w = fw * def.scale * SPRITE_BOOST;
     const h = fh * def.scale * SPRITE_BOOST;
     ctx.save();
-    ctx.translate(u.x, u.y + 7);
+    ctx.translate(Math.round(u.x), Math.round(u.y + 7));
     ctx.scale(u.face, 1);
     ctx.globalAlpha = u.flash > 0 ? .75 : 1;
-    ctx.drawImage(img, frame * fw, 0, fw, fh, -w / 2, -h + 16, w, h);
+    ctx.drawImage(img, frame * fw, 0, fw, fh, Math.round(-w / 2), Math.round(-h + 16), Math.round(w), Math.round(h));
     ctx.globalAlpha = 1;
     ctx.restore();
   } else {
@@ -392,18 +451,18 @@ Game.prototype.drawUnit = function(u) {
   if (u.hp < u.maxHp) this.drawHpBar(u.x, u.y - (def.fh * def.scale * SPRITE_BOOST) + 8, u.hp / u.maxHp, u.faction, 36);
 };
 
-Game.prototype.drawProjectile = function(p) {
+Game.prototype.drawProjectile = function (p) {
   const f = faction(p.faction);
   const img = assets[`${f.key}Arrow`] || assets.blueArrow;
   const target = p.target || p;
   const a = Math.atan2((target.y - 20) - p.y, target.x - p.x);
   ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(a);
   if (img) ctx.drawImage(img, -10, -5, 28, 10);
-  else { ctx.strokeStyle = '#f4e7a8'; ctx.beginPath(); ctx.moveTo(-8,0); ctx.lineTo(10,0); ctx.stroke(); }
+  else { ctx.strokeStyle = '#f4e7a8'; ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(10, 0); ctx.stroke(); }
   ctx.restore();
 };
 
-Game.prototype.drawEffect = function(e) {
+Game.prototype.drawEffect = function (e) {
   const t = clamp(e.time / e.max, 0, 1);
   if (e.kind === 'move' || e.kind === 'attack' || e.kind === 'flag') {
     ctx.strokeStyle = e.kind === 'attack' ? `rgba(255,95,80,${t})` : `rgba(246,218,116,${t})`;
@@ -431,18 +490,18 @@ Game.prototype.drawEffect = function(e) {
   }
 };
 
-Game.prototype.drawSelectionCircle = function(x, y, r, color) {
+Game.prototype.drawSelectionCircle = function (x, y, r, color) {
   if (assets.cursorSelect) {
     const w = r * 2.2, h = r * 1.5;
     const cw = 42, ch = 42; // Source size for corners
     // Ensure corners don't overlap by limiting their dest size
     const dw = Math.min(32, w / 2 - 1);
     const dh = Math.min(32, h / 2 - 1);
-    const left = x - w/2;
-    const right = x + w/2;
-    const top = y - h/2 + 4;
-    const bottom = y + h/2 + 4;
-    
+    const left = x - w / 2;
+    const right = x + w / 2;
+    const top = y - h / 2 + 4;
+    const bottom = y + h / 2 + 4;
+
     // Top-left
     ctx.drawImage(assets.cursorSelect, 0, 0, cw, ch, left, top, dw, dh);
     // Top-right
@@ -456,31 +515,31 @@ Game.prototype.drawSelectionCircle = function(x, y, r, color) {
   }
 };
 
-Game.prototype.drawSelectionRect = function(x, y, w, h, color, footprintOnly = false) {
+Game.prototype.drawSelectionRect = function (x, y, w, h, color, footprintOnly = false) {
   if (assets.cursorSelect) {
     const cw = 42, ch = 42;
     const padding = 4;
-    
+
     let left, right, top, bottom;
     if (footprintOnly) {
       // Draw around the base of the building, not the entire height
       const footprintH = h * 0.45;
-      left = x - w/2 - padding;
-      right = x + w/2 + padding;
-      top = y + h/2 - footprintH - padding;
-      bottom = y + h/2 + padding;
+      left = x - w / 2 - padding;
+      right = x + w / 2 + padding;
+      top = y + h / 2 - footprintH - padding;
+      bottom = y + h / 2 + padding;
     } else {
-      left = x - w/2 - padding;
-      right = x + w/2 + padding;
-      top = y - h/2 - padding;
-      bottom = y + h/2 + padding;
+      left = x - w / 2 - padding;
+      right = x + w / 2 + padding;
+      top = y - h / 2 - padding;
+      bottom = y + h / 2 + padding;
     }
-    
+
     const boxW = right - left;
     const boxH = bottom - top;
     const dw = Math.min(32, boxW / 2 - 1);
     const dh = Math.min(32, boxH / 2 - 1);
-    
+
     ctx.drawImage(assets.cursorSelect, 0, 0, cw, ch, left, top, dw, dh);
     ctx.drawImage(assets.cursorSelect, 128 - cw, 0, cw, ch, right - dw, top, dw, dh);
     ctx.drawImage(assets.cursorSelect, 0, 128 - ch, cw, ch, left, bottom - dh, dw, dh);
@@ -490,7 +549,7 @@ Game.prototype.drawSelectionRect = function(x, y, w, h, color, footprintOnly = f
   }
 };
 
-Game.prototype.drawTowerRange = function(b) {
+Game.prototype.drawTowerRange = function (b) {
   const r = BUILDINGS.tower.range;
   ctx.save();
   ctx.globalAlpha = .16;
@@ -510,12 +569,12 @@ Game.prototype.drawTowerRange = function(b) {
 };
 
 
-Game.prototype.drawHpBar = function(x, y, pct, fid, width = 58) {
+Game.prototype.drawHpBar = function (x, y, pct, fid, width = 58) {
   pct = clamp(pct, 0, 1);
   if (assets.uiBarBase && assets.uiBarFill) {
     const w = width, h = 12;
     ctx.drawImage(assets.uiBarBase, x - w / 2, y, w, h);
-    
+
     // Draw fill relative to pct. SmallBar_Fill is 64x64, but we stretch it to fit the inside of the base
     const fillWidth = Math.max(0.1, (w - 6) * pct); // 3px padding on each side
     if (fillWidth > 0) {
@@ -538,18 +597,18 @@ Game.prototype.drawHpBar = function(x, y, pct, fid, width = 58) {
   }
 };
 
-Game.prototype.drawProgress = function(x, y, pct, color) {
+Game.prototype.drawProgress = function (x, y, pct, color) {
   ctx.fillStyle = 'rgba(0,0,0,.65)'; ctx.fillRect(x - 32, y, 64, 6);
   ctx.fillStyle = color; ctx.fillRect(x - 31, y + 1, 62 * clamp(pct, 0, 1), 4);
 };
 
-Game.prototype.drawRallyFlag = function(x, y, color) {
+Game.prototype.drawRallyFlag = function (x, y, color) {
   ctx.strokeStyle = '#0b111c'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - 38); ctx.stroke();
   ctx.strokeStyle = color; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - 38); ctx.stroke();
   ctx.fillStyle = color; ctx.beginPath(); ctx.moveTo(x + 2, y - 38); ctx.lineTo(x + 34, y - 30); ctx.lineTo(x + 2, y - 22); ctx.closePath(); ctx.fill();
 };
 
-Game.prototype.drawPlacementGhost = function() {
+Game.prototype.drawPlacementGhost = function () {
   if (!this.placing) return;
   const type = this.placing;
   const def = BUILDINGS[type];
@@ -558,7 +617,7 @@ Game.prototype.drawPlacementGhost = function() {
   this.drawBuildingGhost(type, this.pointer.wx, this.pointer.wy, ok, ok ? '' : (issue || 'Not enough resources.'));
 };
 
-Game.prototype.drawBuildingDragGhost = function() {
+Game.prototype.drawBuildingDragGhost = function () {
   const drag = this.dragBuilding;
   if (!drag || !drag.active || !drag.building) return;
   const b = drag.building;
@@ -568,7 +627,7 @@ Game.prototype.drawBuildingDragGhost = function() {
   this.drawBuildingGhost(b.type, x, y, !issue, issue || 'Release to move');
 };
 
-Game.prototype.drawBuildingGhost = function(type, x, y, ok, label = '') {
+Game.prototype.drawBuildingGhost = function (type, x, y, ok, label = '') {
   const def = BUILDINGS[type];
   const footprint = getBuildingFootprintRect(type, x, y, 0);
   ctx.save();
@@ -601,7 +660,7 @@ Game.prototype.drawBuildingGhost = function(type, x, y, ok, label = '') {
   ctx.restore();
 };
 
-Game.prototype.drawScreenOverlays = function() {
+Game.prototype.drawScreenOverlays = function () {
   if (this.pointer.down && this.pointer.dragging && !this.dragBuilding) {
     const x = Math.min(this.pointer.startX, this.pointer.x), y = Math.min(this.pointer.startY, this.pointer.y);
     const w = Math.abs(this.pointer.x - this.pointer.startX), h = Math.abs(this.pointer.y - this.pointer.startY);
@@ -614,7 +673,7 @@ Game.prototype.drawScreenOverlays = function() {
   }
 };
 
-Game.prototype.buildMinimapTerrainCache = function() {
+Game.prototype.buildMinimapTerrainCache = function () {
   const w = 512, h = 360;
   const c = typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : document.createElement('canvas');
   c.width = w;
@@ -628,7 +687,8 @@ Game.prototype.buildMinimapTerrainCache = function() {
     for (let ty = 0; ty < rows; ty++) {
       for (let tx = 0; tx < cols; tx++) {
         if (this.landMap[ty * cols + tx] !== 1) continue;
-        mc.fillStyle = this.groundVariant && this.groundVariant[ty * cols + tx] >= 40 ? '#79a964' : '#6fa75a';
+        const isEdge = this.groundVariant && this.groundVariant[ty * cols + tx] >= 40;
+        mc.fillStyle = this.getBiomeMinimapColor ? this.getBiomeMinimapColor(tx, ty, isEdge) : (isEdge ? '#79a964' : '#6fa75a');
         mc.fillRect(Math.floor(tx / cols * w), Math.floor(ty / rows * h), cw, ch);
       }
     }
@@ -636,7 +696,7 @@ Game.prototype.buildMinimapTerrainCache = function() {
   this.minimapTerrain = c;
 };
 
-Game.prototype.drawMinimap = function() {
+Game.prototype.drawMinimap = function () {
   this.resizeMini();
   const w = mini.width, h = mini.height;
   if (!w || !h) return;
@@ -652,7 +712,7 @@ Game.prototype.drawMinimap = function() {
 
 
 // Pass 2: selected ranges, construction-only foundation bar, built-in tower archer rendering, minimap attack pings.
-Game.prototype.drawWorldEntities = function() {
+Game.prototype.drawWorldEntities = function () {
   this.drawSelectedRanges && this.drawSelectedRanges();
   const drawables = [];
   const inView = (x, y, pad = 180) => x > this.camera.x - pad && y > this.camera.y - pad && x < this.camera.x + VIEW_W / this.camera.zoom + pad && y < this.camera.y + VIEW_H / this.camera.zoom + pad;
@@ -671,7 +731,7 @@ Game.prototype.drawWorldEntities = function() {
   for (const e of this.effects) if (inView(e.x, e.y, 180)) this.drawEffect(e);
 };
 
-Game.prototype.drawRangeCircle = function(x, y, r, color) {
+Game.prototype.drawRangeCircle = function (x, y, r, color) {
   if (!r || r <= 0) return;
   ctx.save();
   ctx.globalAlpha = .12; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
@@ -679,22 +739,22 @@ Game.prototype.drawRangeCircle = function(x, y, r, color) {
   ctx.restore();
 };
 
-Game.prototype.drawSelectedRanges = function() {
+Game.prototype.drawSelectedRanges = function () {
   for (const e of this.selected.filter(isAlive)) {
     if (e.entity === 'building' && e.type === 'tower') this.drawRangeCircle(e.x, e.y, BUILDINGS.tower.range, faction(e.faction).color);
     if (e.entity === 'unit') this.drawRangeCircle(e.x, e.y, UNITS[e.type].range, faction(e.faction).color);
   }
 };
 
-Game.prototype.drawTowerRange = function(b) { this.drawRangeCircle(b.x, b.y, BUILDINGS.tower.range, faction(b.faction).color); };
+Game.prototype.drawTowerRange = function (b) { this.drawRangeCircle(b.x, b.y, BUILDINGS.tower.range, faction(b.faction).color); };
 
-Game.prototype.drawBuilding = function(b) {
+Game.prototype.drawBuilding = function (b) {
   const def = BUILDINGS[b.type];
   if (b.type === 'tower' && this.normalizeTowerStats) this.normalizeTowerStats(b);
   const metrics = this.getBuildingDrawMetrics ? this.getBuildingDrawMetrics(b) : (() => { const fallbackImg = assets[`b_${faction(b.faction).key}_${b.sprite || b.type}`] || assets[`b_${faction(b.faction).key}_${b.type}`]; return { img: fallbackImg, w: b.w, h: b.h, drawY: b.y - b.h / 2, barY: b.y - b.h * 1.02 }; })();
   const img = metrics.img;
   this.drawShadow(b.x, b.y + b.h * .18, b.w * .50, b.h * .18);
-  if (img) { ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1; ctx.drawImage(img, b.x - metrics.w / 2, metrics.drawY, metrics.w, metrics.h); ctx.globalAlpha = 1; }
+  if (img) { ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1; ctx.drawImage(img, Math.round(b.x - metrics.w / 2), Math.round(metrics.drawY), Math.round(metrics.w), Math.round(metrics.h)); ctx.globalAlpha = 1; }
   else { ctx.fillStyle = faction(b.faction).color; ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
   if (b.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${b.flash * .25})`; ctx.fillRect(b.x - b.w / 2, b.y - b.h, b.w, b.h); }
   if (b.build < 1) this.drawProgress(b.x, metrics.barY + 5, b.build, '#e8c965');
@@ -715,7 +775,7 @@ Game.prototype.drawBuilding = function(b) {
   }
 };
 
-Game.prototype.drawUnit = function(u) {
+Game.prototype.drawUnit = function (u) {
   const f = faction(u.faction);
   const def = UNITS[u.type];
   let anim = 'idle';
@@ -743,12 +803,12 @@ Game.prototype.drawUnit = function(u) {
     const frame = Math.floor(u.anim) % frames;
     const w = fw * def.scale * SPRITE_BOOST;
     const h = fh * def.scale * SPRITE_BOOST;
-    ctx.save(); ctx.translate(u.x, u.y + 7); ctx.scale(u.face, 1); ctx.globalAlpha = u.flash > 0 ? .75 : 1; ctx.drawImage(img, frame * fw, 0, fw, fh, -w / 2, -h + 16, w, h); ctx.globalAlpha = 1; ctx.restore();
+    ctx.save(); ctx.translate(Math.round(u.x), Math.round(u.y + 7)); ctx.scale(u.face, 1); ctx.globalAlpha = u.flash > 0 ? .75 : 1; ctx.drawImage(img, frame * fw, 0, fw, fh, Math.round(-w / 2), Math.round(-h + 16), Math.round(w), Math.round(h)); ctx.globalAlpha = 1; ctx.restore();
   } else { ctx.fillStyle = f.color; ctx.beginPath(); ctx.arc(u.x, u.y, u.r, 0, Math.PI * 2); ctx.fill(); }
   if (u.hp < u.maxHp) this.drawHpBar(u.x, u.y - (def.fh * def.scale * SPRITE_BOOST) + 8, u.hp / u.maxHp, u.faction, 36);
 };
 
-Game.prototype.drawMinimap = function() {
+Game.prototype.drawMinimap = function () {
   this.resizeMini();
   const w = mini.width, h = mini.height;
   if (!w || !h) return;
@@ -790,7 +850,7 @@ Game.prototype.drawMinimap = function() {
 
 // Pass 3: sprite-foot anchoring. Lancer sheets are painted high in their 320px frames, so the
 // unit is drawn lower while keeping the logical hit/selection point at the feet.
-Game.prototype.drawUnit = function(u) {
+Game.prototype.drawUnit = function (u) {
   const f = faction(u.faction);
   const def = UNITS[u.type];
   let anim = 'idle';
@@ -824,17 +884,17 @@ Game.prototype.drawUnit = function(u) {
     const drawYOffset = def.drawYOffset || 0;
     if (u.flash > 0) {
       ctx.save();
-      ctx.translate(u.x, u.y + 7 + drawYOffset);
+      ctx.translate(Math.round(u.x), Math.round(u.y + 7 + drawYOffset));
       ctx.scale(u.face, 1);
       ctx.globalAlpha = .75;
-      ctx.drawImage(img, frame * fw, 0, fw, fh, -w / 2, -h + 16, w, h);
+      ctx.drawImage(img, frame * fw, 0, fw, fh, Math.round(-w / 2), Math.round(-h + 16), Math.round(w), Math.round(h));
       ctx.globalAlpha = 1;
       ctx.restore();
     } else if (u.face < 0) {
       ctx.save();
-      ctx.translate(u.x, u.y + 7 + drawYOffset);
+      ctx.translate(Math.round(u.x), Math.round(u.y + 7 + drawYOffset));
       ctx.scale(-1, 1);
-      ctx.drawImage(img, frame * fw, 0, fw, fh, -w / 2, -h + 16, w, h);
+      ctx.drawImage(img, frame * fw, 0, fw, fh, Math.round(-w / 2), Math.round(-h + 16), Math.round(w), Math.round(h));
       ctx.restore();
     } else {
       ctx.drawImage(img, frame * fw, 0, fw, fh, u.x - w / 2, u.y + 7 + drawYOffset - h + 16, w, h);
