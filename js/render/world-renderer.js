@@ -703,11 +703,36 @@ Game.prototype.drawMinimap = function () {
   if (!this.minimapTerrain) this.buildMinimapTerrainCache();
   if (this.minimapTerrain) mctx.drawImage(this.minimapTerrain, 0, 0, w, h);
   else { mctx.fillStyle = '#1f6773'; mctx.fillRect(0, 0, w, h); }
-  for (const r of this.resources) if (!r.dead) { mctx.fillStyle = r.type === 'gold' ? '#e8ca4d' : r.type === 'tree' ? '#366f3f' : '#e8a765'; mctx.fillRect(r.x / WORLD_W * w, r.y / WORLD_H * h, 1.8, 1.8); }
-  for (const b of this.buildings) if (!b.dead) { mctx.fillStyle = faction(b.faction).color; mctx.fillRect(b.x / WORLD_W * w - 2, b.y / WORLD_H * h - 2, b.type === 'castle' ? 6 : 4, b.type === 'castle' ? 6 : 4); }
-  for (const u of this.units) if (!u.dead && !u.garrisoned) { mctx.fillStyle = faction(u.faction).color; mctx.fillRect(u.x / WORLD_W * w, u.y / WORLD_H * h, 2, 2); }
+  // Use precomputed scale factors for better performance
+  const sx = w / WORLD_W, sy = h / WORLD_H;
+  for (const r of this.resources) {
+    if (r.dead) continue;
+    mctx.fillStyle = r.type === 'gold' ? '#e8ca4d' : r.type === 'tree' ? '#366f3f' : '#e8a765';
+    mctx.fillRect(r.x * sx, r.y * sy, 1.8, 1.8);
+  }
+  for (const b of this.buildings) {
+    if (b.dead) continue;
+    mctx.fillStyle = faction(b.faction).color;
+    const bw = b.type === 'castle' ? 6 : 4;
+    mctx.fillRect(b.x * sx - 2, b.y * sy - 2, bw, bw);
+  }
+  // Cache unit colors to avoid repeated lookups
+  const unitColors = ['#61b7d9', '#db6060', '#e6ca59', '#b071df', '#aeb3bd'];
+  for (const u of this.units) {
+    if (u.dead || u.garrisoned) continue;
+    mctx.fillStyle = unitColors[u.faction] || '#aeb3bd';
+    mctx.fillRect(u.x * sx, u.y * sy, 2, 2);
+  }
+  // Draw attack pings
+  for (let i = 0, pLen = this.attackPings ? this.attackPings.length : 0; i < pLen; i++) {
+    const p = this.attackPings[i];
+    const age = this.time - p.start;
+    const t = clamp(1 - age / Math.max(.1, p.until - p.start), 0, 1);
+    mctx.strokeStyle = `rgba(255,93,70,${t})`; mctx.lineWidth = 2;
+    mctx.beginPath(); mctx.arc(p.x * sx, p.y * sy, 4 + age * 4, 0, Math.PI * 2); mctx.stroke();
+  }
   mctx.strokeStyle = '#fff3bd'; mctx.lineWidth = 1.5;
-  mctx.strokeRect(this.camera.x / WORLD_W * w, this.camera.y / WORLD_H * h, (VIEW_W / this.camera.zoom) / WORLD_W * w, (VIEW_H / this.camera.zoom) / WORLD_H * h);
+  mctx.strokeRect(this.camera.x * sx, this.camera.y * sy, (VIEW_W / this.camera.zoom) * sx, (VIEW_H / this.camera.zoom) * sy);
 };
 
 
