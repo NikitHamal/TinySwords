@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Background circle -->
+    <path
+        android:fillColor="#2a5a3a"
+        android:pathData="M54,54m-40,0a40,40 0,1 1,80 0a40,40 0,1 1,-80 0" />
+    <!-- Sword -->
+    <path
+        android:fillColor="#e6ca59"
+        android:pathData="M54,24L58,48L54,52L50,48Z" />
+    <!-- Crossguard -->
+    <path
+        android:fillColor="#8a7050"
+        android:pathData="M44,46L64,46L64,50L44,50Z" />
+    <!-- Handle -->
+    <path
+        android:fillColor="#6a4a30"
+        android:pathData="M52,50L56,50L56,62L52,62Z" />
+    <!-- Pommel -->
+    <path
+        android:fillColor="#e6ca59"
+        android:pathData="M50,62L58,62L58,66L50,66Z" />
+    <!-- Shield -->
+    <path
+        android:fillColor="#61b7d9"
+        android:pathData="M54,68C54,68 40,74 40,82C40,82 54,88 54,88C54,88 68,82 68,82C68,74 54,68 54,68Z" />
+</vector>

@@ -1,0 +1,4 @@
+-keepclassmembers class com.tinyswords.app.data.** { *; }
+-keep class com.google.gson.** { *; }
+-keepattributes Signature
+-keepattributes *Annotation*
