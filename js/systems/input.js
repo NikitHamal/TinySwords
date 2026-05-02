@@ -173,7 +173,8 @@ Game.prototype.makeButton = function({ className = 'command', icon, title, sub, 
     const b = document.createElement('button');
     b.className = className + (disabled ? ' disabled' : '');
     b.type = 'button';
-    b.innerHTML = `<img src="${IMAGE_PATHS[icon] || IMAGE_PATHS.iconMove}" alt=""><span class="txt"><b>${title}</b><span>${sub || ''}</span></span>`;
+    const isSprite = icon && (icon.startsWith('res') || ['iconWorker', 'iconWarrior', 'iconArcher', 'iconLancer', 'iconMonk'].includes(icon));
+    b.innerHTML = `<img src="${IMAGE_PATHS[icon] || IMAGE_PATHS.iconMove}" class="${isSprite ? 'sprite-icon' : ''}" alt=""><span class="txt"><b>${title}</b><span>${sub || ''}</span></span>`;
     b.addEventListener('click', () => { if (b.classList.contains('disabled')) { this.sfx.deny(); return; } this.sfx.click(); onClick && onClick(); });
     return b;
 };
@@ -183,7 +184,8 @@ Game.prototype.makeAction = function(hotkey, title, sub, icon, onClick, disabled
     b.className = 'command' + (disabled ? ' disabled' : '');
     b.type = 'button';
     if (hotkey) b.dataset.hotkey = hotkey.toLowerCase();
-    b.innerHTML = `<img src="${IMAGE_PATHS[icon] || IMAGE_PATHS.iconMove}" alt=""><span class="txt"><b>${title}</b><span>${sub || ''}</span></span>`;
+    const isSprite = icon && (icon.startsWith('res') || ['iconWorker', 'iconWarrior', 'iconArcher', 'iconLancer', 'iconMonk'].includes(icon));
+    b.innerHTML = `<img src="${IMAGE_PATHS[icon] || IMAGE_PATHS.iconMove}" class="${isSprite ? 'sprite-icon' : ''}" alt=""><span class="txt"><b>${title}</b><span>${sub || ''}</span></span>`;
     b.addEventListener('click', () => { if (b.classList.contains('disabled')) { this.sfx.deny(); return; } this.sfx.click(); onClick && onClick(); });
     return b;
 };
@@ -298,10 +300,18 @@ Game.prototype.contextOrder = function(x, y) {
     const ownUnits = this.selected.filter(e => e.entity === 'unit' && e.faction === 0 && !e.garrisoned);
     if (ownBuildings.length && (!target || (target.entity !== 'resource' && target.entity !== 'decor' && !(target.kind && !target.entity)))) {
       const rally = this.nearestLandPoint(x, y, 320) || { x, y };
-      for (const b of ownBuildings) b.rally = { x: rally.x, y: rally.y };
-      this.effects.push({ kind: 'flag', x: rally.x, y: rally.y, time: 1.2, max: 1.2 });
-      this.toast('Rally flag set.', 1.1);
-      this.sfx.click();
+      let setRally = false;
+      for (const b of ownBuildings) {
+        if (BUILDINGS[b.type].trains && BUILDINGS[b.type].trains.length) {
+          b.rally = { x: rally.x, y: rally.y };
+          setRally = true;
+        }
+      }
+      if (setRally) {
+        this.effects.push({ kind: 'flag', x: rally.x, y: rally.y, time: 1.2, max: 1.2 });
+        this.toast('Rally flag set.', 1.1);
+        this.sfx.click();
+      }
     }
     if (!ownUnits.length) return;
     if (target && target.entity === 'building' && target.faction === 0 && target.type === 'tower') {

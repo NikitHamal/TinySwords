@@ -721,7 +721,9 @@ Game.prototype.aiFrontlinePosition = function(f) {
 
 Game.prototype.aiBuild = function(f) {
   const ownB = this.buildings.filter(b => b.faction === f.id && !b.dead);
-  const count = (t) => ownB.filter(b => b.type === t).length;
+  const bCount = {};
+  for (const b of ownB) bCount[b.type] = (bCount[b.type] || 0) + 1;
+  const count = (t) => bCount[t] || 0;
   const pop = this.population(f.id);
   const candidates = [];
   if (pop.cap - pop.used < 5) candidates.push('house');
@@ -785,12 +787,15 @@ Game.prototype.aiTactics = function(f) {
   const threat = this.nearestThreatToBase(f.id, f.base.x, f.base.y, f.underAttack > 0 ? 1350 : 940);
 
   if (threat && idleArmy.length) {
+    const tx = threat.x, ty = threat.y;
     const defenders = idleArmy
-      .sort((a, b) => dist2(a.x, a.y, threat.x, threat.y) - dist2(b.x, b.y, threat.x, threat.y))
-      .slice(0, Math.min(idleArmy.length, f.underAttack > 0 ? 24 : 14));
+      .map(u => ({ u, d: dist2(u.x, u.y, tx, ty) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, Math.min(idleArmy.length, f.underAttack > 0 ? 24 : 14))
+      .map(o => o.u);
     for (const u of defenders) this.orderAttack(u, threat, false);
     if (workers.length && f.underAttack > 1) {
-      const repairTarget = this.buildings.find(b => b.faction === f.id && !b.dead && b.hp < b.maxHp && dist2(b.x, b.y, threat.x, threat.y) < 720 * 720);
+      const repairTarget = this.buildings.find(b => b.faction === f.id && !b.dead && b.hp < b.maxHp && dist2(b.x, b.y, tx, ty) < 720 * 720);
       if (repairTarget) {
         for (const w of workers.slice(0, 4)) { w.order = 'repair'; w.target = repairTarget; w.goal = null; this.clearUnitPath && this.clearUnitPath(w); }
       }
@@ -865,8 +870,15 @@ Game.prototype.pickStrategicTargetV2 = function(fid) {
   for (const b of this.buildings) {
     if (b.dead || b.faction === fid || !this.factions[b.faction].alive || b.build < 1) continue;
     const baseD = Math.sqrt(dist2(own.base.x, own.base.y, b.x, b.y));
-    const enemyArmyNear = this.units.filter(u => u.faction === b.faction && !u.dead && dist2(u.x, u.y, b.x, b.y) < 620 * 620).length;
-    const friendlyPressure = this.units.filter(u => u.faction === fid && !u.dead && dist2(u.x, u.y, b.x, b.y) < 720 * 720).length;
+    let enemyArmyNear = 0, friendlyPressure = 0;
+    const near = this.nearbyUnits(b.x, b.y);
+    for (let i = 0; i < near.length; i++) {
+      const u = near[i];
+      if (u.dead) continue;
+      const d = dist2(u.x, u.y, b.x, b.y);
+      if (u.faction === b.faction && d < 620 * 620) enemyArmyNear++;
+      else if (u.faction === fid && d < 720 * 720) friendlyPressure++;
+    }
     const value = b.type === 'castle' ? -520 : b.type === 'tower' ? 220 : b.type === 'house' ? -80 : -180;
     const hpPenalty = (b.hp / b.maxHp) * 90;
     const s = baseD + enemyArmyNear * 58 - friendlyPressure * 24 + value + hpPenalty + Math.random() * 240;
@@ -892,7 +904,12 @@ Game.prototype.pickStrategicTarget = function(fid) {
   for (const b of this.buildings) {
     if (b.dead || b.faction === fid || !this.factions[b.faction].alive || b.build < 1) continue;
     const baseD = Math.sqrt(dist2(own.base.x, own.base.y, b.x, b.y));
-    const enemyArmyNear = this.units.filter(u => u.faction === b.faction && !u.dead && dist2(u.x, u.y, b.x, b.y) < 520 * 520).length;
+    let enemyArmyNear = 0;
+    const near = this.nearbyUnits(b.x, b.y);
+    for (let i = 0; i < near.length; i++) {
+      const u = near[i];
+      if (u.faction === b.faction && !u.dead && dist2(u.x, u.y, b.x, b.y) < 520 * 520) enemyArmyNear++;
+    }
     const s = baseD + enemyArmyNear * 44 + Math.random() * 320 - (b.type === 'castle' ? 260 : b.type === 'tower' ? -80 : 0);
     if (s < score) { score = s; best = b; }
   }
@@ -1239,14 +1256,16 @@ Game.prototype.assignBuildersTo = function(b, fid, maxBuilders = 2, preferSelect
   if (!b || b.dead) return 0;
   const selected = preferSelected ? this.selected.filter(u => u.entity === 'unit' && u.faction === fid && u.type === 'worker' && !u.dead) : [];
   const existing = this.units.filter(u => u.faction === fid && u.type === 'worker' && !u.dead && u.order === 'repair' && u.target === b);
+  const chosenSet = new Set(existing);
   const chosen = [...existing];
   const addCandidate = (u) => {
-    if (!u || chosen.includes(u) || u.dead || u.faction !== fid || u.type !== 'worker') return;
+    if (!u || chosenSet.has(u) || u.dead || u.faction !== fid || u.type !== 'worker') return;
+    chosenSet.add(u);
     chosen.push(u);
   };
   selected.forEach(addCandidate);
   const pool = this.units
-    .filter(u => u.faction === fid && u.type === 'worker' && !u.dead && !chosen.includes(u))
+    .filter(u => u.faction === fid && u.type === 'worker' && !u.dead && !chosenSet.has(u))
     .sort((a, c) => {
       const idleA = a.order === 'idle' ? -800000 : 0;
       const idleC = c.order === 'idle' ? -800000 : 0;
@@ -1633,7 +1652,9 @@ Game.prototype.updateGarrisonUnit = function(u) { if (u) { u.order = 'idle'; u.g
 
 Game.prototype.aiBuild = function(f) {
   const ownB = this.buildings.filter(b => b.faction === f.id && !b.dead);
-  const count = (t) => ownB.filter(b => b.type === t).length;
+  const bCount = {};
+  for (const b of ownB) bCount[b.type] = (bCount[b.type] || 0) + 1;
+  const count = (t) => bCount[t] || 0;
   const pop = this.population(f.id);
   const candidates = [];
   if (pop.cap - pop.used < 5) candidates.push('house');
@@ -1690,9 +1711,10 @@ Game.prototype.aiTactics = function(f) {
   const workers = this.units.filter(u => u.faction === f.id && u.type === 'worker' && !u.dead);
   const threat = this.nearestThreatToBase(f.id, f.base.x, f.base.y, f.underAttack > 0 ? 1350 : 940);
   if (threat && idleArmy.length) {
-    const defenders = idleArmy.sort((a, b) => dist2(a.x, a.y, threat.x, threat.y) - dist2(b.x, b.y, threat.x, threat.y)).slice(0, Math.min(idleArmy.length, f.underAttack > 0 ? 24 : 14));
+    const tx = threat.x, ty = threat.y;
+    const defenders = idleArmy.map(u => ({ u, d: dist2(u.x, u.y, tx, ty) })).sort((a, b) => a.d - b.d).slice(0, Math.min(idleArmy.length, f.underAttack > 0 ? 24 : 14)).map(o => o.u);
     for (const u of defenders) this.orderAttack(u, threat, false);
-    const repairTarget = this.buildings.find(b => b.faction === f.id && !b.dead && b.hp < b.maxHp && dist2(b.x, b.y, threat.x, threat.y) < 720 * 720);
+    const repairTarget = this.buildings.find(b => b.faction === f.id && !b.dead && b.hp < b.maxHp && dist2(b.x, b.y, tx, ty) < 720 * 720);
     if (repairTarget) this.assignBuildersTo(repairTarget, f.id, 4, false);
     return;
   }
@@ -2279,14 +2301,16 @@ Game.prototype.assignBuildersTo = function(b, fid, maxBuilders = 2, preferSelect
   if (!b || b.dead) return 0;
   const selected = preferSelected ? this.selected.filter(u => u.entity === 'unit' && u.faction === fid && u.type === 'worker' && !u.dead) : [];
   const existing = this.units.filter(u => u.faction === fid && u.type === 'worker' && !u.dead && u.order === 'repair' && u.target === b);
+  const chosenSet = new Set(existing);
   const chosen = [...existing];
   const addCandidate = (u) => {
-    if (!u || chosen.includes(u) || u.dead || u.faction !== fid || u.type !== 'worker') return;
+    if (!u || chosenSet.has(u) || u.dead || u.faction !== fid || u.type !== 'worker') return;
+    chosenSet.add(u);
     chosen.push(u);
   };
   selected.forEach(addCandidate);
   const pool = this.units
-    .filter(u => u.faction === fid && u.type === 'worker' && !u.dead && !chosen.includes(u))
+    .filter(u => u.faction === fid && u.type === 'worker' && !u.dead && !chosenSet.has(u))
     .sort((a, c) => {
       const idleA = a.order === 'idle' ? -800000 : 0;
       const idleC = c.order === 'idle' ? -800000 : 0;
