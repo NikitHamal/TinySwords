@@ -30,6 +30,13 @@ class GameView(
     private var lastFrameTime: Long = 0L
     private var gameOverFired = false
     private val commandQueue = ConcurrentLinkedQueue<() -> Unit>()
+    private var fixedStepAccumulator = 0f
+    private val minimapBgPaint = android.graphics.Paint().apply { color = android.graphics.Color.argb(210, 18, 35, 42) }
+    private val minimapBorderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.argb(210, 170, 137, 96)
+        style = android.graphics.Paint.Style.STROKE
+        strokeWidth = 2.3f
+    }
 
     private var primaryPointerId = -1
     private var touchStartX = 0f
@@ -81,21 +88,36 @@ class GameView(
     }
 
     override fun run() {
+        val targetFrameNs = 16_666_667L
+        val fixedStep = 1f / 60f
+        val maxStepsPerFrame = 3
+
         while (running) {
-            val start = System.nanoTime()
-            val dt = ((start - lastFrameTime) / 1_000_000_000f).coerceIn(0.001f, MAX_DT)
-            lastFrameTime = start
+            val frameStart = System.nanoTime()
+            val rawDt = ((frameStart - lastFrameTime) / 1_000_000_000f).coerceIn(0.001f, 0.10f)
+            lastFrameTime = frameStart
+            fixedStepAccumulator = (fixedStepAccumulator + rawDt).coerceAtMost(fixedStep * maxStepsPerFrame)
 
             var canvas: Canvas? = null
             try {
-                canvas = holder.lockCanvas()
+                canvas = lockCanvasFast()
                 if (canvas == null) {
-                    Thread.sleep(8)
+                    Thread.sleep(4)
                     continue
                 }
                 synchronized(state) {
                     drainCommands()
-                    simulation.update(dt)
+
+                    var steps = 0
+                    while (fixedStepAccumulator >= fixedStep && steps < maxStepsPerFrame) {
+                        simulation.update(fixedStep)
+                        fixedStepAccumulator -= fixedStep
+                        steps++
+                    }
+                    if (steps == maxStepsPerFrame && fixedStepAccumulator >= fixedStep) {
+                        fixedStepAccumulator = 0f
+                    }
+
                     if (state.gameOver && !gameOverFired) {
                         gameOverFired = true
                         post { onGameOver(state.winnerFaction) }
@@ -115,11 +137,27 @@ class GameView(
                 }
             }
 
-            val elapsedMs = (System.nanoTime() - start) / 1_000_000L
-            val targetMs = 22L // ~45fps cap; stable on budget Android devices while keeping RTS input responsive.
-            if (elapsedMs < targetMs) {
-                try { Thread.sleep(targetMs - elapsedMs) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+            val elapsedNs = System.nanoTime() - frameStart
+            val remainingNs = targetFrameNs - elapsedNs
+            if (remainingNs > 1_200_000L) {
+                val sleepMs = remainingNs / 1_000_000L
+                val sleepNs = (remainingNs % 1_000_000L).toInt()
+                try { Thread.sleep(sleepMs, sleepNs) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+            } else if (remainingNs > 0L) {
+                Thread.yield()
             }
+        }
+    }
+
+    private fun lockCanvasFast(): Canvas? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                holder.lockHardwareCanvas()
+            } catch (_: Throwable) {
+                holder.lockCanvas()
+            }
+        } else {
+            holder.lockCanvas()
         }
     }
 
@@ -148,16 +186,10 @@ class GameView(
         canvas.translate(r.x, r.y)
         canvas.clipRect(0f, 0f, r.w, r.h)
 
-        val bg = android.graphics.Paint().apply { color = android.graphics.Color.argb(210, 18, 35, 42) }
-        canvas.drawRoundRect(0f, 0f, r.w, r.h, 8f, 8f, bg)
+        canvas.drawRoundRect(0f, 0f, r.w, r.h, 8f, 8f, minimapBgPaint)
         renderer.renderMinimap(canvas, state, r.w, r.h, viewW, viewH)
 
-        val border = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            color = android.graphics.Color.argb(210, 170, 137, 96)
-            style = android.graphics.Paint.Style.STROKE
-            strokeWidth = 2.3f
-        }
-        canvas.drawRoundRect(1f, 1f, r.w - 1f, r.h - 1f, 8f, 8f, border)
+        canvas.drawRoundRect(1f, 1f, r.w - 1f, r.h - 1f, 8f, 8f, minimapBorderPaint)
         canvas.restore()
     }
 

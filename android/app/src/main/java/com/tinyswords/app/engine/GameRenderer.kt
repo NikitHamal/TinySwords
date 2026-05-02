@@ -54,6 +54,11 @@ class GameRenderer(private val assets: AssetManager) {
     private var minimapKey: String = ""
 
     private val drawablesBuffer = ArrayList<DrawableEntity>(1536)
+    private val drawablePool = ArrayList<DrawableEntity>(1536)
+    private val drawableComparator = Comparator<DrawableEntity> { a, b -> a.sortY.compareTo(b.sortY) }
+    private val resourceQueryBuffer = ArrayList<GameResource>(768)
+    private val buildingQueryBuffer = ArrayList<GameBuilding>(128)
+    private val unitQueryBuffer = ArrayList<GameUnit>(512)
     private var terrainCacheKey: String = ""
     private val terrainChunkTiles = 8
     private val terrainChunkPx = (TILE * terrainChunkTiles).toInt()
@@ -66,7 +71,11 @@ class GameRenderer(private val assets: AssetManager) {
     }
 
     data class EdgeSource(val sx: Int, val sy: Int, val edge: Boolean)
-    data class DrawableEntity(val entity: GameEntity, val sortY: Float, val isSky: Boolean = false)
+    class DrawableEntity {
+        var entity: GameEntity? = null
+        var sortY: Float = 0f
+        var isSky: Boolean = false
+    }
 
     fun render(canvas: Canvas, state: GameState, viewW: Float, viewH: Float) {
         canvas.drawColor(Color.rgb(20, 51, 64))
@@ -88,12 +97,12 @@ class GameRenderer(private val assets: AssetManager) {
         val drawables = drawablesBuffer
         drawables.clear()
         collectDrawables(state, drawables, camLeft - 180f, camTop - 180f, camRight + 180f, camBottom + 180f)
-        drawables.sortBy { it.sortY }
+        drawables.sortWith(drawableComparator)
 
         for (d in drawables) if (!d.isSky) drawShadow(canvas, d)
         for (d in drawables) if (!d.isSky) drawEntity(canvas, state, d)
-        drawProjectiles(canvas, state)
-        drawEffects(canvas, state)
+        drawProjectiles(canvas, state, camLeft - 180f, camTop - 180f, camRight + 180f, camBottom + 180f)
+        drawEffects(canvas, state, camLeft - 180f, camTop - 180f, camRight + 180f, camBottom + 180f)
         drawSelection(canvas, state)
         drawPlacementGhost(canvas, state)
         for (d in drawables) if (d.isSky) drawEntity(canvas, state, d)
@@ -253,54 +262,67 @@ class GameRenderer(private val assets: AssetManager) {
     }
 
     private fun collectDrawables(state: GameState, out: MutableList<DrawableEntity>, left: Float, top: Float, right: Float, bottom: Float) {
-        val cx = (left + right) * 0.5f
-        val cy = (top + bottom) * 0.5f
-        val queryRadius = hypot(right - left, bottom - top) * 0.55f + 260f
-
-        for (r in state.resourceIndex.queryRange(cx, cy, queryRadius)) {
+        state.resourceIndex.queryRect(left, top, right, bottom, resourceQueryBuffer)
+        for (r in resourceQueryBuffer) {
             if (r.dead) continue
-            if (r.x < left || r.x > right || r.y < top || r.y > bottom) continue
-            out.add(DrawableEntity(r, r.y + if (r.type == ResourceType.TREE) -10f else 0f))
+            pushDrawable(out, r, r.y + if (r.type == ResourceType.TREE) -10f else 0f)
         }
+
+        // Decor is intentionally light-weight in the generated worlds, so scanning it
+        // directly avoids maintaining another moving index for clouds/water props while
+        // still culling all off-screen sprites before sort/draw.
         for (d in state.decor) {
             if (d.dead) continue
             if (d.isSky) {
-                out.add(DrawableEntity(d, d.y + 900000f, true))
+                pushDrawable(out, d, d.y + 900000f, true)
             } else if (d.x >= left && d.x <= right && d.y >= top && d.y <= bottom) {
-                out.add(DrawableEntity(d, d.y - 18f))
+                pushDrawable(out, d, d.y - 18f)
             }
         }
-        for (b in state.buildingIndex.queryRange(cx, cy, queryRadius + 220f)) {
+
+        state.buildingIndex.queryRect(left - 260f, top - 280f, right + 260f, bottom + 260f, buildingQueryBuffer)
+        for (b in buildingQueryBuffer) {
             if (b.dead) continue
             val def = BUILDINGS[b.type] ?: continue
             if (b.x < left - def.w || b.x > right + def.w || b.y < top - def.h || b.y > bottom + def.h) continue
-            out.add(DrawableEntity(b, b.y + def.h * 0.34f))
+            pushDrawable(out, b, b.y + def.h * 0.34f)
         }
-        for (u in state.unitIndex.queryRange(cx, cy, queryRadius)) {
+
+        state.unitIndex.queryRect(left, top, right, bottom, unitQueryBuffer)
+        for (u in unitQueryBuffer) {
             if (u.dead || u.garrisoned) continue
-            if (u.x < left || u.x > right || u.y < top || u.y > bottom) continue
-            out.add(DrawableEntity(u, u.y))
+            pushDrawable(out, u, u.y)
         }
     }
 
+    private fun pushDrawable(out: MutableList<DrawableEntity>, entity: GameEntity, sortY: Float, isSky: Boolean = false) {
+        val index = out.size
+        val d = if (index < drawablePool.size) drawablePool[index] else DrawableEntity().also { drawablePool.add(it) }
+        d.entity = entity
+        d.sortY = sortY
+        d.isSky = isSky
+        out.add(d)
+    }
+
     private fun drawShadow(canvas: Canvas, d: DrawableEntity) {
-        when (val e = d.entity) {
+        when (val e = d.entity ?: return) {
             is GameUnit -> {
                 val def = UNITS[e.type] ?: return
-                val scale = def.scale * SPRITE_BOOST
-                val sw = def.radius * 2.7f * scale
-                val sh = def.radius * 1.15f * scale
-                canvas.drawOval(e.x - sw / 2f + def.shadowX * scale * 0.25f, e.y - sh / 2f + def.shadowY * scale * 0.2f, e.x + sw / 2f + def.shadowX * scale * 0.25f, e.y + sh / 2f + def.shadowY * scale * 0.2f, shadowPaint)
+                val halfW = unitShadowHalfW(e.type, def)
+                val halfH = unitShadowHalfH(e.type)
+                val centerY = e.y + 3f
+                canvas.drawOval(e.x - halfW, centerY - halfH, e.x + halfW, centerY + halfH, shadowPaint)
             }
             is GameBuilding -> {
                 val def = BUILDINGS[e.type] ?: return
-                val sw = def.placeW * 0.88f
-                val sh = def.placeH * 0.42f
-                canvas.drawOval(e.x - sw / 2f, e.y + def.placeYOffset * 0.30f - sh / 2f, e.x + sw / 2f, e.y + def.placeYOffset * 0.30f + sh / 2f, shadowPaint)
+                val halfW = def.w * 0.50f
+                val halfH = def.h * 0.18f
+                val centerY = e.y + def.h * 0.18f
+                canvas.drawOval(e.x - halfW, centerY - halfH, e.x + halfW, centerY + halfH, shadowPaint)
             }
             is GameResource -> {
                 if (!e.isAnimal && e.type == ResourceType.FOOD) {
-                    canvas.drawOval(e.x - 15f, e.y - 5f, e.x + 15f, e.y + 5f, shadowPaint)
+                    canvas.drawOval(e.x - 13f, e.y - 4f, e.x + 13f, e.y + 4f, shadowPaint)
                 }
             }
             is GameDecor -> {
@@ -310,7 +332,7 @@ class GameRenderer(private val assets: AssetManager) {
     }
 
     private fun drawEntity(canvas: Canvas, state: GameState, d: DrawableEntity) {
-        when (val e = d.entity) {
+        when (val e = d.entity ?: return) {
             is GameUnit -> drawUnit(canvas, e)
             is GameBuilding -> drawBuilding(canvas, e)
             is GameResource -> drawResource(canvas, state, e)
@@ -325,27 +347,25 @@ class GameRenderer(private val assets: AssetManager) {
         val sprite = assets.get(key) ?: assets.get("u_${fKey}_${unit.type}_idle")
         val scale = def.scale * SPRITE_BOOST
         if (unit.selected) {
-            val r = (def.radius * scale * 1.65f).coerceAtLeast(12f)
+            val r = (def.radius + 8f).coerceAtLeast(16f)
             selectionPaint.color = Color.argb(150, 245, 211, 125)
             canvas.drawOval(unit.x - r, unit.y - r * 0.44f, unit.x + r, unit.y + r * 0.44f, selectionPaint)
         }
         if (sprite != null) {
             val frames = (sprite.width / def.fw).coerceAtLeast(1)
-            val fps = when (unit.order) {
-                UnitOrder.IDLE -> 4f
-                UnitOrder.MOVE, UnitOrder.ATTACK_MOVE -> 8f
-                UnitOrder.ATTACK, UnitOrder.HARVEST, UnitOrder.REPAIR -> 6f
-                else -> 4f
-            }
+            val fps = unitAnimationFps(unit, key)
             val frame = ((unit.animTime * fps).toInt() % frames).coerceIn(0, frames - 1)
             if (unit.flash > 0f) spritePaint.colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_ATOP)
-            drawAnchoredFrame(canvas, sprite, frame * def.fw, 0, def.fw, def.fh, unit.x, unit.y + def.radius * scale + def.drawYOffset * scale, scale, def.fh.toFloat(), unit.face)
+            drawAnchoredFrame(canvas, sprite, frame * def.fw, 0, def.fw, def.fh, unit.x, unit.y, scale, unitVisualBaseline(unit.type), unit.face)
             spritePaint.colorFilter = null
         } else {
             fillPaint.color = FACTIONS.getOrNull(unit.faction)?.color ?: Color.BLUE
-            canvas.drawCircle(unit.x, unit.y, def.radius * scale, fillPaint)
+            canvas.drawCircle(unit.x, unit.y, def.radius, fillPaint)
         }
-        if (unit.hp < unit.maxHp || unit.selected) drawHpBar(canvas, unit.x, unit.y - def.fh * scale * 0.42f, unit.hp.toFloat() / unit.maxHp, 34f)
+        if (unit.hp < unit.maxHp || unit.selected) {
+            val barY = unit.y - unitVisualHeight(unit.type) * scale - 8f
+            drawHpBar(canvas, unit.x, barY, unit.hp.toFloat() / unit.maxHp, 34f)
+        }
     }
 
     private fun getUnitAnimKey(unit: GameUnit, fKey: String): String {
@@ -357,25 +377,91 @@ class GameRenderer(private val assets: AssetManager) {
                     unit.carrying != null -> "${base}_idle_${unit.carrying}"
                     unit.order == UnitOrder.HARVEST -> {
                         val target = unit.target
-                        if (target is GameResource) when (target.type) {
-                            ResourceType.TREE -> "${base}_chop"
-                            ResourceType.GOLD -> "${base}_mine"
-                            ResourceType.FOOD -> "${base}_fight"
+                        if (target is GameResource) {
+                            val closeEnough = hypot(unit.x - target.x, unit.y - target.y) <= 30f
+                            if (!closeEnough) "${base}_run" else when (target.type) {
+                                ResourceType.TREE -> "${base}_chop"
+                                ResourceType.GOLD -> "${base}_mine"
+                                ResourceType.FOOD -> "${base}_fight"
+                            }
                         } else "${base}_idle"
                     }
-                    unit.order == UnitOrder.REPAIR -> "${base}_build"
-                    unit.order == UnitOrder.MOVE || unit.order == UnitOrder.ATTACK_MOVE -> "${base}_run"
-                    unit.order == UnitOrder.ATTACK -> "${base}_fight"
+                    unit.order == UnitOrder.REPAIR -> {
+                        val target = unit.target as? GameBuilding
+                        if (target != null && isUnitAtBuildingWorkRange(unit, target)) "${base}_build" else "${base}_run"
+                    }
+                    unit.order == UnitOrder.MOVE || unit.order == UnitOrder.ATTACK_MOVE || unit.order == UnitOrder.GARRISON -> "${base}_run"
+                    unit.order == UnitOrder.ATTACK -> {
+                        val target = unit.target
+                        val closeEnough = target != null && hypot(unit.x - target.x, unit.y - target.y) <= ((UNITS[unit.type]?.range ?: 22f) + 8f)
+                        if (closeEnough) "${base}_fight" else "${base}_run"
+                    }
                     else -> "${base}_idle"
                 }
             }
-            "warrior" -> "u_${fKey}_warrior_" + if (unit.order == UnitOrder.ATTACK) "attack" else if (unit.order == UnitOrder.MOVE || unit.order == UnitOrder.ATTACK_MOVE) "run" else "idle"
-            "archer" -> "u_${fKey}_archer_" + if (unit.order == UnitOrder.ATTACK) "shoot" else if (unit.order == UnitOrder.MOVE || unit.order == UnitOrder.ATTACK_MOVE) "run" else "idle"
-            "lancer" -> "u_${fKey}_lancer_" + if (unit.order == UnitOrder.ATTACK) "attack" else if (unit.order == UnitOrder.MOVE || unit.order == UnitOrder.ATTACK_MOVE) "run" else "idle"
-            "monk" -> "u_${fKey}_monk_" + if (unit.order == UnitOrder.ATTACK) "heal" else if (unit.order == UnitOrder.MOVE || unit.order == UnitOrder.ATTACK_MOVE) "run" else "idle"
+            "warrior" -> "u_${fKey}_warrior_" + unitCombatAnim(unit, "attack")
+            "archer" -> "u_${fKey}_archer_" + unitCombatAnim(unit, "shoot")
+            "lancer" -> "u_${fKey}_lancer_" + unitCombatAnim(unit, "attack")
+            "monk" -> "u_${fKey}_monk_" + unitCombatAnim(unit, "heal")
             else -> "u_${fKey}_worker_idle"
         }
     }
+
+    private fun unitCombatAnim(unit: GameUnit, attackAnim: String): String {
+        val def = UNITS[unit.type] ?: return "idle"
+        if (unit.order == UnitOrder.MOVE || unit.order == UnitOrder.ATTACK_MOVE || unit.order == UnitOrder.GARRISON) return "run"
+        if (unit.order == UnitOrder.ATTACK) {
+            val target = unit.target
+            val closeEnough = target != null && hypot(unit.x - target.x, unit.y - target.y) <= def.range + 8f
+            return if (closeEnough) attackAnim else "run"
+        }
+        return "idle"
+    }
+
+    private fun unitAnimationFps(unit: GameUnit, animKey: String): Float {
+        return when (unit.order) {
+            UnitOrder.IDLE -> 4f
+            UnitOrder.MOVE, UnitOrder.ATTACK_MOVE, UnitOrder.GARRISON -> 8f
+            UnitOrder.ATTACK -> if (animKey.endsWith("_run")) 8f else 6f
+            UnitOrder.HARVEST, UnitOrder.REPAIR -> if (animKey.endsWith("_run")) 8f else 6f
+        }
+    }
+
+    private fun isUnitAtBuildingWorkRange(unit: GameUnit, building: GameBuilding): Boolean {
+        val def = BUILDINGS[building.type] ?: return hypot(unit.x - building.x, unit.y - building.y) <= 28f
+        val left = building.x - def.placeW / 2f
+        val right = building.x + def.placeW / 2f
+        val top = building.y - def.placeH / 2f
+        val bottom = building.y + def.placeH / 2f
+        val dx = max(max(left - unit.x, 0f), unit.x - right)
+        val dy = max(max(top - unit.y, 0f), unit.y - bottom)
+        return sqrt(dx * dx + dy * dy) <= 26f
+    }
+
+    private fun unitVisualBaseline(type: String): Float = when (type) {
+        "worker" -> 135f
+        "warrior" -> 137f
+        "archer" -> 136f
+        "lancer" -> 198f
+        "monk" -> 134f
+        else -> 136f
+    }
+
+    private fun unitVisualHeight(type: String): Float = when (type) {
+        "worker" -> 72f
+        "warrior" -> 90f
+        "archer" -> 88f
+        "lancer" -> 150f
+        "monk" -> 70f
+        else -> 76f
+    }
+
+    private fun unitShadowHalfW(type: String, def: UnitDef): Float = when (type) {
+        "lancer" -> 24f
+        else -> def.radius * 1.15f
+    }
+
+    private fun unitShadowHalfH(type: String): Float = if (type == "lancer") 8f else 8f
 
     private fun drawBuilding(canvas: Canvas, building: GameBuilding) {
         val def = BUILDINGS[building.type] ?: return
@@ -491,10 +577,10 @@ class GameRenderer(private val assets: AssetManager) {
             val frames = (sprite.width / fw).coerceAtLeast(1)
             val rows = (sprite.height / fh).coerceAtLeast(1)
             val fps = when {
-                res.hurtTimer > 0f -> 6f
-                moving && res.panic > 0f -> 9.5f
-                moving -> 6.8f
-                else -> 2.6f
+                res.hurtTimer > 0f -> def.fpsHurt
+                moving && res.panic > 0f -> def.fpsRun
+                moving -> def.fpsWalk
+                else -> def.fpsIdle
             }
             val frame = ((res.animTime * fps + (res.id % frames)).toInt() % frames).coerceIn(0, frames - 1)
             val row = res.animalDir.coerceIn(0, rows - 1)
@@ -506,7 +592,7 @@ class GameRenderer(private val assets: AssetManager) {
                 canvas.drawOval(res.x - sr, res.y - sr * 0.42f, res.x + sr, res.y + sr * 0.42f, selectionPaint)
             }
             if (res.flash > 0f || res.hurtTimer > 0f) spritePaint.colorFilter = PorterDuffColorFilter(Color.RED, PorterDuff.Mode.SRC_ATOP)
-            drawAnchoredFrame(canvas, sprite, frame * fw, row * fh, fw, fh, res.x, res.y + bob, def.scale, 28f)
+            drawAnchoredFrame(canvas, sprite, frame * fw, row * fh, fw, fh, res.x, res.y + bob, def.scale, def.baseline)
             spritePaint.colorFilter = null
         } else fallbackResource(canvas, res)
         if (res.animalHp < res.animalMaxHp || res in state.selected) drawHpBar(canvas, res.x, res.y - 36f, res.animalHp / res.animalMaxHp, 28f)
@@ -518,8 +604,9 @@ class GameRenderer(private val assets: AssetManager) {
     }
 
     private fun drawAnimalShadow(canvas: Canvas, res: GameResource, kindCap: String, frame: Int) {
+        val def = HUNT_ANIMALS[res.animalKind]
         val shadow = assets.get("animal${kindCap}Shadow")
-        if (shadow != null) {
+        if (shadow != null && def != null) {
             val sframes = (shadow.width / 32).coerceAtLeast(1)
             val srows = 4
             val sfw = shadow.width / sframes
@@ -527,18 +614,18 @@ class GameRenderer(private val assets: AssetManager) {
             val srow = res.animalDir.coerceIn(0, srows - 1)
             val sfr = frame % sframes
             srcRect.set(sfr * sfw, srow * sfh, sfr * sfw + sfw, srow * sfh + sfh)
-            val def = HUNT_ANIMALS[res.animalKind]
-            val scale = (def?.scale ?: 1f) * 1.08f
+            val scale = def.scale * 1.08f
             val sw = sfw * scale
             val sh = sfh * scale
-            dstRect.set(res.x - sw / 2f, res.y - sh / 2f + 3f, res.x + sw / 2f, res.y + sh / 2f + 3f)
+            val top = res.y + (32f - def.baseline) * def.scale - sh / 2f
+            dstRect.set(res.x - sw / 2f, top, res.x + sw / 2f, top + sh)
             alphaPaint.alpha = 148
             canvas.drawBitmap(shadow, srcRect, dstRect, alphaPaint)
             alphaPaint.alpha = 255
         } else {
-            val def = HUNT_ANIMALS[res.animalKind]
-            val sx = (def?.radius ?: 12f) + 4f
-            canvas.drawOval(res.x - sx, res.y - 4f, res.x + sx, res.y + 4f, shadowPaint)
+            val halfW = def?.shadowW ?: 12f
+            val halfH = def?.shadowH ?: 4f
+            canvas.drawOval(res.x - halfW, res.y - halfH, res.x + halfW, res.y + halfH, shadowPaint)
         }
     }
 
@@ -564,10 +651,11 @@ class GameRenderer(private val assets: AssetManager) {
 
     data class DecorSpec(val fw: Int, val fh: Int, val baseline: Float, val scale: Float, val fps: Float)
 
-    private fun drawProjectiles(canvas: Canvas, state: GameState) {
+    private fun drawProjectiles(canvas: Canvas, state: GameState, left: Float, top: Float, right: Float, bottom: Float) {
         strokePaint.color = Color.rgb(74, 48, 32)
         strokePaint.strokeWidth = 2.4f
         for (p in state.projectiles) {
+            if (p.x < left || p.x > right || p.y < top || p.y > bottom) continue
             val fKey = FACTIONS.getOrNull(p.factionId)?.key ?: "blue"
             val arrow = assets.get("u_${fKey}_arrow")
             if (arrow != null) {
@@ -584,8 +672,9 @@ class GameRenderer(private val assets: AssetManager) {
         }
     }
 
-    private fun drawEffects(canvas: Canvas, state: GameState) {
+    private fun drawEffects(canvas: Canvas, state: GameState, left: Float, top: Float, right: Float, bottom: Float) {
         for (e in state.effects) {
+            if (e.x < left || e.x > right || e.y < top || e.y > bottom) continue
             val progress = (e.time / e.maxTime).coerceIn(0f, 1f)
             val alpha = ((1f - progress) * 190).toInt().coerceIn(0, 255)
             when (e.kind) {
