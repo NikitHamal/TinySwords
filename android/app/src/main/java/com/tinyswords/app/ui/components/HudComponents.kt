@@ -3,6 +3,7 @@ package com.tinyswords.app.ui.components
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -229,12 +230,12 @@ fun CommandButton(
 
     Box(
         modifier = modifier
-            .height(40.dp)
-            .widthIn(min = 60.dp)
+            .height(48.dp)
+            .widthIn(min = 48.dp)
             .background(bg, RoundedCornerShape(4.dp))
             .border(1.dp, GameColors.ButtonBorder, RoundedCornerShape(4.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 4.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
@@ -264,13 +265,13 @@ fun ActionDock(
     val hasBuilding = selected.firstOrNull() is GameBuilding && (selected.first() as GameBuilding).faction == 0
     val hasWorkers = selected.any { it is GameUnit && it.type == "worker" && it.faction == 0 }
 
-    Row(
+    FlowRow(
         modifier = modifier
             .background(GameColors.Panel, RoundedCornerShape(8.dp))
             .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(8.dp))
             .padding(6.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         if (hasUnits) {
             CommandButton("ATK", onClick = onAttackMove)
@@ -334,8 +335,9 @@ fun BuildMenu(
         }
         Spacer(modifier = Modifier.height(6.dp))
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             for ((type, bdef) in BUILDINGS) {
                 if (type == "castle") continue // Can't build castles

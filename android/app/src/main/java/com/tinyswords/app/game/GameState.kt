@@ -50,6 +50,13 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
     val selected = mutableListOf<GameEntity>()
     var formationMode: String = "box"
 
+    // Drag selection rendering
+    var dragSelectActive: Boolean = false
+    var dragSelectStartX: Float = 0f
+    var dragSelectStartY: Float = 0f
+    var dragSelectEndX: Float = 0f
+    var dragSelectEndY: Float = 0f
+
     // Faction states (player = 0, AI = 1-4)
     val factions = Array(5) { FactionState(it) }
 

@@ -111,11 +111,9 @@ class GameView(
                 holder.unlockCanvasAndPost(canvas)
             }
 
-            // Target ~60fps
-            val frameTime = (System.nanoTime() - now) / 1_000_000
-            if (frameTime < 16) {
-                Thread.sleep(16 - frameTime)
-            }
+            // Let Choreographer or normal thread yielding handle timing to avoid blocking the surface render thread loop entirely if not needed,
+            // but for simplicity we can just yield or do a very short sleep instead of rigid 16ms sleep which causes lag.
+            Thread.yield()
         }
     }
 
@@ -228,18 +226,30 @@ class GameView(
         }
 
         if (isDragging && !longPressTriggered) {
-            // Pan camera
-            isPanning = true
-            val cam = state.camera
-            cam.x -= dx / cam.zoom
-            cam.y -= dy / cam.zoom
+            if (event.pointerCount >= 2) {
+                // Two-finger Pan camera
+                isPanning = true
+                val cam = state.camera
+                cam.x -= dx / cam.zoom
+                cam.y -= dy / cam.zoom
 
-            // Clamp camera
-            cam.x = cam.x.coerceIn(0f, state.worldW)
-            cam.y = cam.y.coerceIn(0f, state.worldH)
+                // Clamp camera
+                cam.x = cam.x.coerceIn(0f, state.worldW)
+                cam.y = cam.y.coerceIn(0f, state.worldH)
 
-            touchStartX = event.x
-            touchStartY = event.y
+                touchStartX = event.x
+                touchStartY = event.y
+            } else {
+                // One-finger Drag select
+                if (!state.dragSelectActive) {
+                    state.dragSelectActive = true
+                    state.dragSelectStartX = touchStartWorldX
+                    state.dragSelectStartY = touchStartWorldY
+                }
+                val worldPos = screenToWorld(event.x, event.y, viewW, viewH)
+                state.dragSelectEndX = worldPos.first
+                state.dragSelectEndY = worldPos.second
+            }
         }
     }
 
@@ -268,6 +278,9 @@ class GameView(
                     vibrator?.vibrate(50)
                 }
             }
+        } else if (state.dragSelectActive) {
+            handleDragSelect(state.dragSelectStartX, state.dragSelectStartY, wx, wy)
+            state.dragSelectActive = false
         }
 
         primaryPointerId = -1
@@ -358,6 +371,23 @@ class GameView(
         onSelectionChanged()
     }
 
+    private fun handleDragSelect(startX: Float, startY: Float, endX: Float, endY: Float) {
+        val minX = min(startX, endX)
+        val maxX = max(startX, endX)
+        val minY = min(startY, endY)
+        val maxY = max(startY, endY)
+
+        clearSelection()
+        for (u in state.units) {
+            if (u.dead || u.garrisoned || u.faction != 0) continue
+            if (u.x >= minX && u.x <= maxX && u.y >= minY && u.y <= maxY) {
+                u.selected = true
+                state.selected.add(u)
+            }
+        }
+        onSelectionChanged()
+    }
+
     private fun findEntityAt(wx: Float, wy: Float): GameEntity? {
         // Check units first (smaller, harder to tap)
         var bestUnit: GameUnit? = null
@@ -365,8 +395,10 @@ class GameView(
 
         for (u in state.units) {
             if (u.dead || u.garrisoned) continue
+            val def = UNITS[u.type] ?: continue
+            val scaledRad = def.radius * def.scale * 3f // bigger touch target
             val d = dist2(wx, wy, u.x, u.y)
-            if (d < bestUnitDist) {
+            if (d < scaledRad * scaledRad && d < bestUnitDist) {
                 bestUnitDist = d
                 bestUnit = u
             }

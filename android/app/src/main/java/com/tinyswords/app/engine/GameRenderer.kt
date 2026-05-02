@@ -23,6 +23,16 @@ class GameRenderer(private val assets: AssetManager) {
         style = Paint.Style.STROKE
         strokeWidth = 2f
     }
+
+    private val dragSelectPaint = Paint().apply {
+        color = Color.argb(60, 100, 255, 100)
+        style = Paint.Style.FILL
+    }
+    private val dragSelectBorderPaint = Paint().apply {
+        color = Color.argb(200, 100, 255, 100)
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+    }
     private val hpBarBgPaint = Paint().apply { color = Color.argb(180, 30, 30, 30) }
     private val hpBarPaint = Paint().apply { color = Color.GREEN }
 
@@ -527,25 +537,33 @@ class GameRenderer(private val assets: AssetManager) {
             abs(res.vx) > 2f || abs(res.vy) > 2f -> "Walk"
             else -> "Idle"
         }
+        val fps = when {
+            res.hurtTimer > 0f -> 5.5f
+            res.panic > 0f -> 9.2f
+            abs(res.vx) > 2f || abs(res.vy) > 2f -> def.fpsWalk
+            else -> 2.5f
+        }
 
         val key = "animal${kindCap}${animSuffix}"
         val sprite = assets.get(key)
 
         if (sprite != null) {
-            val fw = 192 // Default animal frame width
-            val fh = 192
+            val fw = def.fw
+            val fh = def.fh
             val framesInSheet = (sprite.width / fw).coerceAtLeast(1)
             val rowsInSheet = (sprite.height / fh).coerceAtLeast(1)
 
-            val frame = ((res.animTime * 8f).toInt() % framesInSheet)
+            val frame = ((res.animTime * fps).toInt() % framesInSheet)
             val dirRow = res.animalDir.coerceIn(0, rowsInSheet - 1)
 
-            val scale = def.scale * 0.35f
+            val scale = def.scale * 1.5f // Adjusted visual scale closer to web version
             val drawW = fw * scale
             val drawH = fh * scale
+            // The baseline in web version is around 28px on a 32px frame, so bottom is shifted slightly
+            val baselineShift = (fh - 28f) * scale
 
             srcRect.set(frame * fw, dirRow * fh, (frame + 1) * fw, (dirRow + 1) * fh)
-            dstRect.set(res.x - drawW / 2, res.y - drawH, res.x + drawW / 2, res.y)
+            dstRect.set(res.x - drawW / 2, res.y - drawH + baselineShift, res.x + drawW / 2, res.y + baselineShift)
 
             if (res.flash > 0f) {
                 paint.colorFilter = PorterDuffColorFilter(Color.RED, PorterDuff.Mode.SRC_ATOP)
@@ -561,7 +579,7 @@ class GameRenderer(private val assets: AssetManager) {
 
         // Animal HP bar
         if (res.animalHp < res.animalMaxHp) {
-            drawHpBar(canvas, res.x, res.y - 40f, res.animalHp / res.animalMaxHp, 24f)
+            drawHpBar(canvas, res.x, res.y - 20f, res.animalHp / res.animalMaxHp, 24f)
         }
     }
 
@@ -662,6 +680,15 @@ class GameRenderer(private val assets: AssetManager) {
                 }
                 canvas.drawLine(sel.x, sel.y, sel.rallyX, sel.rallyY, linePaint)
             }
+        }
+
+        if (state.dragSelectActive) {
+            val left = min(state.dragSelectStartX, state.dragSelectEndX)
+            val top = min(state.dragSelectStartY, state.dragSelectEndY)
+            val right = max(state.dragSelectStartX, state.dragSelectEndX)
+            val bottom = max(state.dragSelectStartY, state.dragSelectEndY)
+            canvas.drawRect(left, top, right, bottom, dragSelectPaint)
+            canvas.drawRect(left, top, right, bottom, dragSelectBorderPaint)
         }
     }
 

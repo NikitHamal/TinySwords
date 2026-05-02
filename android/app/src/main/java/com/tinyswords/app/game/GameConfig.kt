@@ -151,15 +151,18 @@ data class AnimalDef(
     val walkSpeedMax: Float,
     val runSpeedMin: Float,
     val runSpeedMax: Float,
+    val fw: Int = 32,
+    val fh: Int = 32,
+    val fpsWalk: Float = 6.4f,
     val retaliation: Int = 0
 )
 
 val HUNT_ANIMALS = mapOf(
-    "deer" to AnimalDef(42, 24, 13f, 1.10f, 14f, 25f, 56f, 84f),
-    "boar" to AnimalDef(54, 28, 14f, 1.04f, 12f, 22f, 48f, 70f, 4),
-    "hare" to AnimalDef(18, 12, 10f, 0.68f, 18f, 30f, 68f, 96f),
-    "fox" to AnimalDef(26, 16, 12f, 0.86f, 16f, 27f, 62f, 90f),
-    "grouse" to AnimalDef(20, 14, 11f, 0.58f, 14f, 26f, 58f, 86f)
+    "deer" to AnimalDef(42, 24, 13f, 1.10f, 14f, 25f, 56f, 84f, 32, 32, 6.4f),
+    "boar" to AnimalDef(54, 28, 14f, 1.04f, 12f, 22f, 48f, 70f, 32, 32, 6.2f, 4),
+    "hare" to AnimalDef(18, 12, 10f, 0.68f, 18f, 30f, 68f, 96f, 32, 32, 7.2f),
+    "fox" to AnimalDef(26, 16, 12f, 0.86f, 16f, 27f, 62f, 90f, 32, 32, 6.8f),
+    "grouse" to AnimalDef(20, 14, 11f, 0.58f, 14f, 26f, 58f, 86f, 32, 32, 6.8f)
 )
 
 // ── Factions ──

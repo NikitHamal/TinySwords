@@ -92,7 +92,7 @@ fun GameScreen(
                 food = faction.food.toInt(),
                 popUsed = popUsed,
                 popCap = popCap,
-                modifier = Modifier.align(Alignment.TopStart)
+                modifier = Modifier.align(Alignment.TopStart).statusBarsPadding()
             )
 
             // Selection Panel (left side)
@@ -101,7 +101,7 @@ fun GameScreen(
                 selected = currentSelection,
                 modifier = Modifier
                     .align(Alignment.CenterStart)
-                    .padding(start = 8.dp)
+                    .padding(start = 8.dp, bottom = 48.dp) // Avoid colliding with bottom edge elements
             )
 
             // Action Dock (bottom center)
@@ -131,6 +131,7 @@ fun GameScreen(
                     },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
                         .padding(bottom = 8.dp)
                 )
             }
@@ -146,7 +147,8 @@ fun GameScreen(
                     onClose = { showBuildMenu = false },
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = 60.dp)
+                        .navigationBarsPadding()
+                        .padding(bottom = 100.dp) // Leave space for ActionDock below
                 )
             }
 
@@ -159,6 +161,7 @@ fun GameScreen(
                 },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
+                    .statusBarsPadding()
                     .padding(8.dp)
             )
         }

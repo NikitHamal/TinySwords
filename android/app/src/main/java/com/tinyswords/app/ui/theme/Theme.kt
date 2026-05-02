@@ -52,25 +52,25 @@ object GameTypography {
     val Heading = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
-        fontSize = 16.sp,
+        fontSize = 18.sp,
         color = GameColors.TextPrimary
     )
     val Body = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Normal,
-        fontSize = 12.sp,
+        fontSize = 14.sp,
         color = GameColors.TextPrimary
     )
     val Small = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Normal,
-        fontSize = 10.sp,
+        fontSize = 12.sp,
         color = GameColors.TextSecondary
     )
     val Button = TextStyle(
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
-        fontSize = 11.sp,
+        fontSize = 12.sp,
         color = GameColors.TextPrimary
     )
 }
