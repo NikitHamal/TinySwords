@@ -52,6 +52,12 @@ class GameView(
     var minimapExpanded = false
     private var minimapTouching = false
     private var attackMoveArmed = false
+    private var dragCandidateBuilding: GameBuilding? = null
+    private var draggingBuilding: GameBuilding? = null
+    private var buildingDragOffsetX = 0f
+    private var buildingDragOffsetY = 0f
+    private var originalBuildingX = 0f
+    private var originalBuildingY = 0f
 
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
@@ -226,6 +232,14 @@ class GameView(
         val (wx, wy) = screenToWorld(event.x, event.y, viewW, viewH)
         state.pointerWorldX = wx
         state.pointerWorldY = wy
+        dragCandidateBuilding = (findEntityAt(wx, wy) as? GameBuilding)?.takeIf { it.faction == 0 && !it.dead }
+        draggingBuilding = null
+        dragCandidateBuilding?.let { b ->
+            buildingDragOffsetX = b.x - wx
+            buildingDragOffsetY = b.y - wy
+            originalBuildingX = b.x
+            originalBuildingY = b.y
+        }
     }
 
     private fun handlePointerDown(event: MotionEvent) {
@@ -258,6 +272,28 @@ class GameView(
         val dx = event.x - touchStartX
         val dy = event.y - touchStartY
         val dragDist = sqrt(dx * dx + dy * dy)
+        val heldMs = System.currentTimeMillis() - touchStartTime
+
+        val candidate = dragCandidateBuilding
+        if (!pinchActive && candidate != null && (draggingBuilding != null || (heldMs >= 430L && dragDist > 6f))) {
+            if (draggingBuilding == null) {
+                draggingBuilding = candidate
+                clearSelectionLocked()
+                candidate.selected = true
+                state.selected.add(candidate)
+                haptic(24)
+                post { onSelectionChanged() }
+            }
+            val nx = wx + buildingDragOffsetX
+            val ny = wy + buildingDragOffsetY
+            if (canMoveBuilding(candidate, nx, ny)) {
+                candidate.x = nx
+                candidate.y = ny
+                state.spatialRebuildTimer = 0f
+            }
+            return
+        }
+
         if (dragDist > 14f && !isDragging) isDragging = true
 
         if (isDragging) {
@@ -280,12 +316,25 @@ class GameView(
         state.pointerWorldX = wx
         state.pointerWorldY = wy
         val touchDuration = System.currentTimeMillis() - touchStartTime
-        if (!isDragging && !pinchActive) {
+        if (draggingBuilding != null) {
+            val b = draggingBuilding!!
+            if (!canMoveBuilding(b, b.x, b.y)) {
+                b.x = originalBuildingX
+                b.y = originalBuildingY
+            }
+            simulation.worldGenerator.rebuildPathGrid()
+            state.rebuildSpatialIndices()
+            state.effects.add(GameEffect("moveMark", b.x, b.y, maxTime = 0.42f, scale = 1.25f))
+            haptic(18)
+            post { onSelectionChanged() }
+        } else if (!isDragging && !pinchActive) {
             if (touchDuration >= 520) handleContextOrder(wx, wy) else handleTap(wx, wy)
         }
         primaryPointerId = -1
         pinchActive = false
         isPanning = false
+        dragCandidateBuilding = null
+        draggingBuilding = null
     }
 
     private fun handlePointerUp(event: MotionEvent) {
@@ -309,6 +358,12 @@ class GameView(
         }
 
         val entity = findEntityAt(wx, wy)
+        if (entity != null && state.selected.size == 1 && state.selected[0] === entity) {
+            clearSelectionLocked()
+            attackMoveArmed = false
+            post { onSelectionChanged() }
+            return
+        }
         val selectedUnits = state.selected.filterIsInstance<GameUnit>().filter { it.faction == 0 && !it.dead && !it.garrisoned }
         val selectedBuilding = state.selected.firstOrNull() as? GameBuilding
 
@@ -325,7 +380,10 @@ class GameView(
                 }
                 entity is GameUnit && entity.faction == 0 -> selectSingle(entity)
                 entity is GameBuilding && entity.faction == 0 -> selectSingle(entity)
-                else -> simulation.orderMove(selectedUnits, wx, wy, attackMoveArmed)
+                else -> {
+                    simulation.orderMove(selectedUnits, wx, wy, attackMoveArmed)
+                    state.effects.add(GameEffect("moveMark", wx, wy, maxTime = 0.48f, scale = if (attackMoveArmed) 1.35f else 1.0f))
+                }
             }
             attackMoveArmed = false
             post { onSelectionChanged() }
@@ -337,6 +395,7 @@ class GameView(
                 selectedBuilding.rallyX = wx
                 selectedBuilding.rallyY = wy
                 selectedBuilding.hasRally = true
+                state.effects.add(GameEffect("moveMark", wx, wy, maxTime = 0.48f, scale = 1.1f))
                 haptic(18)
                 post { onSelectionChanged() }
                 return
@@ -356,7 +415,10 @@ class GameView(
                 target is GameBuilding && target.faction != 0 -> simulation.orderAttack(selectedUnits, target)
                 target is GameResource && !target.depleted -> simulation.orderHarvest(selectedUnits.filter { it.type == "worker" }, target)
                 target is GameBuilding && target.faction == 0 && (target.hp < target.maxHp || target.buildProgress < 1f) -> simulation.orderRepair(selectedUnits.filter { it.type == "worker" }, target)
-                else -> simulation.orderMove(selectedUnits, wx, wy, attackMove = true)
+                else -> {
+                    simulation.orderMove(selectedUnits, wx, wy, attackMove = true)
+                    state.effects.add(GameEffect("moveMark", wx, wy, maxTime = 0.48f, scale = 1.35f))
+                }
             }
             haptic(36)
             post { onSelectionChanged() }
@@ -367,6 +429,7 @@ class GameView(
             selectedBuilding.rallyX = wx
             selectedBuilding.rallyY = wy
             selectedBuilding.hasRally = true
+            state.effects.add(GameEffect("moveMark", wx, wy, maxTime = 0.48f, scale = 1.1f))
             haptic(24)
             post { onSelectionChanged() }
         }
@@ -487,6 +550,30 @@ class GameView(
         state.placingBuilding = null
         attackMoveArmed = false
         post { onSelectionChanged() }
+    }
+
+    private fun canMoveBuilding(building: GameBuilding, x: Float, y: Float): Boolean {
+        val def = BUILDINGS[building.type] ?: return false
+        if (!state.isSafeLand(x, y, def.placeW / 2f)) return false
+        for (other in state.buildings) {
+            if (other.dead || other.id == building.id) continue
+            val od = BUILDINGS[other.type] ?: continue
+            if (rectsOverlap(x, y, def.placeW, def.placeH, other.x, other.y, od.placeW, od.placeH)) return false
+        }
+        for (r in state.resources) {
+            if (r.dead || r.depleted) continue
+            val blockRadius = if (r.isAnimal) (HUNT_ANIMALS[r.animalKind]?.radius ?: 12f) else when (r.type) {
+                ResourceType.TREE -> 30f
+                ResourceType.GOLD -> 24f
+                ResourceType.FOOD -> 16f
+            }
+            if (dist2(x, y, r.x, r.y) < (def.placeW / 2f + blockRadius) * (def.placeW / 2f + blockRadius)) return false
+        }
+        return true
+    }
+
+    private fun rectsOverlap(ax: Float, ay: Float, aw: Float, ah: Float, bx: Float, by: Float, bw: Float, bh: Float): Boolean {
+        return ax - aw / 2f < bx + bw / 2f && ax + aw / 2f > bx - bw / 2f && ay - ah / 2f < by + bh / 2f && ay + ah / 2f > by - bh / 2f
     }
 
     private fun handleMinimapTouch(mx: Float, my: Float, mapW: Float, mapH: Float, viewW: Float, viewH: Float) {

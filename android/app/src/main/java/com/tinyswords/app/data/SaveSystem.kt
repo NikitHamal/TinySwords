@@ -36,7 +36,7 @@ class SaveSystem(context: Context) {
     }
 
     fun saveGlobalSettings(settings: GlobalSettings) {
-        settingsPrefs.edit().putString("global_settings", gson.toJson(settings)).apply()
+        settingsPrefs.edit().putString("global_settings", gson.toJson(settings)).commit()
     }
 
     // ── World Save/Load ──
@@ -51,18 +51,44 @@ class SaveSystem(context: Context) {
     )
 
     fun listWorlds(): List<WorldMeta> {
-        val json = prefs.getString(SAVE_INDEX_KEY, null) ?: return emptyList()
-        return try {
-            val type = object : TypeToken<List<WorldMeta>>() {}.type
-            val list: List<WorldMeta> = gson.fromJson(json, type)
-            list.sortedByDescending { it.updatedAt }.take(MAX_WORLDS)
-        } catch (e: Exception) {
-            emptyList()
+        val indexed = mutableListOf<WorldMeta>()
+        val json = prefs.getString(SAVE_INDEX_KEY, null)
+        if (json != null) {
+            try {
+                val type = object : TypeToken<List<WorldMeta>>() {}.type
+                val list: List<WorldMeta> = gson.fromJson(json, type)
+                indexed.addAll(list)
+            } catch (_: Exception) {
+                // Fall through to save-key recovery below.
+            }
         }
+
+        // Defensive recovery: Save & Exit writes the payload and index, but on
+        // some devices the index can be lost after process death. A saved world
+        // should still appear if its save_<id> payload exists.
+        val byId = indexed.associateBy { it.id }.toMutableMap()
+        for ((key, value) in prefs.all) {
+            if (!key.startsWith("save_") || value !is String) continue
+            val id = key.removePrefix("save_")
+            if (byId.containsKey(id)) continue
+            try {
+                val payload = gson.fromJson(value, SavePayload::class.java)
+                val stamp = if (payload.savedAt > 0L) payload.savedAt else System.currentTimeMillis()
+                byId[id] = WorldMeta(
+                    id = id,
+                    name = "Recovered Realm",
+                    createdAt = stamp,
+                    updatedAt = stamp,
+                    settings = payload.settings ?: WorldSettings(),
+                    playTime = payload.time
+                )
+            } catch (_: Exception) { }
+        }
+        return byId.values.sortedByDescending { it.updatedAt }.take(MAX_WORLDS)
     }
 
     private fun saveWorldIndex(worlds: List<WorldMeta>) {
-        prefs.edit().putString(SAVE_INDEX_KEY, gson.toJson(worlds)).apply()
+        prefs.edit().putString(SAVE_INDEX_KEY, gson.toJson(worlds)).commit()
     }
 
     fun createWorldMeta(name: String, settings: WorldSettings): WorldMeta {
@@ -84,13 +110,13 @@ class SaveSystem(context: Context) {
         val worlds = listWorlds().toMutableList()
         worlds.removeAll { it.id == id }
         saveWorldIndex(worlds)
-        prefs.edit().remove("save_$id").apply()
+        prefs.edit().remove("save_$id").commit()
     }
 
     // ── Game State Serialization ──
 
     data class SavePayload(
-        val schema: Int = 2,
+        val schema: Int = 3,
         val worldW: Float,
         val worldH: Float,
         val time: Float,
@@ -101,7 +127,9 @@ class SaveSystem(context: Context) {
         val units: List<UnitSave>,
         val buildings: List<BuildingSave>,
         val resources: List<ResourceSave>,
-        val formationMode: String
+        val formationMode: String,
+        val settings: WorldSettings? = null,
+        val savedAt: Long = 0L
     )
 
     data class FactionSave(
@@ -142,7 +170,8 @@ class SaveSystem(context: Context) {
         val amount: Float, val maxAmount: Float,
         val depleted: Boolean, val variant: Int,
         val isAnimal: Boolean, val animalKind: String,
-        val animalHp: Float, val animalMaxHp: Float
+        val animalHp: Float, val animalMaxHp: Float,
+        val animalDir: Int = 0
     )
 
     fun saveGame(worldId: String, state: GameState) {
@@ -169,20 +198,33 @@ class SaveSystem(context: Context) {
             },
             resources = state.resources.filter { !it.dead }.map { r ->
                 ResourceSave(r.id, r.type.name, r.x, r.y, r.amount, r.maxAmount,
-                    r.depleted, r.variant, r.isAnimal, r.animalKind, r.animalHp, r.animalMaxHp)
+                    r.depleted, r.variant, r.isAnimal, r.animalKind, r.animalHp, r.animalMaxHp, r.animalDir)
             },
-            formationMode = state.formationMode
+            formationMode = state.formationMode,
+            settings = state.settings,
+            savedAt = System.currentTimeMillis()
         )
 
-        prefs.edit().putString("save_$worldId", gson.toJson(payload)).apply()
+        prefs.edit().putString("save_$worldId", gson.toJson(payload)).commit()
 
         // Update world meta
         val worlds = listWorlds().toMutableList()
-        worlds.find { it.id == worldId }?.let {
-            it.updatedAt = System.currentTimeMillis()
-            it.playTime = state.time
+        val now = System.currentTimeMillis()
+        val existing = worlds.find { it.id == worldId }
+        if (existing != null) {
+            existing.updatedAt = now
+            existing.playTime = state.time
+        } else {
+            worlds.add(0, WorldMeta(
+                id = worldId,
+                name = "Realm ${now % 1000}",
+                createdAt = now,
+                updatedAt = now,
+                settings = state.settings,
+                playTime = state.time
+            ))
         }
-        saveWorldIndex(worlds)
+        saveWorldIndex(worlds.sortedByDescending { it.updatedAt }.take(MAX_WORLDS))
     }
 
     fun loadGame(worldId: String, state: GameState): Boolean {
@@ -258,6 +300,7 @@ class SaveSystem(context: Context) {
                 depleted = rs.depleted; variant = rs.variant
                 isAnimal = rs.isAnimal; animalKind = rs.animalKind
                 animalHp = rs.animalHp; animalMaxHp = rs.animalMaxHp
+                animalDir = rs.animalDir
             }
             state.resources.add(r)
             state.ensureNextIdGreaterThan(r.id)

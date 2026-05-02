@@ -158,7 +158,11 @@ data class AnimalDef(
     val fpsIdle: Float = 2.3f,
     val fpsWalk: Float = 6.4f,
     val fpsRun: Float = 9.2f,
-    val fpsHurt: Float = 5.5f
+    val fpsHurt: Float = 5.5f,
+    val fw: Int = 32,
+    val fh: Int = 32,
+    val flipByFacing: Boolean = false,
+    val useSpriteShadow: Boolean = false
 )
 
 val HUNT_ANIMALS = mapOf(
@@ -166,7 +170,8 @@ val HUNT_ANIMALS = mapOf(
     "boar" to AnimalDef(54, 28, 14f, 1.04f, 12f, 22f, 48f, 70f, 4, baseline = 28f, shadowW = 14f, shadowH = 4f, fpsIdle = 2.2f, fpsWalk = 6.2f, fpsRun = 8.6f, fpsHurt = 5.4f),
     "hare" to AnimalDef(18, 12, 10f, 0.68f, 18f, 30f, 68f, 96f, baseline = 28f, shadowW = 9f, shadowH = 3f, fpsIdle = 2.8f, fpsWalk = 7.2f, fpsRun = 10.8f, fpsHurt = 6f),
     "fox" to AnimalDef(26, 16, 12f, 0.86f, 16f, 27f, 62f, 90f, baseline = 28f, shadowW = 11f, shadowH = 4f, fpsIdle = 2.5f, fpsWalk = 6.8f, fpsRun = 10.2f, fpsHurt = 6f),
-    "grouse" to AnimalDef(20, 14, 11f, 0.58f, 14f, 26f, 58f, 86f, baseline = 28f, shadowW = 8f, shadowH = 3f, fpsIdle = 2.6f, fpsWalk = 6.8f, fpsRun = 9.5f, fpsHurt = 6f)
+    "grouse" to AnimalDef(20, 14, 11f, 0.58f, 14f, 26f, 58f, 86f, baseline = 28f, shadowW = 8f, shadowH = 3f, fpsIdle = 2.6f, fpsWalk = 6.8f, fpsRun = 9.5f, fpsHurt = 6f),
+    "sheep" to AnimalDef(28, 14, 14f, 0.30f * SPRITE_BOOST, 10f, 18f, 30f, 42f, baseline = 86f, shadowW = 12f, shadowH = 4f, fpsIdle = 2.5f, fpsWalk = 6f, fpsRun = 8f, fpsHurt = 2.5f, fw = 128, fh = 128, flipByFacing = true)
 )
 
 // ── Factions ──

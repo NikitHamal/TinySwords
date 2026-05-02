@@ -60,7 +60,7 @@ class GameRenderer(private val assets: AssetManager) {
     private val buildingQueryBuffer = ArrayList<GameBuilding>(128)
     private val unitQueryBuffer = ArrayList<GameUnit>(512)
     private var terrainCacheKey: String = ""
-    private val terrainChunkTiles = 8
+    private val terrainChunkTiles = 12
     private val terrainChunkPx = (TILE * terrainChunkTiles).toInt()
     private val terrainChunks = object : LinkedHashMap<Long, Bitmap>(96, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Bitmap>?): Boolean {
@@ -378,7 +378,9 @@ class GameRenderer(private val assets: AssetManager) {
                     unit.order == UnitOrder.HARVEST -> {
                         val target = unit.target
                         if (target is GameResource) {
-                            val closeEnough = hypot(unit.x - target.x, unit.y - target.y) <= 30f
+                            val workX = resourceInteractionX(target)
+                            val workY = resourceInteractionY(target)
+                            val closeEnough = hypot(unit.x - workX, unit.y - workY) <= 30f
                             if (!closeEnough) "${base}_run" else when (target.type) {
                                 ResourceType.TREE -> "${base}_chop"
                                 ResourceType.GOLD -> "${base}_mine"
@@ -436,6 +438,16 @@ class GameRenderer(private val assets: AssetManager) {
         val dx = max(max(left - unit.x, 0f), unit.x - right)
         val dy = max(max(top - unit.y, 0f), unit.y - bottom)
         return sqrt(dx * dx + dy * dy) <= 26f
+    }
+
+    private fun resourceInteractionX(res: GameResource): Float = res.x
+
+    private fun resourceInteractionY(res: GameResource): Float = when {
+        res.isAnimal -> res.y
+        res.type == ResourceType.TREE && res.depleted -> res.y - 14f
+        res.type == ResourceType.TREE -> res.y - 42f
+        res.type == ResourceType.GOLD -> res.y - 16f
+        else -> res.y - 2f
     }
 
     private fun unitVisualBaseline(type: String): Float = when (type) {
@@ -561,41 +573,56 @@ class GameRenderer(private val assets: AssetManager) {
 
     private fun drawAnimal(canvas: Canvas, state: GameState, res: GameResource) {
         val def = HUNT_ANIMALS[res.animalKind] ?: return
-        val kindCap = animalKeyName(res.animalKind)
         val moving = abs(res.vx) > 7f || abs(res.vy) > 7f
+        val hurt = res.hurtTimer > 0f
         val suffix = when {
-            res.hurtTimer > 0f -> "Hurt"
+            hurt -> "Hurt"
             moving && res.panic > 0f && res.animalKind == "grouse" -> "Flight"
             moving && res.panic > 0f -> "Run"
             moving -> "Walk"
             else -> "Idle"
         }
-        val sprite = assets.get("animal${kindCap}$suffix") ?: assets.get("animal${kindCap}Idle")
+        val spriteKey = animalSpriteKey(res, suffix, moving, hurt)
+        val sprite = assets.get(spriteKey) ?: assets.get(animalSpriteKey(res, "Idle", moving = false, hurt = false))
         if (sprite != null) {
-            val fw = 32
-            val fh = 32
+            val fw = def.fw
+            val fh = def.fh
             val frames = (sprite.width / fw).coerceAtLeast(1)
             val rows = (sprite.height / fh).coerceAtLeast(1)
             val fps = when {
-                res.hurtTimer > 0f -> def.fpsHurt
+                hurt -> def.fpsHurt
                 moving && res.panic > 0f -> def.fpsRun
                 moving -> def.fpsWalk
                 else -> def.fpsIdle
             }
-            val frame = ((res.animTime * fps + (res.id % frames)).toInt() % frames).coerceIn(0, frames - 1)
-            val row = res.animalDir.coerceIn(0, rows - 1)
-            val bob = sin(state.time * if (moving) 5f else 2f + res.id) * if (moving) 1.1f else 0.8f
-            drawAnimalShadow(canvas, res, kindCap, frame)
+            val frameSeed = if (moving || hurt) (res.id % frames).toFloat() else ((res.id * 31) % frames).toFloat()
+            val frame = ((res.animTime * fps + frameSeed).toInt() % frames).coerceIn(0, frames - 1)
+            val row = if (rows == 1) 0 else res.animalDir.coerceIn(0, rows - 1)
+            val bob = if (moving) sin(state.time * 5f + res.id) * 1.1f else 0f
+            val face = if (def.flipByFacing && (res.animalDir == 2 || res.vx < -1f)) -1 else 1
+            drawAnimalShadow(canvas, res)
             if (res in state.selected) {
                 val sr = (def.radius + 8f).coerceAtLeast(16f)
                 selectionPaint.color = Color.argb(160, 245, 211, 125)
                 canvas.drawOval(res.x - sr, res.y - sr * 0.42f, res.x + sr, res.y + sr * 0.42f, selectionPaint)
             }
-            if (res.flash > 0f || res.hurtTimer > 0f) spritePaint.colorFilter = PorterDuffColorFilter(Color.RED, PorterDuff.Mode.SRC_ATOP)
-            drawAnchoredFrame(canvas, sprite, frame * fw, row * fh, fw, fh, res.x, res.y + bob, def.scale, def.baseline)
+            if (res.flash > 0f || hurt) spritePaint.colorFilter = PorterDuffColorFilter(Color.RED, PorterDuff.Mode.SRC_ATOP)
+            drawAnchoredFrame(canvas, sprite, frame * fw, row * fh, fw, fh, res.x, res.y + bob, def.scale, def.baseline, face)
             spritePaint.colorFilter = null
         } else fallbackResource(canvas, res)
         if (res.animalHp < res.animalMaxHp || res in state.selected) drawHpBar(canvas, res.x, res.y - 36f, res.animalHp / res.animalMaxHp, 28f)
+    }
+
+    private fun animalSpriteKey(res: GameResource, suffix: String, moving: Boolean, hurt: Boolean): String {
+        if (res.animalKind == "sheep") {
+            return when {
+                !moving && !hurt && ((res.id * 1103515245 + 12345) ushr 28) > 12 -> "sheepGrass"
+                suffix == "Walk" || suffix == "Run" || suffix == "Flight" -> "sheepMove"
+                else -> "sheepIdle"
+            }
+        }
+        val kindCap = animalKeyName(res.animalKind)
+        return "animal${kindCap}$suffix"
     }
 
     private fun animalKeyName(kind: String): String = when (kind) {
@@ -603,30 +630,16 @@ class GameRenderer(private val assets: AssetManager) {
         else -> kind.replaceFirstChar { it.uppercase() }
     }
 
-    private fun drawAnimalShadow(canvas: Canvas, res: GameResource, kindCap: String, frame: Int) {
-        val def = HUNT_ANIMALS[res.animalKind]
-        val shadow = assets.get("animal${kindCap}Shadow")
-        if (shadow != null && def != null) {
-            val sframes = (shadow.width / 32).coerceAtLeast(1)
-            val srows = 4
-            val sfw = shadow.width / sframes
-            val sfh = shadow.height / srows
-            val srow = res.animalDir.coerceIn(0, srows - 1)
-            val sfr = frame % sframes
-            srcRect.set(sfr * sfw, srow * sfh, sfr * sfw + sfw, srow * sfh + sfh)
-            val scale = def.scale * 1.08f
-            val sw = sfw * scale
-            val sh = sfh * scale
-            val top = res.y + (32f - def.baseline) * def.scale - sh / 2f
-            dstRect.set(res.x - sw / 2f, top, res.x + sw / 2f, top + sh)
-            alphaPaint.alpha = 148
-            canvas.drawBitmap(shadow, srcRect, dstRect, alphaPaint)
-            alphaPaint.alpha = 255
-        } else {
-            val halfW = def?.shadowW ?: 12f
-            val halfH = def?.shadowH ?: 4f
-            canvas.drawOval(res.x - halfW, res.y - halfH, res.x + halfW, res.y + halfH, shadowPaint)
-        }
+    private fun drawAnimalShadow(canvas: Canvas, res: GameResource) {
+        val def = HUNT_ANIMALS[res.animalKind] ?: return
+        // The CraftPix sprite-shadow sheets have inconsistent internal padding on
+        // Android Canvas and were the cause of the drifting/double-shadow look.
+        // Match the stabilized web build: one procedural ground-contact oval tied
+        // to the animal baseline, never to the transparent sprite frame bounds.
+        val alpha = if (res.animalKind == "sheep") 92 else 104
+        shadowPaint.alpha = alpha
+        canvas.drawOval(res.x - def.shadowW, res.y - def.shadowH, res.x + def.shadowW, res.y + def.shadowH, shadowPaint)
+        shadowPaint.alpha = 255
     }
 
     private fun drawDecor(canvas: Canvas, state: GameState, decor: GameDecor) {
@@ -682,6 +695,14 @@ class GameRenderer(private val assets: AssetManager) {
                 "hit" -> { fillPaint.color = Color.argb(alpha, 255, 200, 50); canvas.drawCircle(e.x, e.y, 4f + progress * 9f, fillPaint) }
                 "heal" -> { fillPaint.color = Color.argb(alpha, 100, 255, 150); canvas.drawCircle(e.x, e.y - progress * 10f, 6f + progress * 14f, fillPaint) }
                 "explosion" -> { fillPaint.color = Color.argb(alpha, 255, 120, 30); canvas.drawCircle(e.x, e.y, 10f + progress * 40f, fillPaint) }
+                "moveMark" -> {
+                    strokePaint.color = Color.argb(alpha, 245, 211, 125)
+                    strokePaint.strokeWidth = 2.0f
+                    val r = (7f + progress * 16f) * e.scale
+                    canvas.drawCircle(e.x, e.y, r, strokePaint)
+                    fillPaint.color = Color.argb((alpha * 0.26f).toInt().coerceIn(0, 255), 245, 211, 125)
+                    canvas.drawCircle(e.x, e.y, 3.2f * e.scale, fillPaint)
+                }
             }
         }
     }

@@ -288,7 +288,7 @@ class WorldGenerator(private val state: GameState) {
                 val rx = bx + cos(angle) * dist
                 val ry = by + sin(angle) * dist
                 if (rx > 100f && rx < worldW - 100f && ry > 100f && ry < worldH - 100f && state.isLand(rx, ry)) {
-                    val kinds = listOf("deer", "boar", "hare", "fox", "grouse")
+                    val kinds = listOf("deer", "boar", "hare", "fox", "grouse", "sheep", "sheep")
                     state.resources.add(GameResource.createAnimal(kinds[rng.nextInt(kinds.size)], rx, ry, state::nextId))
                 }
             }

@@ -97,10 +97,13 @@ class GameSimulation(val state: GameState) {
             }
         }
 
-        // Apply velocity
+        // Apply velocity. Snap sub-pixel idle drift to zero so idle animals do
+        // not shimmer vertically/horizontally from tiny residual velocities.
         val dampening = if (res.panic > 0f) 0.992f else 0.982f
         res.vx *= dampening
         res.vy *= dampening
+        if (res.panic <= 0f && abs(res.vx) < 0.85f) res.vx = 0f
+        if (res.panic <= 0f && abs(res.vy) < 0.85f) res.vy = 0f
 
         val newX = res.x + res.vx * dt
         val newY = res.y + res.vy * dt
@@ -335,6 +338,23 @@ class GameSimulation(val state: GameState) {
         }
     }
 
+    private fun resourceInteractionX(res: GameResource): Float = res.x
+
+    private fun resourceInteractionY(res: GameResource): Float = when {
+        res.isAnimal -> res.y
+        res.type == ResourceType.TREE && res.depleted -> res.y - 14f
+        res.type == ResourceType.TREE -> res.y - 42f
+        res.type == ResourceType.GOLD -> res.y - 16f
+        else -> res.y - 2f
+    }
+
+    private fun resourceInteractionDistance(res: GameResource): Float = when {
+        res.isAnimal -> (HUNT_ANIMALS[res.animalKind]?.radius ?: 12f) + 17f
+        res.type == ResourceType.TREE -> 30f
+        res.type == ResourceType.GOLD -> 28f
+        else -> 24f
+    }
+
     private fun updateHarvest(u: GameUnit, dt: Float) {
         if (u.type != "worker") {
             u.order = UnitOrder.IDLE
@@ -376,8 +396,10 @@ class GameSimulation(val state: GameState) {
             return
         }
 
-        val d = dist(u.x, u.y, target.x, target.y)
-        if (d < 28f) {
+        val workX = resourceInteractionX(target)
+        val workY = resourceInteractionY(target)
+        val d = dist(u.x, u.y, workX, workY)
+        if (d < resourceInteractionDistance(target)) {
             // Gather
             u.gatherTimer += dt
             val gatherRate = when (target.type) {
@@ -417,9 +439,9 @@ class GameSimulation(val state: GameState) {
                 }
             }
 
-            u.face = if (target.x >= u.x) 1 else -1
+            u.face = if (workX >= u.x) 1 else -1
         } else {
-            moveToward(u, target.x, target.y, dt, 22f)
+            moveToward(u, workX, workY, dt, 22f)
         }
     }
 
