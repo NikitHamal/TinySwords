@@ -796,7 +796,12 @@ Game.prototype.run = function(ts) {
   this.lastFrame = ts;
   this.update(dt * (this.fast ? 1.7 : 1));
   this.draw();
-  requestAnimationFrame(t => this.run(t));
+  // Use setTimeout to cap frame rate on mobile devices for better battery life
+  if (window.matchMedia('(max-width: 768px)').matches) {
+    setTimeout(() => requestAnimationFrame(t => this.run(t)), 16);
+  } else {
+    requestAnimationFrame(t => this.run(t));
+  }
 };
 
 

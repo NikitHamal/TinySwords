@@ -17,6 +17,7 @@ Game.prototype.bindEvents = function() {
     window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
     window.addEventListener('blur', () => keys.clear());
 
+    // Mouse events for desktop
     canvas.addEventListener('mousemove', (e) => {
       this.updatePointer(e);
       if (this.pointer.down) {
@@ -88,15 +89,206 @@ Game.prototype.bindEvents = function() {
       this.camera.y = clamp(before.y - this.pointer.y / this.camera.zoom, 0, WORLD_H - VIEW_H / this.camera.zoom);
     }, { passive: false });
 
+    // Touch events for mobile
+    let touchStartTime = 0;
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let lastTouchX = 0;
+    let lastTouchY = 0;
+    let pinchStartDist = 0;
+    let pinchStartZoom = 1;
+    let activeTouchId = null;
+
+    canvas.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      this.sfx.resume();
+      touchStartTime = Date.now();
+      
+      if (e.touches.length === 1) {
+        const touch = e.touches[0];
+        activeTouchId = touch.identifier;
+        this.updatePointerFromTouch(touch);
+        touchStartX = this.pointer.x;
+        touchStartY = this.pointer.y;
+        lastTouchX = touch.clientX;
+        lastTouchY = touch.clientY;
+        this.pointer.down = true;
+        this.pointer.dragging = false;
+        this.pointer.startX = this.pointer.x;
+        this.pointer.startY = this.pointer.y;
+        this.pointer.startWx = this.pointer.wx;
+        this.pointer.startWy = this.pointer.wy;
+        
+        if (this.placing) {
+          this.tryPlace(this.placing, this.pointer.wx, this.pointer.wy);
+          this.pointer.down = false;
+          return;
+        }
+        
+        const picked = this.pickEntity(this.pointer.wx, this.pointer.wy);
+        if (picked && picked.entity === 'building' && picked.faction === 0) {
+          this.dragBuilding = {
+            building: picked,
+            active: false,
+            offsetX: picked.x - this.pointer.wx,
+            offsetY: picked.y - this.pointer.wy,
+            x: picked.x,
+            y: picked.y,
+            originalX: picked.x,
+            originalY: picked.y
+          };
+        }
+      } else if (e.touches.length === 2) {
+        // Pinch zoom
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        pinchStartDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        pinchStartZoom = this.camera.targetZoom;
+        activeTouchId = null;
+        // Clear long press timer on pinch
+        if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      
+      if (e.touches.length === 2) {
+        // Pinch zoom
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+        if (pinchStartDist > 0) {
+          const scale = dist / pinchStartDist;
+          this.camera.targetZoom = clamp(pinchStartZoom * scale, 0.72, 1.32);
+          this.camera.zoom = this.camera.targetZoom;
+        }
+        return;
+      }
+      
+      if (e.touches.length === 1 && activeTouchId !== null) {
+        const touch = e.touches[0];
+        if (touch.identifier !== activeTouchId) return;
+        
+        this.updatePointerFromTouch(touch);
+        
+        if (this.pointer.down) {
+          const dx = Math.abs(this.pointer.x - this.pointer.startX);
+          const dy = Math.abs(this.pointer.y - this.pointer.startY);
+          
+          if (this.dragBuilding) {
+            if (dx + dy > 8) {
+              this.dragBuilding.active = true;
+              this.dragBuilding.x = this.pointer.wx + this.dragBuilding.offsetX;
+              this.dragBuilding.y = this.pointer.wy + this.dragBuilding.offsetY;
+              this.pointer.dragging = false;
+            }
+          } else {
+            this.pointer.dragging = dx + dy > 16;
+          }
+        }
+        
+        lastTouchX = touch.clientX;
+        lastTouchY = touch.clientY;
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      
+      // Find if our active touch ended
+      let ourTouchEnded = false;
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        if (e.changedTouches[i].identifier === activeTouchId) {
+          ourTouchEnded = true;
+          break;
+        }
+      }
+      
+      if (ourTouchEnded || e.touches.length === 0) {
+        if (this.pointer.down && activeTouchId !== null) {
+          const touchDuration = Date.now() - touchStartTime;
+          const wasTap = touchDuration < 250 && !this.pointer.dragging;
+          
+          if (this.dragBuilding) {
+            if (this.dragBuilding.active) this.finishBuildingDrag();
+            else this.clickSelect(false);
+            this.dragBuilding = null;
+          } else if (wasTap) {
+            this.clickSelect(false);
+          } else if (this.pointer.dragging) {
+            this.dragSelect(false);
+          }
+        }
+        
+        this.pointer.down = false;
+        this.pointer.dragging = false;
+        activeTouchId = null;
+        this.dragBuilding = null;
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchcancel', (e) => {
+      e.preventDefault();
+      this.pointer.down = false;
+      this.pointer.dragging = false;
+      activeTouchId = null;
+      this.dragBuilding = null;
+    });
+
+    // Long press for context menu (right-click equivalent)
+    let longPressTimer = null;
+    const LONG_PRESS_DURATION = 500;
+
+    canvas.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 1) {
+        longPressTimer = setTimeout(() => {
+          if (this.pointer.down && !this.pointer.dragging) {
+            this.updatePointerFromTouch(e.touches[0]);
+            this.contextOrder(this.pointer.wx, this.pointer.wy);
+            navigator.vibrate && navigator.vibrate(50);
+          }
+          longPressTimer = null;
+        }, LONG_PRESS_DURATION);
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('touchend', (e) => {
+      if (longPressTimer) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    });
+
+    canvas.addEventListener('touchmove', (e) => {
+      if (longPressTimer && this.pointer.dragging) {
+        clearTimeout(longPressTimer);
+        longPressTimer = null;
+      }
+    });
+
     mini.addEventListener('click', (e) => {
       const r = mini.getBoundingClientRect();
       const x = (e.clientX - r.left) / r.width * WORLD_W;
       const y = (e.clientY - r.top) / r.height * WORLD_H;
       this.centerCamera(x, y);
     });
+    
+    // Touch support for minimap
+    mini.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      const touch = e.touches[0];
+      const r = mini.getBoundingClientRect();
+      const x = (touch.clientX - r.left) / r.width * WORLD_W;
+      const y = (touch.clientY - r.top) / r.height * WORLD_H;
+      this.centerCamera(x, y);
+    }, { passive: false });
+    
     HUD.miniToggle.addEventListener('click', () => this.toggleMini());
+    HUD.miniToggle.addEventListener('touchstart', (e) => { e.preventDefault(); this.toggleMini(); });
     HUD.helpClose.addEventListener('click', () => this.toggleHelp(false));
-    window.addEventListener('resize', () => this.resizeMini());
+    HUD.helpClose.addEventListener('touchstart', (e) => { e.preventDefault(); this.toggleHelp(false); });
+    window.addEventListener('resize', () => { this.resizeMini(); this.handleResize(); });
   
 };
 
@@ -104,6 +296,15 @@ Game.prototype.updatePointer = function(e) {
     const rect = canvas.getBoundingClientRect();
     this.pointer.x = clamp((e.clientX - rect.left) / rect.width * VIEW_W, 0, VIEW_W);
     this.pointer.y = clamp((e.clientY - rect.top) / rect.height * VIEW_H, 0, VIEW_H);
+    const w = screenToWorld(this, this.pointer.x, this.pointer.y);
+    this.pointer.wx = w.x; this.pointer.wy = w.y;
+  
+};
+
+Game.prototype.updatePointerFromTouch = function(touch) {
+    const rect = canvas.getBoundingClientRect();
+    this.pointer.x = clamp((touch.clientX - rect.left) / rect.width * VIEW_W, 0, VIEW_W);
+    this.pointer.y = clamp((touch.clientY - rect.top) / rect.height * VIEW_H, 0, VIEW_H);
     const w = screenToWorld(this, this.pointer.x, this.pointer.y);
     this.pointer.wx = w.x; this.pointer.wy = w.y;
   
@@ -153,6 +354,15 @@ Game.prototype.resizeMini = function() {
     const r = mini.getBoundingClientRect();
     if (r.width > 0 && r.height > 0) { mini.width = Math.floor(r.width); mini.height = Math.floor(r.height); mctx.imageSmoothingEnabled = false; }
   
+};
+
+Game.prototype.handleResize = function() {
+  // Handle canvas resize for responsive display
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width > 0 && rect.height > 0) {
+    // Canvas CSS handles the display size, we just need to ensure pointer tracking works
+    this.uiDirty = true;
+  }
 };
 
 Game.prototype.buildStaticMenus = function() {
