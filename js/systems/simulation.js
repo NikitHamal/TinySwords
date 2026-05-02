@@ -447,6 +447,29 @@ Game.prototype.aiFrontlinePosition = function(f) {
 };
 
 
+Game.prototype.aiBuild = function(f) {
+  const ownB = this.buildings.filter(b => b.faction === f.id && !b.dead);
+  const bCount = {};
+  for (const b of ownB) bCount[b.type] = (bCount[b.type] || 0) + 1;
+  const count = (t) => bCount[t] || 0;
+  const pop = this.population(f.id);
+  const candidates = [];
+  if (pop.cap - pop.used < 5) candidates.push('house');
+  if (count('barracks') < 1) candidates.push('barracks');
+  if (count('archery') < 1 && count('barracks') >= 1) candidates.push('archery');
+  if (count('tower') < 2 + Math.floor(f.aiState.expansion)) candidates.push('tower');
+  if (count('monastery') < 1 && pop.used > 12) candidates.push('monastery');
+  if (pop.used > 24 && count('barracks') < 2) candidates.push('barracks');
+  if (pop.used > 28 && count('archery') < 2) candidates.push('archery');
+  if (!candidates.length && Math.random() < .18) candidates.push(choose(['house','tower','archery','barracks']));
+  for (const t of candidates) {
+    const def = BUILDINGS[t];
+    if (!canAfford(f, def.cost)) continue;
+    const anchor = this.aiBuildAnchor(f, t);
+    const pos = this.findBuildSpot(anchor.x, anchor.y, t, f.aiState.expansion);
+    if (pos && pay(f, def.cost)) { const b = this.addBuilding(f.id, t, pos.x, pos.y, false); b.aiIntent = t; return; }
+  }
+};
 
 
 Game.prototype.findBuildSpot = function(cx, cy, type, ring = 0) {
@@ -484,6 +507,90 @@ Game.prototype.aiTrain = function(f) {
 };
 
 
+Game.prototype.aiTactics = function(f) {
+  const diff = DIFFICULTY_PRESETS[this.worldSettings?.difficulty || 'normal'] || DIFFICULTY_PRESETS.normal;
+  const army = this.units.filter(u => u.faction === f.id && u.type !== 'worker' && !u.dead && !u.garrisoned);
+  const idleArmy = army.filter(u => u.order === 'idle' || u.order === 'move' || u.order === 'attackMove');
+  const workers = this.units.filter(u => u.faction === f.id && u.type === 'worker' && !u.dead && !u.garrisoned);
+  const threat = this.nearestThreatToBase(f.id, f.base.x, f.base.y, f.underAttack > 0 ? 1350 : 940);
+
+  if (threat && idleArmy.length) {
+    const tx = threat.x, ty = threat.y;
+    const defenders = idleArmy
+      .map(u => ({ u, d: dist2(u.x, u.y, tx, ty) }))
+      .sort((a, b) => a.d - b.d)
+      .slice(0, Math.min(idleArmy.length, f.underAttack > 0 ? 24 : 14))
+      .map(o => o.u);
+    for (const u of defenders) this.orderAttack(u, threat, false);
+    if (workers.length && f.underAttack > 1) {
+      const repairTarget = this.buildings.find(b => b.faction === f.id && !b.dead && b.hp < b.maxHp && dist2(b.x, b.y, tx, ty) < 720 * 720);
+      if (repairTarget) {
+        for (const w of workers.slice(0, 4)) { w.order = 'repair'; w.target = repairTarget; w.goal = null; this.clearUnitPath && this.clearUnitPath(w); }
+      }
+    }
+    return;
+  }
+
+  const towers = this.buildings.filter(b => b.faction === f.id && b.type === 'tower' && b.build >= 1 && b.garrison.length < BUILDINGS.tower.garrisonCap);
+  for (const tw of towers) {
+    const ar = idleArmy.find(u => u.type === 'archer' && dist2(u.x, u.y, tw.x, tw.y) < 860 * 860);
+    if (ar) this.garrisonArchers([ar], tw, true);
+  }
+
+  const armyPower = army.reduce((sum, u) => sum + (u.type === 'lancer' ? 2.1 : u.type === 'archer' ? 1.25 : u.type === 'monk' ? .85 : 1), 0);
+  f.aiState.attackTimer -= diff.aggression;
+  const stageAngle = f.aiState.rallyAngle;
+  const frontline = this.aiFrontlinePosition(f);
+  const stage = this.nearestLandPoint(
+    frontline.x + Math.cos(stageAngle) * (180 + f.aiState.expansion * 40),
+    frontline.y + Math.sin(stageAngle) * (180 + f.aiState.expansion * 40),
+    280
+  ) || frontline;
+
+  if (idleArmy.length >= Math.max(3, diff.aiSquadMin - 2)) {
+    for (const u of idleArmy.slice(0, Math.min(idleArmy.length, 12))) {
+      if (dist2(u.x, u.y, f.base.x, f.base.y) < 660 * 660) this.orderMoveFormation([u], stage.x, stage.y, true);
+    }
+  }
+
+  const wounded = army.filter(u => u.hp / u.maxHp < .35 && u.order !== 'move');
+  const archers = idleArmy.filter(u => u.type === 'archer');
+  const melee = idleArmy.filter(u => u.type === 'warrior' || u.type === 'lancer');
+  for (const u of wounded.slice(0, 5)) this.orderMoveFormation([u], f.base.x + (Math.random() - .5) * 260, f.base.y + (Math.random() - .5) * 260, false);
+
+  if (archers.length && melee.length) {
+    for (const ar of archers.slice(0, Math.min(archers.length, 6))) {
+      const escort = melee[Math.floor(Math.random() * melee.length)];
+      if (escort && dist2(ar.x, ar.y, escort.x, escort.y) > 180 * 180) this.orderMoveFormation([ar], escort.x - 18 * ar.face, escort.y + 12, true);
+    }
+  }
+
+  const shouldAttack = f.aiState.attackTimer <= 0 && armyPower >= diff.aiSquadMin;
+  if (!shouldAttack) return;
+
+  f.aiState.attackTimer = diff.aiAttackDelay + 6 + Math.random() * 10;
+  f.aiState.rallyAngle += .55 + Math.random() * .75;
+  const target = this.pickStrategicTargetV2(f.id);
+  if (!target) return;
+  f.aiState.lastTargetId = target.id;
+  const squadLimit = Math.min(idleArmy.length, Math.max(diff.aiSquadMin, 8 + Math.floor(armyPower / 2)));
+  const squad = idleArmy
+    .sort((a, b) => {
+      const roleA = a.type === 'monk' ? 2 : a.type === 'archer' ? 0 : 1;
+      const roleB = b.type === 'monk' ? 2 : b.type === 'archer' ? 0 : 1;
+      return roleA - roleB;
+    })
+    .slice(0, squadLimit);
+  for (const u of squad) this.orderAttack(u, target, true);
+  for (const monk of squad.filter(u => u.type === 'monk').slice(0, 2)) this.orderMoveFormation([monk], stage.x - 30, stage.y + 24, false);
+
+  if (Math.random() < .35 * diff.aggression) {
+    const exposed = this.units.find(u => u.faction !== f.id && !u.dead && u.type === 'worker' && this.factions[u.faction]?.alive);
+    if (exposed) {
+      for (const raider of idleArmy.filter(u => u.type !== 'monk').slice(0, 3)) this.orderAttack(raider, exposed, true);
+    }
+  }
+};
 
 Game.prototype.pickStrategicTargetV2 = function(fid) {
   let best = null, score = Infinity;
@@ -491,8 +598,15 @@ Game.prototype.pickStrategicTargetV2 = function(fid) {
   for (const b of this.buildings) {
     if (b.dead || b.faction === fid || !this.factions[b.faction].alive || b.build < 1) continue;
     const baseD = Math.sqrt(dist2(own.base.x, own.base.y, b.x, b.y));
-    const enemyArmyNear = this.units.filter(u => u.faction === b.faction && !u.dead && dist2(u.x, u.y, b.x, b.y) < 620 * 620).length;
-    const friendlyPressure = this.units.filter(u => u.faction === fid && !u.dead && dist2(u.x, u.y, b.x, b.y) < 720 * 720).length;
+    let enemyArmyNear = 0, friendlyPressure = 0;
+    const near = this.nearbyUnits(b.x, b.y);
+    for (let i = 0; i < near.length; i++) {
+      const u = near[i];
+      if (u.dead) continue;
+      const d = dist2(u.x, u.y, b.x, b.y);
+      if (u.faction === b.faction && d < 620 * 620) enemyArmyNear++;
+      else if (u.faction === fid && d < 720 * 720) friendlyPressure++;
+    }
     const value = b.type === 'castle' ? -520 : b.type === 'tower' ? 220 : b.type === 'house' ? -80 : -180;
     const hpPenalty = (b.hp / b.maxHp) * 90;
     const s = baseD + enemyArmyNear * 58 - friendlyPressure * 24 + value + hpPenalty + Math.random() * 240;
@@ -518,7 +632,12 @@ Game.prototype.pickStrategicTarget = function(fid) {
   for (const b of this.buildings) {
     if (b.dead || b.faction === fid || !this.factions[b.faction].alive || b.build < 1) continue;
     const baseD = Math.sqrt(dist2(own.base.x, own.base.y, b.x, b.y));
-    const enemyArmyNear = this.units.filter(u => u.faction === b.faction && !u.dead && dist2(u.x, u.y, b.x, b.y) < 520 * 520).length;
+    let enemyArmyNear = 0;
+    const near = this.nearbyUnits(b.x, b.y);
+    for (let i = 0; i < near.length; i++) {
+      const u = near[i];
+      if (u.faction === b.faction && !u.dead && dist2(u.x, u.y, b.x, b.y) < 520 * 520) enemyArmyNear++;
+    }
     const s = baseD + enemyArmyNear * 44 + Math.random() * 320 - (b.type === 'castle' ? 260 : b.type === 'tower' ? -80 : 0);
     if (s < score) { score = s; best = b; }
   }
@@ -699,6 +818,37 @@ Game.prototype.hasActiveBuilder = function(b) {
   return this.units.some(u => !u.dead && u.faction === b.faction && u.type === 'worker' && u.order === 'repair' && u.target === b);
 };
 
+Game.prototype.assignBuildersTo = function(b, fid, maxBuilders = 2, preferSelected = false) {
+  if (!b || b.dead) return 0;
+  const selected = preferSelected ? this.selected.filter(u => u.entity === 'unit' && u.faction === fid && u.type === 'worker' && !u.dead) : [];
+  const existing = this.units.filter(u => u.faction === fid && u.type === 'worker' && !u.dead && u.order === 'repair' && u.target === b);
+  const chosenSet = new Set(existing);
+  const chosen = [...existing];
+  const addCandidate = (u) => {
+    if (!u || chosenSet.has(u) || u.dead || u.faction !== fid || u.type !== 'worker') return;
+    chosenSet.add(u);
+    chosen.push(u);
+  };
+  selected.forEach(addCandidate);
+  const pool = this.units
+    .filter(u => u.faction === fid && u.type === 'worker' && !u.dead && !chosenSet.has(u))
+    .sort((a, c) => {
+      const idleA = a.order === 'idle' ? -800000 : 0;
+      const idleC = c.order === 'idle' ? -800000 : 0;
+      return dist2(a.x, a.y, b.x, b.y) + idleA - (dist2(c.x, c.y, b.x, b.y) + idleC);
+    });
+  for (const u of pool) {
+    if (chosen.length >= maxBuilders) break;
+    addCandidate(u);
+  }
+  let count = 0;
+  for (const u of chosen.slice(0, maxBuilders)) {
+    this.clearUnitPath && this.clearUnitPath(u);
+    u.order = 'repair'; u.target = b; u.goal = null; u.carry = null; u.gather = 0; u.hold = false;
+    count++;
+  }
+  return count;
+};
 
 
 Game.prototype.updateBuildings = function(dt) {
@@ -963,7 +1113,9 @@ Game.prototype.updateGarrisonUnit = function(u) { if (u) { u.order = 'idle'; u.g
 
 Game.prototype.aiBuild = function(f) {
   const ownB = this.buildings.filter(b => b.faction === f.id && !b.dead);
-  const count = (t) => ownB.filter(b => b.type === t).length;
+  const bCount = {};
+  for (const b of ownB) bCount[b.type] = (bCount[b.type] || 0) + 1;
+  const count = (t) => bCount[t] || 0;
   const pop = this.population(f.id);
   const candidates = [];
   if (pop.cap - pop.used < 5) candidates.push('house');
@@ -1020,9 +1172,10 @@ Game.prototype.aiTactics = function(f) {
   const workers = this.units.filter(u => u.faction === f.id && u.type === 'worker' && !u.dead);
   const threat = this.nearestThreatToBase(f.id, f.base.x, f.base.y, f.underAttack > 0 ? 1350 : 940);
   if (threat && idleArmy.length) {
-    const defenders = idleArmy.sort((a, b) => dist2(a.x, a.y, threat.x, threat.y) - dist2(b.x, b.y, threat.x, threat.y)).slice(0, Math.min(idleArmy.length, f.underAttack > 0 ? 24 : 14));
+    const tx = threat.x, ty = threat.y;
+    const defenders = idleArmy.map(u => ({ u, d: dist2(u.x, u.y, tx, ty) })).sort((a, b) => a.d - b.d).slice(0, Math.min(idleArmy.length, f.underAttack > 0 ? 24 : 14)).map(o => o.u);
     for (const u of defenders) this.orderAttack(u, threat, false);
-    const repairTarget = this.buildings.find(b => b.faction === f.id && !b.dead && b.hp < b.maxHp && dist2(b.x, b.y, threat.x, threat.y) < 720 * 720);
+    const repairTarget = this.buildings.find(b => b.faction === f.id && !b.dead && b.hp < b.maxHp && dist2(b.x, b.y, tx, ty) < 720 * 720);
     if (repairTarget) this.assignBuildersTo(repairTarget, f.id, 4, false);
     return;
   }
@@ -1391,14 +1544,16 @@ Game.prototype.assignBuildersTo = function(b, fid, maxBuilders = 2, preferSelect
   if (!b || b.dead) return 0;
   const selected = preferSelected ? this.selected.filter(u => u.entity === 'unit' && u.faction === fid && u.type === 'worker' && !u.dead) : [];
   const existing = this.units.filter(u => u.faction === fid && u.type === 'worker' && !u.dead && u.order === 'repair' && u.target === b);
+  const chosenSet = new Set(existing);
   const chosen = [...existing];
   const addCandidate = (u) => {
-    if (!u || chosen.includes(u) || u.dead || u.faction !== fid || u.type !== 'worker') return;
+    if (!u || chosenSet.has(u) || u.dead || u.faction !== fid || u.type !== 'worker') return;
+    chosenSet.add(u);
     chosen.push(u);
   };
   selected.forEach(addCandidate);
   const pool = this.units
-    .filter(u => u.faction === fid && u.type === 'worker' && !u.dead && !chosen.includes(u))
+    .filter(u => u.faction === fid && u.type === 'worker' && !u.dead && !chosenSet.has(u))
     .sort((a, c) => {
       const idleA = a.order === 'idle' ? -800000 : 0;
       const idleC = c.order === 'idle' ? -800000 : 0;

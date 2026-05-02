@@ -8,7 +8,7 @@ Game.prototype.renderUI = function() {
   const pop = this.population(0);
   const resHtml = Object.keys(RESOURCES).map(k => {
     const r = RESOURCES[k];
-    return `<div class="res-pill"><img src="${IMAGE_PATHS[r.icon]}" alt="${r.label}"><span><b>${Math.floor(f.res[k])}</b><small>${r.label}</small></span></div>`;
+    return `<div class="res-pill"><img src="${IMAGE_PATHS[r.icon]}" class="sprite-icon" alt="${r.label}"><span><b>${Math.floor(f.res[k])}</b><small>${r.label}</small></span></div>`;
   }).join('') + `<div class="res-pill pop-pill"><img src="${IMAGE_PATHS.iconHouse}" alt="Population"><span><b>${pop.used}/${pop.cap}</b><small>Pop</small></span></div>`;
   this.setHudHtml(HUD.resources, resHtml);
 
@@ -41,10 +41,12 @@ Game.prototype.renderSelectionPanel = function() {
     return IMAGE_PATHS[def.icon] || IMAGE_PATHS.iconMove;
   };
 
+  const isSpriteIcon = (e) => e && (e.entity === 'resource' || e.entity === 'unit');
+
   if (s.length > 1) {
     const groups = {};
     for (const e of s) groups[e.type] = (groups[e.type] || 0) + 1;
-    this.setHudHtml(HUD.selectionHeader, `<img src="${iconFor(first)}" alt=""><span><small>Group</small><b>${s.length} selected</b></span>`);
+    this.setHudHtml(HUD.selectionHeader, `<img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""><span><small>Group</small><b>${s.length} selected</b></span>`);
     this.setHudHtml(HUD.selectionBody, Object.entries(groups).map(([t, n]) => `<div class="selection-row"><span>${UNITS[t]?.label || BUILDINGS[t]?.label || t}</span><b>${n}</b></div>`).join(''));
     return;
   }
@@ -52,7 +54,7 @@ Game.prototype.renderSelectionPanel = function() {
   if (first.entity === 'resource') {
     const depleted = first.depleted;
     const title = depleted ? 'Tree Stump' : first.type === 'tree' ? 'Wood Grove' : first.type === 'gold' ? 'Gold Vein' : first.animal ? getAnimalLabel(first) : 'Meat';
-    this.setHudHtml(HUD.selectionHeader, `<img src="${iconFor(first)}" alt=""><span><small>Resource</small><b>${title}</b></span>`);
+    this.setHudHtml(HUD.selectionHeader, `<img src="${iconFor(first)}" class="sprite-icon" alt=""><span><small>Resource</small><b>${title}</b></span>`);
     const hp = first.animal ? `<div class="selection-row"><span>Animal HP</span><b>${Math.max(0, Math.ceil(first.animalHp))}</b></div>` : '';
     const remaining = depleted ? '<div class="selection-row"><span>Status</span><b>Depleted</b></div>' : `<div class="selection-row"><span>Remaining</span><b>${Math.max(0, Math.floor(first.amount))}</b></div>`;
     this.setHudHtml(HUD.selectionBody, `${hp}${remaining}`);
@@ -75,7 +77,7 @@ Game.prototype.renderSelectionPanel = function() {
   const build = first.entity === 'building' && first.build < 1 ? `<div class="selection-row"><span>Construction</span><b>${Math.floor(first.build * 100)}%</b></div><div class="selection-row"><span>Builder</span><b>${this.hasActiveBuilder && this.hasActiveBuilder(first) ? 'Working' : 'Needs worker'}</b></div>` : '';
   const queue = first.entity === 'building' && first.queue.length ? `<div class="selection-row"><span>Queue</span><b>${first.queue.map(q => UNITS[q.type].label).join(', ')}</b></div>` : '';
   const dragHint = first.entity === 'building' && first.faction === 0 ? `<div class="selection-row hint-row"><span>Move building</span><b>Drag it</b></div>` : '';
-  this.setHudHtml(HUD.selectionHeader, `<img src="${iconFor(first)}" alt=""><span><small>${owner.name}</small><b>${def.label}</b></span>`);
+  this.setHudHtml(HUD.selectionHeader, `<img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""><span><small>${owner.name}</small><b>${def.label}</b></span>`);
   this.setHudHtml(HUD.selectionBody, `<div class="selection-row"><span>HP</span><div class="hpbar"><span style="width:${hpPct}%"></span></div><b>${Math.ceil(first.hp)}/${first.maxHp}</b></div>${build}${unitRange}${tower}${queue}${dragHint}`);
 };
 
@@ -104,7 +106,7 @@ Game.prototype.renderActions = function() {
       const d = UNITS[t]; const pop = this.population(0); const disabled = !canAfford(this.factions[0], d.cost) || pop.used + d.pop > pop.cap;
       HUD.actionBar.appendChild(this.makeAction(String(n), `Train ${d.label}`, fmtCost(d.cost), d.icon, () => this.queueTrain(t), disabled)); n++;
     }
-    HUD.actionBar.appendChild(this.makeAction('', 'Rally Flag', 'Right click map', 'iconRally', () => this.toast('Right click the map to set rally flags.', 1.4)));
+    if (trainSet.size > 0) HUD.actionBar.appendChild(this.makeAction('', 'Rally Flag', 'Right click map', 'iconRally', () => this.toast('Right click the map to set rally flags.', 1.4)));
     HUD.actionBar.appendChild(this.makeAction('', 'Assign Workers', 'Build / repair', 'iconRepair', () => this.repairSelected()));
   }
 };
@@ -192,7 +194,7 @@ Game.prototype.renderUI = function() {
   const pop = this.population(0);
   const resHtml = Object.keys(RESOURCES).map(k => {
     const r = RESOURCES[k];
-    return `<div class="res-pill"><img src="${IMAGE_PATHS[r.icon]}" alt="${r.label}"><span><b>${Math.floor(f.res[k])}</b><small>${r.label}</small></span></div>`;
+    return `<div class="res-pill"><img src="${IMAGE_PATHS[r.icon]}" class="sprite-icon" alt="${r.label}"><span><b>${Math.floor(f.res[k])}</b><small>${r.label}</small></span></div>`;
   }).join('') + `<div class="res-pill pop-pill"><img src="${IMAGE_PATHS.iconHouse}" alt="Population"><span><b>${pop.used}/${pop.cap}</b><small>Pop</small></span></div>`;
   if (resHtml !== _lastResHtml || pop.used !== _lastPopUsed || pop.cap !== _lastPopCap) {
     _lastResHtml = resHtml;
@@ -224,12 +226,13 @@ Game.prototype.renderSelectionPanel = function() {
     const def = e.entity === 'unit' ? UNITS[e.type] : BUILDINGS[e.type];
     return IMAGE_PATHS[def.icon] || IMAGE_PATHS.iconMove;
   };
+  const isSpriteIcon = (e) => e && (e.entity === 'resource' || e.entity === 'unit');
 
   if (s.length > 1) {
     const groups = {};
     for (const e of s) groups[e.type] = (groups[e.type] || 0) + 1;
     const formation = s.some(e => e.entity === 'unit') ? `<span class="formation-tag">${FORMATION_MODES[this.formationMode || 'box'].label}</span>` : '';
-    this.setHudHtml(HUD.selectionHeader, `<img src="${iconFor(first)}" alt=""><span><small>Group</small><b>${s.length} selected ${formation}</b></span>`);
+    this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""></div><span><small>Group</small><b>${s.length} selected ${formation}</b></span>`);
     this.setHudHtml(HUD.selectionBody, Object.entries(groups).map(([t, n]) => `<div class="selection-row"><span>${UNITS[t]?.label || BUILDINGS[t]?.label || t}</span><b>${n}</b></div>`).join(''));
     return;
   }
@@ -237,7 +240,7 @@ Game.prototype.renderSelectionPanel = function() {
   if (first.entity === 'resource') {
     const depleted = first.depleted;
     const title = depleted ? 'Tree Stump' : first.type === 'tree' ? 'Wood Grove' : first.type === 'gold' ? 'Gold Vein' : first.animal ? getAnimalLabel(first) : 'Meat';
-    this.setHudHtml(HUD.selectionHeader, `<img src="${iconFor(first)}" alt=""><span><small>Resource</small><b>${title}</b></span>`);
+    this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="sprite-icon" alt=""></div><span><small>Resource</small><b>${title}</b></span>`);
     const hp = first.animal ? `<div class="selection-row"><span>Animal HP</span><b>${Math.max(0, Math.ceil(first.animalHp))}</b></div>` : '';
     const remaining = depleted ? '<div class="selection-row"><span>Status</span><b>Depleted</b></div>' : `<div class="selection-row"><span>Remaining</span><b>${Math.max(0, Math.floor(first.amount))}</b></div>`;
     this.setHudHtml(HUD.selectionBody, `${hp}${remaining}`);
@@ -247,7 +250,7 @@ Game.prototype.renderSelectionPanel = function() {
   if (first.entity === 'decor' || (!first.entity && first.kind)) {
     const decorLabels = { bush1: 'Bush', bush2: 'Bush', bush3: 'Bush', bush4: 'Bush', rock1: 'Rock', rock2: 'Rock', rock3: 'Rock', rock4: 'Rock' };
     const label = decorLabels[first.kind] || first.kind;
-    this.setHudHtml(HUD.selectionHeader, `<img src="${IMAGE_PATHS.iconMove}" alt=""><span><small>Scenery</small><b>${label}</b></span>`);
+    this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${IMAGE_PATHS.iconMove}" alt=""></div><span><small>Scenery</small><b>${label}</b></span>`);
     this.setHudHtml(HUD.selectionBody, '<div class="selection-row"><span>Decoration</span><b>Impassable</b></div>');
     return;
   }
@@ -261,7 +264,7 @@ Game.prototype.renderSelectionPanel = function() {
   const queue = first.entity === 'building' && first.queue.length ? `<div class="selection-row"><span>Queue</span><b>${first.queue.map(q => UNITS[q.type].label).join(', ')}</b></div>` : '';
   const dragHint = first.entity === 'building' && first.faction === 0 ? `<div class="selection-row hint-row"><span>Move building</span><b>Drag</b></div>` : '';
   const role = first.entity === 'unit' && first.type === 'worker' ? `<div class="selection-row"><span>Role</span><b>${first.workerRole || 'auto'}</b></div>` : '';
-  this.setHudHtml(HUD.selectionHeader, `<img src="${iconFor(first)}" alt=""><span><small>${owner.name}</small><b>${def.label}</b></span>`);
+  this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""></div><span><small>${owner.name}</small><b>${def.label}</b></span>`);
   this.setHudHtml(HUD.selectionBody, `<div class="selection-row"><span>HP</span><div class="hpbar"><span style="width:${hpPct}%"></span></div><b>${Math.ceil(first.hp)}/${first.maxHp}</b></div>${build}${role}${unitRange}${tower}${queue}${dragHint}`);
 };
 
@@ -317,7 +320,7 @@ Game.prototype.renderActions = function() {
       if (res.type === 'tree') HUD.actionBar.appendChild(this.makeAction('', 'Chop', 'Send worker', 'resWood', () => this.assignWorkerToResource(res)));
       if (res.type === 'gold') HUD.actionBar.appendChild(this.makeAction('', 'Mine', 'Send worker', 'resGold', () => this.assignWorkerToResource(res)));
       if (res.type === 'food') HUD.actionBar.appendChild(this.makeAction('', res.animal ? 'Hunt' : 'Gather', 'Send worker', 'resFood', () => this.assignWorkerToResource(res)));
-      break; // Just show actions for the first selected resource to avoid duplicates
+      break;
     }
   }
 };
