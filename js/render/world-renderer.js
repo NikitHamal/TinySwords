@@ -178,12 +178,13 @@ Game.prototype.drawShoreLines = function (sx, sy, ex, ey) {
 };
 
 Game.prototype.drawWorldEntities = function () {
+  this.drawSelectedRanges && this.drawSelectedRanges();
   const drawables = [];
   const inView = (x, y, pad = 180) => x > this.camera.x - pad && y > this.camera.y - pad && x < this.camera.x + VIEW_W / this.camera.zoom + pad && y < this.camera.y + VIEW_H / this.camera.zoom + pad;
   for (const d of this.decor) if (inView(d.x, d.y, d.sky ? 360 : 100)) drawables.push({ y: d.sky ? d.y + 900000 : d.y + (d.front ? 6 : -18), kind: 'decor', item: d });
   for (const r of this.resources) if (!r.dead && inView(r.x, r.y, 130)) drawables.push({ y: r.y + (r.type === 'tree' ? -10 : 0), kind: 'resource', item: r });
   for (const b of this.buildings) if (!b.dead && inView(b.x, b.y, 280)) drawables.push({ y: b.y + b.h * .34, kind: 'building', item: b });
-  for (const u of this.units) if (!u.dead && !u.garrisoned && inView(u.x, u.y, 140)) drawables.push({ y: u.y, kind: 'unit', item: u });
+  for (const u of this.units) if (!u.dead && inView(u.x, u.y, 140)) drawables.push({ y: u.y, kind: 'unit', item: u });
   drawables.sort((a, b) => a.y - b.y);
   for (const d of drawables) {
     if (d.kind === 'decor') this.drawDecor(d.item);
@@ -368,41 +369,28 @@ Game.prototype.getBuildingDrawMetrics = function (b) {
 
 Game.prototype.drawBuilding = function (b) {
   const def = BUILDINGS[b.type];
-  const metrics = this.getBuildingDrawMetrics ? this.getBuildingDrawMetrics(b) : (() => {
-    const fallbackImg = assets[`b_${faction(b.faction).key}_${b.sprite || b.type}`] || assets[`b_${faction(b.faction).key}_${b.type}`];
-    return { img: fallbackImg, w: b.w, h: b.h, drawY: b.y - b.h / 2, barY: b.y - b.h * 1.02 };
-  })();
+  if (b.type === 'tower' && this.normalizeTowerStats) this.normalizeTowerStats(b);
+  const metrics = this.getBuildingDrawMetrics ? this.getBuildingDrawMetrics(b) : (() => { const fallbackImg = assets[`b_${faction(b.faction).key}_${b.sprite || b.type}`] || assets[`b_${faction(b.faction).key}_${b.type}`]; return { img: fallbackImg, w: b.w, h: b.h, drawY: b.y - b.h / 2, barY: b.y - b.h * 1.02 }; })();
   const img = metrics.img;
-  if (b.type === 'tower' && this.selected.includes(b)) this.drawTowerRange(b);
   this.drawShadow(b.x, b.y + b.h * .18, b.w * .50, b.h * .18);
-  if (img) {
-    ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1;
-    ctx.drawImage(img, Math.round(b.x - metrics.w / 2), Math.round(metrics.drawY), Math.round(metrics.w), Math.round(metrics.h));
-    ctx.globalAlpha = 1;
-  } else { ctx.fillStyle = faction(b.faction).color; ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
+  if (img) { ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1; ctx.drawImage(img, Math.round(b.x - metrics.w / 2), Math.round(metrics.drawY), Math.round(metrics.w), Math.round(metrics.h)); ctx.globalAlpha = 1; }
+  else { ctx.fillStyle = faction(b.faction).color; ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
   if (b.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${b.flash * .25})`; ctx.fillRect(b.x - b.w / 2, b.y - b.h, b.w, b.h); }
-  if (b.build < 1) this.drawProgress(b.x, metrics.barY + 10, b.build, '#e8c965');
-  if (b.hp < b.maxHp || b.build < 1) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
-  if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color, true);
+  if (b.build < 1) this.drawProgress(b.x, metrics.barY + 5, b.build, '#e8c965');
+  else if (b.hp < b.maxHp) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
+  if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
   if (b.rally && b.faction === 0 && this.selected.includes(b)) this.drawRallyFlag(b.rally.x, b.rally.y, faction(b.faction).color);
-  if (b.type === 'tower' && b.garrison.length) {
+  if (b.type === 'tower' && b.build >= 1) {
     const fKey = faction(b.faction).key;
     const archerImg = assets[`u_${fKey}_archer_idle`];
     if (archerImg) {
-      const scale = UNITS['archer'].scale * SPRITE_BOOST;
-      const fw = UNITS['archer'].fw;
-      const fh = UNITS['archer'].fh;
-      const w = fw * scale;
-      const h = fh * scale;
-      // Animate archer slightly
+      const scale = UNITS.archer.scale * SPRITE_BOOST * .92;
+      const fw = UNITS.archer.fw, fh = UNITS.archer.fh;
       const frames = Math.max(1, Math.floor(archerImg.width / fw));
       const fr = Math.floor(this.time * 4) % frames;
-
-      // Draw archer on top of tower
-      ctx.drawImage(archerImg, fr * fw, 0, fw, fh, Math.round(b.x - w / 2 + 2), Math.round(b.y - b.h + 20), Math.round(w), Math.round(h));
+      const w = fw * scale, h = fh * scale;
+      ctx.drawImage(archerImg, fr * fw, 0, fw, fh, b.x - w / 2 + 2, b.y - b.h + 18, w, h);
     }
-    ctx.fillStyle = '#fff4b8'; ctx.font = 'bold 12px monospace';
-    ctx.fillText(`${b.garrison.length}/2`, b.x - 10, b.y - b.h * .75);
   }
 };
 
@@ -410,11 +398,11 @@ Game.prototype.drawUnit = function (u) {
   const f = faction(u.faction);
   const def = UNITS[u.type];
   let anim = 'idle';
-  if (u.order === 'move' || u.order === 'attackMove' || u.order === 'garrison') anim = 'run';
-  if (u.carry && u.order !== 'idle') anim = 'run';
+  if (u.order === 'move' || u.order === 'attackMove' || (u.carry && u.order !== 'idle')) anim = 'run';
   if (u.order === 'attack' && u.target) anim = dist(u, u.target) > def.range + 8 ? 'run' : 'attack';
+  if (u.type === 'monk' && (u.order === 'heal' || u.healAnim > 0)) anim = 'attack';
   if (u.type === 'worker' && u.order === 'harvest' && !u.carry) anim = (u.gather > 0 || u.huntSwing > 0) ? (u.target && u.target.type === 'gold' ? 'mine' : 'chop') : 'run';
-  if (u.type === 'worker' && u.order === 'repair' && u.target) anim = dist2(u.x, u.y, u.target.x, u.target.y) <= Math.pow(Math.hypot(u.target.w / 2, u.target.h / 2) + u.r + 8, 2) ? 'build' : 'run';
+  if (u.type === 'worker' && u.order === 'repair' && u.target) anim = 'build';
   if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= def.range + 8) anim = 'fight';
 
   let key = `u_${f.key}_${u.type}_${anim}`;
@@ -427,30 +415,42 @@ Game.prototype.drawUnit = function (u) {
     else key = `u_${f.key}_worker_${anim === 'run' ? 'run' : 'idle'}`;
   }
   const img = assets[key] || assets[`u_${f.key}_${u.type}_idle`];
-  this.drawShadow(u.x, u.y + 3, u.r * 1.15, 8);
+  const shadow = def.shadow || [u.r * 1.15, 8];
+  this.drawShadow(u.x, u.y + 3, shadow[0], shadow[1]);
   if (u.selected) this.drawSelectionCircle(u.x, u.y, u.r + 8, '#f5d37d');
   if (img) {
     const fw = def.fw, fh = def.fh;
-    const frames = Math.max(1, Math.floor(img.width / fw));
+    const frames = Math.max(1, (img.width / fw) | 0);
     const frame = Math.floor(u.anim) % frames;
-    const w = fw * def.scale * SPRITE_BOOST;
-    const h = fh * def.scale * SPRITE_BOOST;
-    ctx.save();
-    ctx.translate(Math.round(u.x), Math.round(u.y + 7));
-    ctx.scale(u.face, 1);
-    ctx.globalAlpha = u.flash > 0 ? .75 : 1;
-    ctx.drawImage(img, frame * fw, 0, fw, fh, Math.round(-w / 2), Math.round(-h + 16), Math.round(w), Math.round(h));
-    ctx.globalAlpha = 1;
-    ctx.restore();
+    const scale = def.scale * SPRITE_BOOST;
+    const w = fw * scale;
+    const h = fh * scale;
+    const drawYOffset = def.drawYOffset || 0;
+    if (u.flash > 0) {
+      ctx.save();
+      ctx.translate(Math.round(u.x), Math.round(u.y + 7 + drawYOffset));
+      ctx.scale(u.face, 1);
+      ctx.globalAlpha = .75;
+      ctx.drawImage(img, frame * fw, 0, fw, fh, Math.round(-w / 2), Math.round(-h + 16), Math.round(w), Math.round(h));
+      ctx.globalAlpha = 1;
+      ctx.restore();
+    } else if (u.face < 0) {
+      ctx.save();
+      ctx.translate(Math.round(u.x), Math.round(u.y + 7 + drawYOffset));
+      ctx.scale(-1, 1);
+      ctx.drawImage(img, frame * fw, 0, fw, fh, Math.round(-w / 2), Math.round(-h + 16), Math.round(w), Math.round(h));
+      ctx.restore();
+    } else {
+      ctx.drawImage(img, frame * fw, 0, fw, fh, u.x - w / 2, u.y + 7 + drawYOffset - h + 16, w, h);
+    }
   } else {
     ctx.fillStyle = f.color;
     ctx.beginPath();
     ctx.arc(u.x, u.y, u.r, 0, Math.PI * 2);
     ctx.fill();
   }
-  if (u.hp < u.maxHp) this.drawHpBar(u.x, u.y - (def.fh * def.scale * SPRITE_BOOST) + 8, u.hp / u.maxHp, u.faction, 36);
+  if (u.hp < u.maxHp) this.drawHpBar(u.x, u.y - (def.fh * def.scale * SPRITE_BOOST) + 8 + (def.drawYOffset || 0), u.hp / u.maxHp, u.faction, 36);
 };
-
 Game.prototype.drawProjectile = function (p) {
   const f = faction(p.faction);
   const img = assets[`${f.key}Arrow`] || assets.blueArrow;
@@ -549,25 +549,7 @@ Game.prototype.drawSelectionRect = function (x, y, w, h, color, footprintOnly = 
   }
 };
 
-Game.prototype.drawTowerRange = function (b) {
-  const r = BUILDINGS.tower.range;
-  ctx.save();
-  ctx.globalAlpha = .16;
-  ctx.fillStyle = faction(b.faction).color;
-  ctx.beginPath();
-  ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.globalAlpha = .62;
-  ctx.strokeStyle = '#fff2a6';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([14, 10]);
-  ctx.beginPath();
-  ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
-  ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.restore();
-};
-
+Game.prototype.drawTowerRange = function (b) { this.drawRangeCircle(b.x, b.y, BUILDINGS.tower.range, faction(b.faction).color); };
 
 Game.prototype.drawHpBar = function (x, y, pct, fid, width = 58) {
   pct = clamp(pct, 0, 1);
@@ -703,143 +685,6 @@ Game.prototype.drawMinimap = function () {
   if (!this.minimapTerrain) this.buildMinimapTerrainCache();
   if (this.minimapTerrain) mctx.drawImage(this.minimapTerrain, 0, 0, w, h);
   else { mctx.fillStyle = '#1f6773'; mctx.fillRect(0, 0, w, h); }
-  // Use precomputed scale factors for better performance
-  const sx = w / WORLD_W, sy = h / WORLD_H;
-  for (const r of this.resources) {
-    if (r.dead) continue;
-    mctx.fillStyle = r.type === 'gold' ? '#e8ca4d' : r.type === 'tree' ? '#366f3f' : '#e8a765';
-    mctx.fillRect(r.x * sx, r.y * sy, 1.8, 1.8);
-  }
-  for (const b of this.buildings) {
-    if (b.dead) continue;
-    mctx.fillStyle = faction(b.faction).color;
-    const bw = b.type === 'castle' ? 6 : 4;
-    mctx.fillRect(b.x * sx - 2, b.y * sy - 2, bw, bw);
-  }
-  // Cache unit colors to avoid repeated lookups
-  const unitColors = ['#61b7d9', '#db6060', '#e6ca59', '#b071df', '#aeb3bd'];
-  for (const u of this.units) {
-    if (u.dead || u.garrisoned) continue;
-    mctx.fillStyle = unitColors[u.faction] || '#aeb3bd';
-    mctx.fillRect(u.x * sx, u.y * sy, 2, 2);
-  }
-  // Draw attack pings
-  for (let i = 0, pLen = this.attackPings ? this.attackPings.length : 0; i < pLen; i++) {
-    const p = this.attackPings[i];
-    const age = this.time - p.start;
-    const t = clamp(1 - age / Math.max(.1, p.until - p.start), 0, 1);
-    mctx.strokeStyle = `rgba(255,93,70,${t})`; mctx.lineWidth = 2;
-    mctx.beginPath(); mctx.arc(p.x * sx, p.y * sy, 4 + age * 4, 0, Math.PI * 2); mctx.stroke();
-  }
-  mctx.strokeStyle = '#fff3bd'; mctx.lineWidth = 1.5;
-  mctx.strokeRect(this.camera.x * sx, this.camera.y * sy, (VIEW_W / this.camera.zoom) * sx, (VIEW_H / this.camera.zoom) * sy);
-};
-
-
-// Pass 2: selected ranges, construction-only foundation bar, built-in tower archer rendering, minimap attack pings.
-Game.prototype.drawWorldEntities = function () {
-  this.drawSelectedRanges && this.drawSelectedRanges();
-  const drawables = [];
-  const inView = (x, y, pad = 180) => x > this.camera.x - pad && y > this.camera.y - pad && x < this.camera.x + VIEW_W / this.camera.zoom + pad && y < this.camera.y + VIEW_H / this.camera.zoom + pad;
-  for (const d of this.decor) if (inView(d.x, d.y, d.sky ? 360 : 100)) drawables.push({ y: d.sky ? d.y + 900000 : d.y + (d.front ? 6 : -18), kind: 'decor', item: d });
-  for (const r of this.resources) if (!r.dead && inView(r.x, r.y, 130)) drawables.push({ y: r.y + (r.type === 'tree' ? -10 : 0), kind: 'resource', item: r });
-  for (const b of this.buildings) if (!b.dead && inView(b.x, b.y, 280)) drawables.push({ y: b.y + b.h * .34, kind: 'building', item: b });
-  for (const u of this.units) if (!u.dead && inView(u.x, u.y, 140)) drawables.push({ y: u.y, kind: 'unit', item: u });
-  drawables.sort((a, b) => a.y - b.y);
-  for (const d of drawables) {
-    if (d.kind === 'decor') this.drawDecor(d.item);
-    else if (d.kind === 'resource') this.drawResource(d.item);
-    else if (d.kind === 'building') this.drawBuilding(d.item);
-    else this.drawUnit(d.item);
-  }
-  for (const p of this.projectiles) if (inView(p.x, p.y, 180)) this.drawProjectile(p);
-  for (const e of this.effects) if (inView(e.x, e.y, 180)) this.drawEffect(e);
-};
-
-Game.prototype.drawRangeCircle = function (x, y, r, color) {
-  if (!r || r <= 0) return;
-  ctx.save();
-  ctx.globalAlpha = .12; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
-  ctx.globalAlpha = .58; ctx.strokeStyle = '#fff2a6'; ctx.lineWidth = 2; ctx.setLineDash([14, 10]); ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
-  ctx.restore();
-};
-
-Game.prototype.drawSelectedRanges = function () {
-  for (const e of this.selected.filter(isAlive)) {
-    if (e.entity === 'building' && e.type === 'tower') this.drawRangeCircle(e.x, e.y, BUILDINGS.tower.range, faction(e.faction).color);
-    if (e.entity === 'unit') this.drawRangeCircle(e.x, e.y, UNITS[e.type].range, faction(e.faction).color);
-  }
-};
-
-Game.prototype.drawTowerRange = function (b) { this.drawRangeCircle(b.x, b.y, BUILDINGS.tower.range, faction(b.faction).color); };
-
-Game.prototype.drawBuilding = function (b) {
-  const def = BUILDINGS[b.type];
-  if (b.type === 'tower' && this.normalizeTowerStats) this.normalizeTowerStats(b);
-  const metrics = this.getBuildingDrawMetrics ? this.getBuildingDrawMetrics(b) : (() => { const fallbackImg = assets[`b_${faction(b.faction).key}_${b.sprite || b.type}`] || assets[`b_${faction(b.faction).key}_${b.type}`]; return { img: fallbackImg, w: b.w, h: b.h, drawY: b.y - b.h / 2, barY: b.y - b.h * 1.02 }; })();
-  const img = metrics.img;
-  this.drawShadow(b.x, b.y + b.h * .18, b.w * .50, b.h * .18);
-  if (img) { ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1; ctx.drawImage(img, Math.round(b.x - metrics.w / 2), Math.round(metrics.drawY), Math.round(metrics.w), Math.round(metrics.h)); ctx.globalAlpha = 1; }
-  else { ctx.fillStyle = faction(b.faction).color; ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
-  if (b.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${b.flash * .25})`; ctx.fillRect(b.x - b.w / 2, b.y - b.h, b.w, b.h); }
-  if (b.build < 1) this.drawProgress(b.x, metrics.barY + 5, b.build, '#e8c965');
-  else if (b.hp < b.maxHp) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
-  if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
-  if (b.rally && b.faction === 0 && this.selected.includes(b)) this.drawRallyFlag(b.rally.x, b.rally.y, faction(b.faction).color);
-  if (b.type === 'tower' && b.build >= 1) {
-    const fKey = faction(b.faction).key;
-    const archerImg = assets[`u_${fKey}_archer_idle`];
-    if (archerImg) {
-      const scale = UNITS.archer.scale * SPRITE_BOOST * .92;
-      const fw = UNITS.archer.fw, fh = UNITS.archer.fh;
-      const frames = Math.max(1, Math.floor(archerImg.width / fw));
-      const fr = Math.floor(this.time * 4) % frames;
-      const w = fw * scale, h = fh * scale;
-      ctx.drawImage(archerImg, fr * fw, 0, fw, fh, b.x - w / 2 + 2, b.y - b.h + 18, w, h);
-    }
-  }
-};
-
-Game.prototype.drawUnit = function (u) {
-  const f = faction(u.faction);
-  const def = UNITS[u.type];
-  let anim = 'idle';
-  if (u.order === 'move' || u.order === 'attackMove' || (u.carry && u.order !== 'idle')) anim = 'run';
-  if (u.order === 'attack' && u.target) anim = dist(u, u.target) > def.range + 8 ? 'run' : 'attack';
-  if (u.type === 'monk' && (u.order === 'heal' || u.healAnim > 0)) anim = 'attack';
-  if (u.type === 'worker' && u.order === 'harvest' && !u.carry) anim = (u.gather > 0 || u.huntSwing > 0) ? (u.target && u.target.type === 'gold' ? 'mine' : 'chop') : 'run';
-  if (u.type === 'worker' && u.order === 'repair' && u.target) anim = 'build';
-  if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= def.range + 8) anim = 'fight';
-  let key = `u_${f.key}_${u.type}_${anim}`;
-  if (u.type === 'worker') {
-    if (u.carry) key = `u_${f.key}_worker_carry${u.carry.type[0].toUpperCase()}${u.carry.type.slice(1)}`;
-    else if (anim === 'mine') key = `u_${f.key}_worker_mine`;
-    else if (anim === 'chop') key = `u_${f.key}_worker_chop`;
-    else if (anim === 'build') key = `u_${f.key}_worker_build`;
-    else if (anim === 'fight') key = `u_${f.key}_worker_fight`;
-    else key = `u_${f.key}_worker_${anim === 'run' ? 'run' : 'idle'}`;
-  }
-  const img = assets[key] || assets[`u_${f.key}_${u.type}_idle`];
-  this.drawShadow(u.x, u.y + 3, u.r * 1.15, 8);
-  if (u.selected) this.drawSelectionCircle(u.x, u.y, u.r + 8, '#f5d37d');
-  if (img) {
-    const fw = def.fw, fh = def.fh;
-    const frames = Math.max(1, Math.floor(img.width / fw));
-    const frame = Math.floor(u.anim) % frames;
-    const w = fw * def.scale * SPRITE_BOOST;
-    const h = fh * def.scale * SPRITE_BOOST;
-    ctx.save(); ctx.translate(Math.round(u.x), Math.round(u.y + 7)); ctx.scale(u.face, 1); ctx.globalAlpha = u.flash > 0 ? .75 : 1; ctx.drawImage(img, frame * fw, 0, fw, fh, Math.round(-w / 2), Math.round(-h + 16), Math.round(w), Math.round(h)); ctx.globalAlpha = 1; ctx.restore();
-  } else { ctx.fillStyle = f.color; ctx.beginPath(); ctx.arc(u.x, u.y, u.r, 0, Math.PI * 2); ctx.fill(); }
-  if (u.hp < u.maxHp) this.drawHpBar(u.x, u.y - (def.fh * def.scale * SPRITE_BOOST) + 8, u.hp / u.maxHp, u.faction, 36);
-};
-
-Game.prototype.drawMinimap = function () {
-  this.resizeMini();
-  const w = mini.width, h = mini.height;
-  if (!w || !h) return;
-  if (!this.minimapTerrain) this.buildMinimapTerrainCache();
-  if (this.minimapTerrain) mctx.drawImage(this.minimapTerrain, 0, 0, w, h);
-  else { mctx.fillStyle = '#1f6773'; mctx.fillRect(0, 0, w, h); }
   const sx = w / WORLD_W, sy = h / WORLD_H;
   for (let i = 0; i < this.resources.length; i++) {
     const r = this.resources[i];
@@ -875,60 +720,18 @@ Game.prototype.drawMinimap = function () {
 
 // Pass 3: sprite-foot anchoring. Lancer sheets are painted high in their 320px frames, so the
 // unit is drawn lower while keeping the logical hit/selection point at the feet.
-Game.prototype.drawUnit = function (u) {
-  const f = faction(u.faction);
-  const def = UNITS[u.type];
-  let anim = 'idle';
-  if (u.order === 'move' || u.order === 'attackMove' || (u.carry && u.order !== 'idle')) anim = 'run';
-  if (u.order === 'attack' && u.target) anim = dist(u, u.target) > def.range + 8 ? 'run' : 'attack';
-  if (u.type === 'monk' && (u.order === 'heal' || u.healAnim > 0)) anim = 'attack';
-  if (u.type === 'worker' && u.order === 'harvest' && !u.carry) anim = (u.gather > 0 || u.huntSwing > 0) ? (u.target && u.target.type === 'gold' ? 'mine' : 'chop') : 'run';
-  if (u.type === 'worker' && u.order === 'repair' && u.target) anim = 'build';
-  if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= def.range + 8) anim = 'fight';
-
-  let key = `u_${f.key}_${u.type}_${anim}`;
-  if (u.type === 'worker') {
-    if (u.carry) key = `u_${f.key}_worker_carry${u.carry.type[0].toUpperCase()}${u.carry.type.slice(1)}`;
-    else if (anim === 'mine') key = `u_${f.key}_worker_mine`;
-    else if (anim === 'chop') key = `u_${f.key}_worker_chop`;
-    else if (anim === 'build') key = `u_${f.key}_worker_build`;
-    else if (anim === 'fight') key = `u_${f.key}_worker_fight`;
-    else key = `u_${f.key}_worker_${anim === 'run' ? 'run' : 'idle'}`;
-  }
-  const img = assets[key] || assets[`u_${f.key}_${u.type}_idle`];
-  const shadow = def.shadow || [u.r * 1.15, 8];
-  this.drawShadow(u.x, u.y + 3, shadow[0], shadow[1]);
-  if (u.selected) this.drawSelectionCircle(u.x, u.y, u.r + 8, '#f5d37d');
-  if (img) {
-    const fw = def.fw, fh = def.fh;
-    const frames = Math.max(1, (img.width / fw) | 0);
-    const frame = Math.floor(u.anim) % frames;
-    const scale = def.scale * SPRITE_BOOST;
-    const w = fw * scale;
-    const h = fh * scale;
-    const drawYOffset = def.drawYOffset || 0;
-    if (u.flash > 0) {
-      ctx.save();
-      ctx.translate(Math.round(u.x), Math.round(u.y + 7 + drawYOffset));
-      ctx.scale(u.face, 1);
-      ctx.globalAlpha = .75;
-      ctx.drawImage(img, frame * fw, 0, fw, fh, Math.round(-w / 2), Math.round(-h + 16), Math.round(w), Math.round(h));
-      ctx.globalAlpha = 1;
-      ctx.restore();
-    } else if (u.face < 0) {
-      ctx.save();
-      ctx.translate(Math.round(u.x), Math.round(u.y + 7 + drawYOffset));
-      ctx.scale(-1, 1);
-      ctx.drawImage(img, frame * fw, 0, fw, fh, Math.round(-w / 2), Math.round(-h + 16), Math.round(w), Math.round(h));
-      ctx.restore();
-    } else {
-      ctx.drawImage(img, frame * fw, 0, fw, fh, u.x - w / 2, u.y + 7 + drawYOffset - h + 16, w, h);
-    }
-  } else {
-    ctx.fillStyle = f.color;
-    ctx.beginPath();
-    ctx.arc(u.x, u.y, u.r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  if (u.hp < u.maxHp) this.drawHpBar(u.x, u.y - (def.fh * def.scale * SPRITE_BOOST) + 8 + (def.drawYOffset || 0), u.hp / u.maxHp, u.faction, 36);
+Game.prototype.drawRangeCircle = function (x, y, r, color) {
+  if (!r || r <= 0) return;
+  ctx.save();
+  ctx.globalAlpha = .12; ctx.fillStyle = color; ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = .58; ctx.strokeStyle = '#fff2a6'; ctx.lineWidth = 2; ctx.setLineDash([14, 10]); ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+  ctx.restore();
 };
+
+Game.prototype.drawSelectedRanges = function () {
+  for (const e of this.selected.filter(isAlive)) {
+    if (e.entity === 'building' && e.type === 'tower') this.drawRangeCircle(e.x, e.y, BUILDINGS.tower.range, faction(e.faction).color);
+    if (e.entity === 'unit') this.drawRangeCircle(e.x, e.y, UNITS[e.type].range, faction(e.faction).color);
+  }
+};
+
