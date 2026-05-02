@@ -30,44 +30,8 @@ Game.prototype.updateCamera = function(dt) {
   
 };
 
-Game.prototype.updateBuildings = function(dt) {
-  this.rebuildBuildingSpatialIndex && this.rebuildBuildingSpatialIndex();
-  for (const b of this.buildings) {
-    if (b.dead) continue;
-    b.flash = Math.max(0, b.flash - dt * 3);
-    if (b.build < 1) {
-      b.build = Math.min(1, b.build + dt / b.buildTime);
-      b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt / b.buildTime * .9);
-      if (b.build >= 1) {
-        if (b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} completed.`, 1.4); this.sfx.build(this.audioGainAt(b.x, b.y)); }
-      }
-      continue;
-    }
-    if (b.queue.length) {
-      const q = b.queue[0]; q.time -= dt;
-      if (q.time <= 0) {
-        b.queue.shift();
-        const spawn = this.nearestLandPoint(b.x + (Math.random() - .5) * 70, b.y + b.h * .50 + 32, 180) || { x: b.x, y: b.y + b.h * .50 + 32 };
-        const u = this.addUnit(b.faction, q.type, spawn.x, spawn.y);
-        if (b.rally) this.orderMoveFormation([u], b.rally.x, b.rally.y, false);
-        if (b.faction === 0) this.uiDirty = true;
-      }
-    }
-    if (b.type === 'tower' && b.garrison.length) this.towerAttack(b, dt);
-    if (b.type === 'monastery') this.passiveHeal(b, dt);
-  }
-};
 
 
-Game.prototype.towerAttack = function(b, dt) {
-    b.cd -= dt;
-    if (b.cd > 0) return;
-    const target = this.nearestEnemy({ x: b.x, y: b.y, faction: b.faction }, BUILDINGS.tower.range, true);
-    if (!target) return;
-    b.cd = Math.max(.42, 1.15 - b.garrison.length * .22);
-    this.spawnProjectile(b.faction, b.x, b.y - 70, target, 15 + b.garrison.length * 4);
-  
-};
 
 Game.prototype.passiveHeal = function(b, dt) {
     b.cd -= dt;
@@ -135,28 +99,6 @@ Game.prototype.updateResources = function(dt) {
 
 
 
-Game.prototype.rebuildUnitSpatialIndex = function() {
-  const bucketSize = 72;
-  const buckets = this._unitBucketsArr;
-  for (let i = 0; i < buckets.length; i++) buckets[i].length = 0;
-  this._unitBucketCount = 0;
-  const map = this._unitBucketMap;
-  map.clear();
-  for (const u of this.units) {
-    if (u.dead || u.garrisoned) continue;
-    const bx = (u.x / bucketSize) | 0, by = (u.y / bucketSize) | 0;
-    const key = bx * 73856093 ^ by * 19349663;
-    let list = map.get(key);
-    if (!list) {
-      if (this._unitBucketCount < buckets.length) { list = buckets[this._unitBucketCount++]; list.length = 0; }
-      else { list = []; this._unitBucketCount = buckets.push(list); }
-      map.set(key, list);
-    }
-    list.push(u);
-  }
-  this.unitBuckets = map;
-  this.unitBucketSize = bucketSize;
-};
 
 Game.prototype.nearbyUnits = function(x, y) {
   if (!this.unitBuckets) return this.units;
@@ -271,122 +213,10 @@ Game.prototype.rebuildDecorSpatialIndex = function() {
   this.decorBuckets = map;
 };
 
-Game.prototype.updateUnits = function(dt) {
-  this.rebuildUnitSpatialIndex();
-  for (const u of this.units) {
-    if (u.dead || u.garrisoned) continue;
-    u.flash = Math.max(0, u.flash - dt * 4);
-    u.cd = Math.max(0, u.cd - dt);
-    u.huntSwing = Math.max(0, (u.huntSwing || 0) - dt);
-    u.lastWaterBounce = Math.max(0, (u.lastWaterBounce || 0) - dt);
-    const activeMove = u.order === 'move' || u.order === 'attackMove' || u.order === 'garrison' || (u.order === 'harvest' && !u.gather && !u.huntSwing);
-    u.anim += dt * (activeMove ? 8 : u.order === 'attack' || u.huntSwing > 0 ? 8 : 4);
-    if (u.order === 'garrison') this.updateGarrisonUnit(u, dt);
-    else if (u.type === 'monk') this.updateMonk(u, dt);
-    else if (u.type === 'worker') this.updateWorker(u, dt);
-    else this.updateFighter(u, dt);
-    this.separate(u, dt);
-    if (this.isWater(u.x, u.y)) this.nudgeUnitToLand(u);
-    u.x = clamp(u.x, 20, WORLD_W - 20); u.y = clamp(u.y, 20, WORLD_H - 20);
-  }
-};
 
 
-Game.prototype.updateWorker = function(u, dt) {
-    if (u.order === 'repair') {
-      const b = u.target;
-      if (!b || b.dead || (b.build >= 1 && b.hp >= b.maxHp)) { u.order = 'idle'; u.target = null; return; }
-      if (this.moveToward(u, b.x, b.y, dt, Math.hypot(b.w/2, b.h/2) + u.r + 4)) {
-        u.face = b.x >= u.x ? 1 : -1;
-        if (Math.random() < dt * 2) this.effects.push({ kind: 'dust', x: u.x + (Math.random() - .5) * 10, y: u.y, time: .3, max: .3 });
-      
-      if (b.build < 1) {
-        b.build = Math.min(1, b.build + dt / b.buildTime * 1.5);
-        b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt / b.buildTime * 1.35);
-        if (b.build >= 1) { 
-          if (b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} constructed.`, 1.4); this.sfx.build(this.audioGainAt(b.x, b.y)); }
-          u.order = 'idle'; u.target = null;
-        }
-      } else if (b.hp < b.maxHp) {
-        b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt * 0.05);
-        if (b.hp >= b.maxHp) { u.order = 'idle'; u.target = null; this.toast(`${BUILDINGS[b.type].label} fully repaired.`, 1.4); }
-      }
-    }
-    return;
-  }
-
-  if (u.order === 'harvest') {
-    const res = u.target;
-    if (!res || res.dead || res.amount <= 0) { u.carry = null; u.order = 'idle'; u.target = null; u.gather = 0; return; }
-    if (u.carry) {
-      const drop = this.nearestDropoff(u.faction, u.x, u.y);
-      if (!drop) { u.order = 'idle'; u.target = null; return; }
-      if (this.moveToward(u, drop.x, drop.y, dt, Math.hypot(drop.w/2, drop.h/2) + u.r + 4)) {
-        addRes(this.factions[u.faction], u.carry.type, u.carry.amount);
-        u.carry = null; u.gather = 0;
-        if (res && !res.dead && res.amount > 0) { u.order = 'harvest'; }
-        else { u.order = 'idle'; u.target = null; this.autoGather(u); }
-      }
-      return;
-    }
-
-    if (res.type === 'food' && res.animal) {
-      const strikeRange = res.r + 6;
-      this.moveToward(u, res.x, res.y, dt, strikeRange);
-      if (dist2(u.x, u.y, res.x, res.y) <= (strikeRange + 22) * (strikeRange + 22)) {
-        u.face = res.x >= u.x ? 1 : -1;
-        u.gather += dt;
-        if (u.gather >= .55) {
-          u.gather = 0;
-          u.huntSwing = .42;
-          this.strikeAnimal(u, res);
-        }
-      } else u.gather = 0;
-      return;
-    }
-
-    const interact = getResourceInteractionPoint(res);
-    this.moveToward(u, interact.x, interact.y, dt, res.r + 6);
-    if (dist2(u.x, u.y, interact.x, interact.y) <= (res.r + 26) * (res.r + 26)) {
-      u.gather += dt;
-      u.face = interact.x >= u.x ? 1 : -1;
-      const gatherTime = res.type === 'tree' ? 1.35 : res.type === 'gold' ? 1.6 : .82;
-      if (u.gather >= gatherTime) {
-        const amount = res.type === 'gold' ? 12 : res.type === 'food' ? 10 : 14;
-        res.amount -= amount;
-        u.carry = { type: res.type === 'tree' ? 'wood' : res.type, amount };
-        u.gather = 0;
-        if (res.amount <= 0) {
-          if (res.type === 'tree') { res.depleted = true; res.dead = false; res.amount = 0; res.sprite = choose(['stump1','stump2']); res.r = 12; this.markNavDirty && this.markNavDirty(); }
-          else { res.dead = true; this.markNavDirty && this.markNavDirty(); }
-          this.effects.push({ kind: 'dust', x: res.x, y: res.y, time: .65, max: .65 });
-        }
-      }
-    } else {
-      u.gather = 0;
-    }
-    return;
-  }
-  this.updateFighter(u, dt);
-  if (u.order === 'idle') this.autoGather(u);
-};
 
 
-Game.prototype.updateMonk = function(u, dt) {
-    const ally = this.lowestHurtAlly(u, UNITS.monk.range);
-    if (ally && u.cd <= 0) {
-      u.face = ally.x >= u.x ? 1 : -1;
-      ally.hp = Math.min(ally.maxHp, ally.hp + 18);
-      u.cd = UNITS.monk.cd;
-      this.effects.push({ kind: 'heal', x: ally.x, y: ally.y - 28, time: .6, max: .6 });
-      this.sfx.heal(this.audioGainAt(ally.x, ally.y));
-      u.order = 'heal';
-      return;
-    }
-    if (u.order === 'heal') u.order = 'idle';
-    this.updateFighter(u, dt);
-  
-};
 
 Game.prototype.updateFighter = function(u, dt) {
     if ((u.order === 'idle' || u.order === 'attackMove') && !u.hold) {
@@ -434,83 +264,7 @@ Game.prototype.updateFighter = function(u, dt) {
   
 };
 
-Game.prototype.moveToward = function(u, x, y, dt, stop = 6) {
-  const dx = x - u.x, dy = y - u.y;
-  const d = Math.hypot(dx, dy);
-  if (d <= stop) { this.clearUnitPath && this.clearUnitPath(u); return true; }
 
-  let tx = x, ty = y;
-  if (this.isSegmentWalkable && this.isSegmentWalkable(u, u.x, u.y, x, y, d > 200 ? 10 : 6)) this.clearUnitPath && this.clearUnitPath(u);
-  const path = this.prepareUnitPath ? this.prepareUnitPath(u, x, y, d) : null;
-  if (path && path.length) {
-    const wp = this.nextPathWaypoint(u, x, y);
-    tx = wp.x; ty = wp.y;
-  }
-
-  const pdx = tx - u.x, pdy = ty - u.y;
-  const pd = Math.hypot(pdx, pdy) || d;
-  const sp = u.speed * dt * (u.carry ? .77 : 1);
-  const step = Math.min(sp, Math.max(0, pd - Math.min(stop, 10)));
-  let nx = u.x + pdx / pd * step;
-  let ny = u.y + pdy / pd * step;
-
-  if (this.isBlocked(nx, ny, u)) {
-    const angle = Math.atan2(pdy, pdx);
-    let found = false;
-    const bias = (u.pathProbe || 0) % 2 ? -1 : 1;
-    const turns = path ? [Math.PI / 5 * bias, -Math.PI / 5 * bias, Math.PI / 3 * bias, -Math.PI / 3 * bias, Math.PI / 2, -Math.PI / 2]
-                       : [Math.PI / 6 * bias, -Math.PI / 6 * bias, Math.PI / 3 * bias, -Math.PI / 3 * bias, Math.PI / 2, -Math.PI / 2, Math.PI * .82, -Math.PI * .82];
-    for (const turn of turns) {
-      const a = angle + turn;
-      const tx2 = u.x + Math.cos(a) * step;
-      const ty2 = u.y + Math.sin(a) * step;
-      if (!this.isBlocked(tx2, ty2, u)) { nx = tx2; ny = ty2; found = true; break; }
-    }
-    if (!found) {
-      u.stuck = (u.stuck || 0) + dt;
-      if (u.stuck > .55) {
-        u.pathProbe = (u.pathProbe || 0) + 1;
-        this.clearUnitPath && this.clearUnitPath(u);
-        const nudgeAngle = (u.pathProbe * 2.39996) % (Math.PI * 2);
-        const nudgeR = u.r + 18 + Math.random() * 24;
-        const gx = u.x + Math.cos(nudgeAngle) * nudgeR;
-        const gy = u.y + Math.sin(nudgeAngle) * nudgeR;
-        if (!this.isBlocked(gx, gy, u)) { u.x = gx; u.y = gy; }
-        else this.nudgeUnitToLand(u);
-        u.stuck = .15;
-      }
-      return false;
-    }
-  } else u.stuck = 0;
-
-  u.x = nx;
-  u.y = ny;
-  u.face = pdx >= 0 ? 1 : -1;
-  return false;
-};
-
-Game.prototype.separate = function(u, dt) {
-  let sx = 0, sy = 0;
-  for (const v of this.nearbyUnits(u.x, u.y)) {
-    if (v === u || v.dead || v.garrisoned) continue;
-    let min = u.r + v.r + 3;
-    if (u.type === 'worker' && v.type === 'worker' && u.order === 'harvest' && v.order === 'harvest' && u.target && u.target === v.target) {
-      min = u.r + 2;
-    }
-    const dx = u.x - v.x, dy = u.y - v.y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 > 0 && d2 < min * min) {
-      const d = Math.sqrt(d2);
-      sx += dx / d * (min - d);
-      sy += dy / d * (min - d);
-    }
-  }
-  if (sx || sy) {
-    const nx = u.x + sx * dt * 2.2;
-    const ny = u.y + sy * dt * 2.2;
-    if (!this.isBlocked(nx, ny, u)) { u.x = nx; u.y = ny; }
-  }
-};
 
 
 Game.prototype.attackTarget = function(u, target) {
@@ -550,26 +304,6 @@ Game.prototype.updateProjectiles = function(dt) {
     }
 };
 
-Game.prototype.damage = function(target, amount, sourceFaction) {
-    if (!isAlive(target)) return;
-    target.hp -= amount;
-    target.flash = 1;
-    if (amount > 0) this.sfx.hit(this.audioGainAt(target.x, target.y));
-    if (target.entity === 'building') this.factions[target.faction].underAttack = 5;
-    if (target.faction === 0 && sourceFaction !== 0 && Math.random() < .08) this.sfx.alert(this.audioGainAt(target.x, target.y, 1600));
-    if (target.hp <= 0) {
-      target.dead = true;
-      this.effects.push({ kind: 'boom', x: target.x, y: target.y - 30, time: 1.0, max: 1.0 });
-      if (target.entity === 'building' && target.type === 'tower') {
-        for (const id of target.garrison) {
-          const u = this.units.find(unit => unit.id === id);
-          if (u && !u.dead) { u.garrisoned = null; u.x = target.x + (Math.random() - .5) * 50; u.y = target.y + 40; u.order = 'idle'; }
-        }
-      }
-      this.checkDefeat(target.faction);
-    }
-  
-};
 
 Game.prototype.checkDefeat = function(fid) {
     const f = this.factions[fid];
@@ -656,12 +390,6 @@ Game.prototype.nearestDropoff = function(fid, x, y) {
     return best;
 };
 
-Game.prototype.autoGather = function(u) {
-  const f = this.factions[u.faction];
-  const need = f.res.wood < 180 ? 'tree' : f.res.gold < 160 ? 'gold' : f.res.food < 4 ? 'food' : choose(['tree', 'gold', 'food']);
-  const r = this.nearestResource(u.x, u.y, need, 1200) || this.nearestResource(u.x, u.y, null, 2000);
-  if (r) this.orderHarvest(u, r);
-};
 
 
 Game.prototype.nearestResource = function(x, y, type, range) {
@@ -943,17 +671,6 @@ Game.prototype.queueTrain = function(type) {
   
 };
 
-Game.prototype.repairSelected = function() {
-    const f = this.factions[0];
-    const damaged = this.selected.find(e => e.entity === 'building' && e.faction === 0 && e.hp < e.maxHp && e.build >= 1);
-    if (!damaged) return;
-    const cost = { wood: 28, gold: 18, food: 0 };
-    if (!pay(f, cost)) { this.toast('Need wood and gold to repair.', 1.2); this.sfx.deny(); return; }
-    damaged.hp = Math.min(damaged.maxHp, damaged.hp + damaged.maxHp * .28);
-    this.effects.push({ kind: 'dust', x: damaged.x, y: damaged.y, time: .5, max: .5 });
-    this.sfx.build(this.audioGainAt(damaged.x, damaged.y));
-  
-};
 
 Game.prototype.stopSelected = function() {
     for (const e of this.selected) {
@@ -980,13 +697,6 @@ Game.prototype.ungarrisonSelected = function() {
   
 };
 
-Game.prototype.cleanup = function() {
-    this.projectiles = this.projectiles.filter(p => !p.dead);
-    this.effects = this.effects.filter(e => e.time > 0);
-    this.selected = this.selected.filter(isAlive);
-    for (const b of this.buildings) b.garrison = b.garrison.filter(id => this.units.some(u => u.id === id && !u.dead && u.garrisoned === b.id));
-  
-};
 
 Game.prototype.updateEffects = function(dt) { for (const e of this.effects) e.time -= dt; 
 };
@@ -999,36 +709,7 @@ Game.prototype.isWater = function(x, y) {
     return this.landMap[ty * this.landCols + tx] !== 1;
 };
 
-Game.prototype.finishGarrison = function(u, tower) {
-  if (!u || !tower || tower.dead || tower.garrison.length >= BUILDINGS.tower.garrisonCap) return false;
-  if (tower.garrison.includes(u.id)) return true;
-  u.garrisoned = tower.id;
-  u.order = 'garrison';
-  u.target = tower;
-  u.goal = null;
-  u.selected = false;
-  tower.garrison.push(u.id);
-  return true;
-};
 
-Game.prototype.updateGarrisonUnit = function(u, dt) {
-  const tower = u.target;
-  if (!tower || tower.dead || tower.type !== 'tower' || tower.faction !== u.faction) {
-    u.order = 'idle';
-    u.target = null;
-    u.goal = null;
-    return;
-  }
-  if (tower.garrison.length >= BUILDINGS.tower.garrisonCap) {
-    u.order = 'idle';
-    u.target = null;
-    return;
-  }
-  if (this.moveToward(u, tower.x, tower.y + 42, dt, 20)) {
-    this.finishGarrison(u, tower);
-    if (u.faction === 0) this.uiDirty = true;
-  }
-};
 
 Game.prototype.nudgeUnitToLand = function(u) {
   for (let r = 20; r <= 160; r += 20) {
@@ -1042,45 +723,7 @@ Game.prototype.nudgeUnitToLand = function(u) {
   return false;
 };
 
-Game.prototype.placementIssue = function(type, x, y, ignoreBuilding = null) {
-  const def = BUILDINGS[type];
-  if (!def) return 'Unknown building.';
-  const footprint = getBuildingFootprintRect(type, x, y, 8);
-  if (footprint.x < 32 || footprint.y < 32 || footprint.x + footprint.w > WORLD_W - 32 || footprint.y + footprint.h > WORLD_H - 32) return 'Too close to the world edge.';
 
-  const terrainPads = [
-    [0, 0],
-    [-footprint.w * .45, -footprint.h * .42],
-    [ footprint.w * .45, -footprint.h * .42],
-    [-footprint.w * .45,  footprint.h * .42],
-    [ footprint.w * .45,  footprint.h * .42]
-  ];
-  const probeY = footprint.y + footprint.h / 2;
-  if (!terrainPads.every(([ox, oy]) => this.isSafeLand(x + ox, probeY + oy, 12))) return 'Need a clear patch of land.';
-
-  const nearbyB = this.nearbyBuildings ? this.nearbyBuildings(x, y, Math.max(def.w, def.h) + 180) : this.buildings;
-  for (const b of nearbyB) {
-    if (b.dead || b === ignoreBuilding) continue;
-    const other = getBuildingFootprintRect(b, undefined, undefined, 16);
-    if (rectsOverlap(footprint, other)) return `Blocked by ${BUILDINGS[b.type]?.label || 'building'}.`;
-  }
-
-  const nearbyR = this.nearbyResources ? this.nearbyResources(x, y, Math.max(def.w, def.h) + 170) : this.resources;
-  for (const r of nearbyR) {
-    if (r.dead || r.amount <= 0) continue;
-    const fp = getResourceFootprint(r);
-    const resourceRect = { x: r.x - fp - 7, y: r.y - fp - 7, w: fp * 2 + 14, h: fp * 2 + 14 };
-    if (rectsOverlap(footprint, resourceRect)) {
-      return r.animal ? `Blocked by ${getAnimalLabel(r)}.` : `Blocked by ${r.type === 'tree' ? 'wood' : r.type}.`;
-    }
-  }
-
-  return null;
-};
-
-Game.prototype.canPlace = function(type, x, y, ignoreBuilding = null) {
-  return !this.placementIssue(type, x, y, ignoreBuilding);
-};
 
 Game.prototype.relocateBuilding = function(b, x, y) {
   if (!b || b.dead || b.faction !== 0) return false;
@@ -1096,53 +739,7 @@ Game.prototype.relocateBuilding = function(b, x, y) {
   return false;
 };
 
-Game.prototype.orderMoveFormation = function(units, x, y, attackMove) {
-  const land = this.nearestLandPoint(x, y, 320) || { x, y };
-  const n = units.length;
-  const cols = Math.ceil(Math.sqrt(n));
-  const spacing = 44;
-  units.forEach((u, i) => {
-    const ox = ((i % cols) - (cols - 1) / 2) * spacing;
-    const oy = (Math.floor(i / cols) - Math.floor(n / cols) / 2) * spacing;
-    const p = this.nearestLandPoint(clamp(land.x + ox, 30, WORLD_W - 30), clamp(land.y + oy, 30, WORLD_H - 30), 150) || land;
-    this.clearUnitPath && this.clearUnitPath(u);
-    u.goal = { x: p.x, y: p.y };
-    u.order = attackMove ? 'attackMove' : 'move';
-    u.target = null; u.attackMove = attackMove; u.hold = false;
-  });
-  this.effects.push({ kind: attackMove ? 'attack' : 'move', x: land.x, y: land.y, time: .7, max: .7 });
-};
 
-Game.prototype.isBlocked = function(x, y, u) {
-  if (this.isWater(x, y)) return true;
-  const r = u ? u.r || 8 : 8;
-  const rect = { x: x - r, y: y - r, w: r * 2, h: r * 2 };
-  
-  const buildingCandidates = this.nearbyBuildings ? this.nearbyBuildings(x, y, 280) : this.buildings;
-  for (const b of buildingCandidates) {
-    if (b.dead || b.build < 0.1) continue;
-    const brect = getBuildingFootprintRect(b, undefined, undefined, 6);
-    if (rectsOverlap(rect, brect)) return true;
-  }
-  
-  const resourceCandidates = this.nearbyResources ? this.nearbyResources(x, y, 180) : this.resources;
-  for (const res of resourceCandidates) {
-    if (res.dead || res.amount <= 0 || res.animal) continue;
-    const resRect = { x: res.x - res.r * 0.7, y: res.y - res.r * 0.7, w: res.r * 1.4, h: res.r * 1.4 };
-    if (rectsOverlap(rect, resRect) && (!u || u.target !== res)) return true;
-  }
-  
-  for (const d of this.decor) {
-    if (d.sky || d.water || PASSABLE_DECOR.has(d.kind)) continue;
-    const spec = DECOR_SPECS[d.kind] || {};
-    const baseBlock = LIGHT_DECOR.has(d.kind) ? 8 : Math.max(10, Math.min(20, ((spec.shadow && spec.shadow[0]) || (d.kind.startsWith('bush') ? 18 : 14)) * .72));
-    const dr = baseBlock * (d.scale || 1);
-    const dRect = { x: d.x - dr, y: d.y - dr, w: dr * 2, h: dr * 2 };
-    if (rectsOverlap(rect, dRect)) return true;
-  }
-  
-  return false;
-};
 
 Game.prototype.strikeAnimal = function(u, res) {
   if (!res || res.dead || !res.animal) return;
@@ -1192,13 +789,6 @@ Game.prototype.aiEconomyEmergency = function(f) {
   if (pop.cap - pop.used <= 1) f.aiState.expansion = Math.min(4, f.aiState.expansion + .03);
 };
 
-Game.prototype.aiBuildAnchor = function(f, type) {
-  if (type === 'tower') {
-    const a = f.aiState.rallyAngle;
-    return { x: f.base.x + Math.cos(a) * 420, y: f.base.y + Math.sin(a) * 420 };
-  }
-  return f.base;
-};
 
 Game.prototype.run = function(ts) {
   if (!this.running) return;
@@ -1209,30 +799,6 @@ Game.prototype.run = function(ts) {
   requestAnimationFrame(t => this.run(t));
 };
 
-Game.prototype.update = function(dt) {
-  this.time += dt;
-  if (this.toastTimer > 0) {
-    this.toastTimer -= dt;
-    if (this.toastTimer <= 0) HUD.message.classList.add('hidden');
-  }
-  this.updateCamera(dt);
-  if (!this.paused) {
-    this.updateBuildings(dt);
-    this.updateResources(dt);
-    this.updateUnits(dt);
-    this.updateProjectiles(dt);
-    this.updateEffects(dt);
-    this.updateAI(dt);
-    this.autosaveIfDue && this.autosaveIfDue(dt);
-    this.cleanup();
-  }
-  this.uiTimer -= dt;
-  if (this.uiDirty || this.uiTimer <= 0) {
-    this.renderUI();
-    this.uiTimer = .25;
-    this.uiDirty = false;
-  }
-};
 
 
 // Pass 2: worker-built construction, built-in tower archers, stronger path movement, formations, attack pings, smarter AI.
@@ -1284,17 +850,6 @@ Game.prototype.assignBuildersTo = function(b, fid, maxBuilders = 2, preferSelect
   return count;
 };
 
-Game.prototype.buildingApproachPoint = function(b, u) {
-  const rect = getBuildingFootprintRect(b, undefined, undefined, 10);
-  const cx = clamp(u.x, rect.x, rect.x + rect.w);
-  const cy = clamp(u.y, rect.y, rect.y + rect.h);
-  let dx = u.x - b.x, dy = u.y - b.y;
-  const d = Math.hypot(dx, dy) || 1;
-  dx /= d; dy /= d;
-  const px = clamp(cx + dx * 28, 24, WORLD_W - 24);
-  const py = clamp(cy + dy * 28, 24, WORLD_H - 24);
-  return this.nearestLandPoint(px, py, 120) || { x: px, y: py };
-};
 
 Game.prototype.updateBuildings = function(dt) {
   this.rebuildBuildingSpatialIndex && this.rebuildBuildingSpatialIndex();
@@ -1319,81 +874,6 @@ Game.prototype.updateBuildings = function(dt) {
   }
 };
 
-Game.prototype.updateWorker = function(u, dt) {
-  if (u.order === 'repair') {
-    const b = u.target;
-    if (!b || b.dead || (b.build >= 1 && b.hp >= b.maxHp)) { u.order = 'idle'; u.target = null; return; }
-    const p = this.buildingApproachPoint(b, u);
-    if (this.moveToward(u, p.x, p.y, dt, 12)) {
-      u.face = b.x >= u.x ? 1 : -1;
-      u.gather += dt;
-      if (Math.random() < dt * 3.5) this.effects.push({ kind: 'dust', x: u.x + (Math.random() - .5) * 12, y: u.y - 4, time: .34, max: .34 });
-      if (b.build < 1) {
-        b.build = Math.min(1, b.build + dt / b.buildTime * 1.35);
-        b.hp = Math.max(1, Math.min(b.maxHp, b.maxHp * (.18 + b.build * .82)));
-        if (b.build >= 1) {
-          b.hp = b.maxHp;
-          b.completedAt = this.time;
-          this.clearOverlapsAroundStructures && this.clearOverlapsAroundStructures();
-          this.markNavDirty && this.markNavDirty();
-          if (b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} constructed.`, 1.4); this.sfx.build(this.audioGainAt(b.x, b.y)); }
-          u.order = 'idle'; u.target = null; u.gather = 0;
-        }
-      } else if (b.hp < b.maxHp) {
-        b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt * 0.06);
-        if (b.hp >= b.maxHp) { u.order = 'idle'; u.target = null; u.gather = 0; if (b.faction === 0) this.toast(`${BUILDINGS[b.type].label} fully repaired.`, 1.2); }
-      }
-    }
-    return;
-  }
-
-  if (u.order === 'harvest') {
-    const res = u.target;
-    if (!res || res.dead || res.amount <= 0) { u.carry = null; u.order = 'idle'; u.target = null; u.gather = 0; return; }
-    if (u.carry) {
-      const drop = this.nearestDropoff(u.faction, u.x, u.y);
-      if (!drop) { u.order = 'idle'; u.target = null; return; }
-      const p = this.buildingApproachPoint ? this.buildingApproachPoint(drop, u) : drop;
-      if (this.moveToward(u, p.x, p.y, dt, 14)) {
-        addRes(this.factions[u.faction], u.carry.type, u.carry.amount);
-        u.carry = null; u.gather = 0;
-        if (res && !res.dead && res.amount > 0) u.order = 'harvest';
-        else { u.order = 'idle'; u.target = null; this.autoGather(u); }
-      }
-      return;
-    }
-    if (res.type === 'food' && res.animal) {
-      const strikeRange = res.r + 6;
-      this.moveToward(u, res.x, res.y, dt, strikeRange);
-      if (dist2(u.x, u.y, res.x, res.y) <= (strikeRange + 22) * (strikeRange + 22)) {
-        u.face = res.x >= u.x ? 1 : -1; u.gather += dt;
-        if (u.gather >= .55) { u.gather = 0; u.huntSwing = .42; this.strikeAnimal(u, res); }
-      } else u.gather = 0;
-      return;
-    }
-    const interact = getResourceInteractionPoint(res);
-    this.moveToward(u, interact.x, interact.y, dt, res.r + 6);
-    if (dist2(u.x, u.y, interact.x, interact.y) <= (res.r + 26) * (res.r + 26)) {
-      u.gather += dt; u.face = interact.x >= u.x ? 1 : -1;
-      const gatherTime = res.type === 'tree' ? 1.35 : res.type === 'gold' ? 1.6 : .82;
-      if (u.gather >= gatherTime) {
-        const amount = res.type === 'gold' ? 12 : res.type === 'food' ? 10 : 14;
-        res.amount -= amount;
-        u.carry = { type: res.type === 'tree' ? 'wood' : res.type, amount };
-        u.gather = 0;
-        if (res.amount <= 0) {
-          if (res.type === 'tree') { res.depleted = true; res.dead = false; res.amount = 0; res.sprite = choose(['stump1','stump2']); res.r = 12; this.markNavDirty && this.markNavDirty(); }
-          else { res.dead = true; this.markNavDirty && this.markNavDirty(); }
-          this.resourceBuckets = null;
-          this.effects.push({ kind: 'dust', x: res.x, y: res.y, time: .65, max: .65 });
-        }
-      }
-    } else u.gather = 0;
-    return;
-  }
-  this.updateFighter(u, dt);
-  if (u.order === 'idle') this.autoGather(u);
-};
 
 Game.prototype.towerAttack = function(b, dt) {
   if (!b || b.dead || b.build < 1) return;
@@ -1544,25 +1024,6 @@ Game.prototype.orderMoveFormation = function(units, x, y, attackMove) {
   this.effects.push({ kind: attackMove ? 'attack' : 'move', x: land.x, y: land.y, time: .7, max: .7 });
 };
 
-Game.prototype.isBlocked = function(x, y, u) {
-  if (this.isWater(x, y)) return true;
-  const r = u ? u.r || 8 : 8;
-  const rect = { x: x - r, y: y - r, w: r * 2, h: r * 2 };
-  const buildingCandidates = this.nearbyBuildings ? this.nearbyBuildings(x, y, 280) : this.buildings;
-  for (const b of buildingCandidates) {
-    if (b.dead || b.build < 0.1) continue;
-    const brect = getBuildingFootprintRect(b, undefined, undefined, 5);
-    if (rectsOverlap(rect, brect)) return true;
-  }
-  const resourceCandidates = this.nearbyResources ? this.nearbyResources(x, y, 180) : this.resources;
-  for (const res of resourceCandidates) {
-    if (res.dead || res.amount <= 0 || res.animal) continue;
-    const rr = Math.max(8, getResourceBlockingRadius(res) * .58);
-    const resRect = { x: res.x - rr, y: res.y - rr, w: rr * 2, h: rr * 2 };
-    if (rectsOverlap(rect, resRect) && (!u || u.target !== res)) return true;
-  }
-  return false;
-};
 
 Game.prototype.shouldWarnPlayerAttack = function(target, sourceFaction) {
   if (!target || target.faction !== 0 || sourceFaction === 0) return false;
@@ -1790,67 +1251,7 @@ Game.prototype.updateMonk = function(u, dt) {
 
 
 // Pass 3: cargo-safe workers, robust building approach points, and economy role assignment.
-Game.prototype.isBlocked = function(x, y, u, ignoreBuilding = null) {
-  if (this.isWater(x, y)) return true;
-  const r = u ? u.r || 8 : 8;
-  const rect = { x: x - r, y: y - r, w: r * 2, h: r * 2 };
-  const buildingCandidates = this.nearbyBuildings ? this.nearbyBuildings(x, y, 300) : this.buildings;
-  for (const b of buildingCandidates) {
-    if (b === ignoreBuilding || b.dead || b.build < 0.1) continue;
-    const brect = getBuildingFootprintRect(b, undefined, undefined, 5);
-    if (rectsOverlap(rect, brect)) return true;
-  }
-  const resourceCandidates = this.nearbyResources ? this.nearbyResources(x, y, 190) : this.resources;
-  for (const res of resourceCandidates) {
-    if (res.dead || res.amount <= 0 || res.animal) continue;
-    const rr = Math.max(8, getResourceBlockingRadius(res) * .54);
-    const resRect = { x: res.x - rr, y: res.y - rr, w: rr * 2, h: rr * 2 };
-    if (rectsOverlap(rect, resRect) && (!u || u.target !== res)) return true;
-  }
-  return false;
-};
 
-Game.prototype.buildingApproachPoint = function(b, u) {
-  if (!b) return { x: u ? u.x : 0, y: u ? u.y : 0 };
-  if (!u) return { x: b.x, y: b.y + b.h * .52 };
-  const rect = getBuildingFootprintRect(b, undefined, undefined, 7);
-  const pad = (u.r || 10) + 20;
-  const candidates = [];
-  const add = (x, y, sideBias = 0) => {
-    x = clamp(x, 24, WORLD_W - 24);
-    y = clamp(y, 24, WORLD_H - 24);
-    if (this.isWater(x, y)) {
-      const land = this.nearestLandPoint(x, y, 120);
-      if (land) { x = land.x; y = land.y; }
-    }
-    candidates.push({ x, y, sideBias });
-  };
-  for (let t = .15; t <= .85; t += .175) {
-    const px = rect.x + rect.w * t;
-    const py = rect.y + rect.h * t;
-    add(px, rect.y - pad, 0);
-    add(px, rect.y + rect.h + pad, -1200);
-    add(rect.x - pad, py, 0);
-    add(rect.x + rect.w + pad, py, 0);
-  }
-  add(rect.x - pad, rect.y - pad, 600);
-  add(rect.x + rect.w + pad, rect.y - pad, 600);
-  add(rect.x - pad, rect.y + rect.h + pad, 0);
-  add(rect.x + rect.w + pad, rect.y + rect.h + pad, 0);
-
-  let best = null, bestScore = Infinity;
-  for (const c of candidates) {
-    const blocked = this.isBlocked(c.x, c.y, u, b);
-    const pathBlocked = this.isSegmentWalkable && !this.isSegmentWalkable(u, u.x, u.y, c.x, c.y, 7);
-    let score = dist2(u.x, u.y, c.x, c.y) + c.sideBias;
-    if (blocked) score += 1500000;
-    if (pathBlocked) score += 70000;
-    if (score < bestScore) { bestScore = score; best = c; }
-  }
-  if (best && !this.isBlocked(best.x, best.y, u, b)) return best;
-  if (best) return best;
-  return this.nearestLandPoint(b.x, b.y + b.h * .55 + pad, 180) || { x: b.x, y: b.y + b.h * .55 + pad };
-};
 
 Game.prototype.workerNearBuilding = function(u, b, extra = 34) {
   if (!u || !b) return false;
@@ -1860,18 +1261,6 @@ Game.prototype.workerNearBuilding = function(u, b, extra = 34) {
   return dist2(u.x, u.y, cx, cy) <= Math.pow((u.r || 10) + extra, 2);
 };
 
-Game.prototype.depositWorkerCargo = function(u, drop) {
-  if (!u || !u.carry || !drop) return false;
-  addRes(this.factions[u.faction], u.carry.type, u.carry.amount);
-  this.effects.push({ kind: 'dust', x: u.x, y: u.y - 4, time: .38, max: .38 });
-  u.carry = null;
-  u.gather = 0;
-  u.returning = false;
-  u.depositStuck = 0;
-  this.clearUnitPath && this.clearUnitPath(u);
-  this.uiDirty = true;
-  return true;
-};
 
 Game.prototype.findResourceForWorkerRole = function(u, role, range = 2400) {
   const type = role === 'wood' ? 'tree' : role === 'gold' ? 'gold' : role === 'food' ? 'food' : null;
@@ -1888,39 +1277,7 @@ Game.prototype.workerRoleMatchesResource = function(role, res) {
   return false;
 };
 
-Game.prototype.resumeWorkerRole = function(u) {
-  if (!u || u.dead || u.type !== 'worker') return false;
-  const role = u.workerRole;
-  if (!role || role === 'auto') { this.autoGather(u); return true; }
-  if (role === 'idle') { u.order = 'idle'; u.target = null; u.goal = null; return true; }
-  if (role === 'build') {
-    const target = this.bestBuildTargetForWorker(u);
-    if (target) {
-      this.clearUnitPath && this.clearUnitPath(u);
-      u.order = 'repair'; u.target = target; u.goal = null; u.gather = 0; u.hold = false;
-      return true;
-    }
-    u.order = 'idle'; u.target = null; return false;
-  }
-  const res = this.findResourceForWorkerRole(u, role);
-  if (res) { this.orderHarvest(u, res, role); return true; }
-  u.order = 'idle'; u.target = null; return false;
-};
 
-Game.prototype.orderHarvest = function(u, res, preferredRole = null) {
-  if (!u || u.type !== 'worker' || !res || res.dead || res.amount <= 0) return;
-  this.clearUnitPath && this.clearUnitPath(u);
-  u.order = 'harvest';
-  u.target = res;
-  u.goal = null;
-  u.gather = 0;
-  u.hold = false;
-  u.returning = false;
-  if (preferredRole) u.workerRole = preferredRole;
-  else if (res.type === 'tree') u.workerRole = 'wood';
-  else if (res.type === 'gold') u.workerRole = 'gold';
-  else if (res.type === 'food') u.workerRole = 'food';
-};
 
 Game.prototype.bestBuildTargetForWorker = function(u) {
   let best = null, score = Infinity;
@@ -1988,120 +1345,6 @@ Game.prototype.assignWorkersRole = function(role, scope = 'selected') {
   return assigned;
 };
 
-Game.prototype.updateWorker = function(u, dt) {
-  if (u.carry && u.order !== 'harvest') {
-    u.order = 'harvest';
-    u.goal = null;
-    this.clearUnitPath && this.clearUnitPath(u);
-  }
-  if (u.order === 'repair') {
-    const b = u.target;
-    if (!b || b.dead || (b.build >= 1 && b.hp >= b.maxHp)) {
-      u.order = 'idle'; u.target = null; u.gather = 0;
-      this.resumeWorkerRole(u);
-      return;
-    }
-    const p = this.buildingApproachPoint(b, u);
-    if (this.workerNearBuilding(u, b, 30) || this.moveToward(u, p.x, p.y, dt, 13)) {
-      u.face = b.x >= u.x ? 1 : -1;
-      u.gather += dt;
-      if (Math.random() < dt * 3.5) this.effects.push({ kind: 'dust', x: u.x + (Math.random() - .5) * 12, y: u.y - 4, time: .34, max: .34 });
-      if (b.build < 1) {
-        b.build = Math.min(1, b.build + dt / b.buildTime * 1.35);
-        b.hp = Math.max(1, Math.min(b.maxHp, b.maxHp * (.18 + b.build * .82)));
-        if (b.build >= 1) {
-          b.hp = b.maxHp;
-          b.completedAt = this.time;
-          this.clearOverlapsAroundStructures && this.clearOverlapsAroundStructures();
-          this.markNavDirty && this.markNavDirty();
-          if (b.faction === 0) { this.toast(`${BUILDINGS[b.type].label} constructed.`, 1.4); this.sfx.build(this.audioGainAt(b.x, b.y)); }
-          u.order = 'idle'; u.target = null; u.gather = 0;
-          this.resumeWorkerRole(u);
-        }
-      } else if (b.hp < b.maxHp) {
-        b.hp = Math.min(b.maxHp, b.hp + b.maxHp * dt * 0.08);
-        if (b.hp >= b.maxHp) {
-          u.order = 'idle'; u.target = null; u.gather = 0;
-          if (b.faction === 0) this.toast(`${BUILDINGS[b.type].label} fully repaired.`, 1.2);
-          this.resumeWorkerRole(u);
-        }
-      }
-    }
-    return;
-  }
-
-  if (u.order === 'harvest') {
-    const res = u.target;
-
-    // Cargo must be delivered even if the source node has become depleted or dead.
-    if (u.carry) {
-      const drop = this.nearestDropoff(u.faction, u.x, u.y);
-      if (!drop) { u.order = 'idle'; u.target = null; return; }
-      if (this.workerNearBuilding(u, drop, 38)) {
-        this.depositWorkerCargo(u, drop);
-        if (res && !res.dead && res.amount > 0 && this.workerRoleMatchesResource(u.workerRole, res)) this.orderHarvest(u, res, u.workerRole);
-        else if (u.workerRole) this.resumeWorkerRole(u); else this.autoGather(u);
-        return;
-      }
-      const p = this.buildingApproachPoint(drop, u);
-      const beforeX = u.x, beforeY = u.y;
-      this.moveToward(u, p.x, p.y, dt, 14);
-      const moved = dist2(beforeX, beforeY, u.x, u.y);
-      if (moved < 0.5) u.depositStuck = (u.depositStuck || 0) + dt;
-      else u.depositStuck = 0;
-      if (u.depositStuck > 1.0 && this.workerNearBuilding(u, drop, 86)) {
-        this.depositWorkerCargo(u, drop);
-        if (res && !res.dead && res.amount > 0 && this.workerRoleMatchesResource(u.workerRole, res)) this.orderHarvest(u, res, u.workerRole);
-        else if (u.workerRole) this.resumeWorkerRole(u); else this.autoGather(u);
-      }
-      return;
-    }
-
-    if (!res || res.dead || res.amount <= 0) {
-      u.order = 'idle'; u.target = null; u.gather = 0;
-      if (u.workerRole) this.resumeWorkerRole(u); else this.autoGather(u);
-      return;
-    }
-
-    if (res.type === 'food' && res.animal) {
-      const strikeRange = res.r + 6;
-      this.moveToward(u, res.x, res.y, dt, strikeRange);
-      if (dist2(u.x, u.y, res.x, res.y) <= (strikeRange + 22) * (strikeRange + 22)) {
-        u.face = res.x >= u.x ? 1 : -1; u.gather += dt;
-        if (u.gather >= .55) { u.gather = 0; u.huntSwing = .42; this.strikeAnimal(u, res); }
-      } else u.gather = 0;
-      return;
-    }
-
-    const interact = getResourceInteractionPoint(res);
-    this.moveToward(u, interact.x, interact.y, dt, res.r + 6);
-    if (dist2(u.x, u.y, interact.x, interact.y) <= (res.r + 26) * (res.r + 26)) {
-      u.gather += dt; u.face = interact.x >= u.x ? 1 : -1;
-      const gatherTime = res.type === 'tree' ? 1.35 : res.type === 'gold' ? 1.6 : .82;
-      if (u.gather >= gatherTime) {
-        const amount = Math.min(res.amount, res.type === 'gold' ? 12 : res.type === 'food' ? 10 : 14);
-        res.amount -= amount;
-        u.carry = { type: res.type === 'tree' ? 'wood' : res.type, amount };
-        u.gather = 0;
-        u.depositStuck = 0;
-        this.clearUnitPath && this.clearUnitPath(u);
-        if (res.amount <= 0) {
-          if (res.type === 'tree') { res.depleted = true; res.dead = false; res.amount = 0; res.sprite = choose(['stump1','stump2']); res.r = 12; this.markNavDirty && this.markNavDirty(); }
-          else { res.dead = true; this.markNavDirty && this.markNavDirty(); }
-          this.resourceBuckets = null;
-          this.effects.push({ kind: 'dust', x: res.x, y: res.y, time: .65, max: .65 });
-        }
-      }
-    } else u.gather = 0;
-    return;
-  }
-
-  this.updateFighter(u, dt);
-  if (u.order === 'idle') {
-    if (u.workerRole) this.resumeWorkerRole(u);
-    else this.autoGather(u);
-  }
-};
 
 
 // Pass 3: keep explicit Auto Balance workers in auto mode instead of converting them to the current resource.
