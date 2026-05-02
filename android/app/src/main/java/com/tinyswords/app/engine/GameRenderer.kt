@@ -31,6 +31,18 @@ class GameRenderer(private val assets: AssetManager) {
     }
     private val hpBarBgPaint = Paint().apply { color = Color.argb(190, 24, 22, 18) }
     private val hpBarPaint = Paint()
+    private val redFlashPaint = Paint().apply {
+        isFilterBitmap = false
+        isAntiAlias = false
+        isDither = false
+        colorFilter = PorterDuffColorFilter(Color.RED, PorterDuff.Mode.SRC_ATOP)
+    }
+    private val whiteFlashPaint = Paint().apply {
+        isFilterBitmap = false
+        isAntiAlias = false
+        isDither = false
+        colorFilter = PorterDuffColorFilter(Color.WHITE, PorterDuff.Mode.SRC_ATOP)
+    }
     private val srcRect = Rect()
     private val dstRect = RectF()
 
