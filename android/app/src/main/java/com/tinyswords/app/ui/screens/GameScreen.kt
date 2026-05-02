@@ -327,7 +327,7 @@ private fun RealmLoadingScreen(stage: String, progress: Float, onCancel: () -> U
             Text("GENERATING REALM", style = GameTypography.Title.copy(fontSize = 26.sp), textAlign = TextAlign.Center)
             Text(stage, style = GameTypography.Body.copy(color = GameColors.TextSecondary), textAlign = TextAlign.Center)
             LinearProgressIndicator(
-                progress = { progress.coerceIn(0f, 1f) },
+                progress = progress.coerceIn(0f, 1f),
                 modifier = Modifier.fillMaxWidth().height(10.dp),
                 color = GameColors.TextGold,
                 trackColor = Color(0x66000000)
