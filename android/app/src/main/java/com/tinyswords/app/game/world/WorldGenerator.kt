@@ -225,7 +225,12 @@ class WorldGenerator(private val state: GameState) {
                 val angle = (w.toFloat() / 3f) * 2f * PI.toFloat()
                 val ux = bx + cos(angle) * 60f
                 val uy = by + sin(angle) * 60f + 40f
-                state.units.add(GameUnit.create("worker", i, ux, uy, state::nextId))
+                val worker = GameUnit.create("worker", i, ux, uy, state::nextId)
+                worker.workerRole = when (w) {
+                    0, 1 -> WorkerRole.WOOD
+                    else -> WorkerRole.GOLD
+                }
+                state.units.add(worker)
             }
 
             // Starting warrior

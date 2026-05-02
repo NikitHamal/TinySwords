@@ -104,12 +104,15 @@ class Pathfinder(private val state: GameState) {
     fun prepareUnitPath(unit: GameUnit, targetX: Float, targetY: Float): List<PathPoint>? {
         val d = dist(unit.x, unit.y, targetX, targetY)
 
-        // Direct line if close enough and walkable
-        if (d < 140f && isSegmentWalkable(unit.x, unit.y, targetX, targetY)) {
+        // Direct line fast path. Most Tiny Swords movement is across open grass;
+        // avoid A* unless sampled terrain/building obstacles actually block the ray.
+        val samples = (d / 96f).toInt().coerceIn(9, 36)
+        if (isSegmentWalkable(unit.x, unit.y, targetX, targetY, samples)) {
             return null // Move directly
         }
 
-        val path = findPath(unit.x, unit.y, targetX, targetY) ?: return null
+        val budget = if (d > 2600f) 9000 else 6000
+        val path = findPath(unit.x, unit.y, targetX, targetY, maxNodes = budget) ?: return null
 
         // Smooth path
         return smoothPath(path)

@@ -214,10 +214,15 @@ class SaveSystem(context: Context) {
             f.aiState.expansion = fs.aiExpansion
         }
 
-        // Clear existing
+        // Clear runtime state that is restored from the save. Terrain/decor are
+        // regenerated deterministically from the world seed before this method is
+        // called, so we keep decor but replace gameplay entities.
+        state.selected.clear()
         state.units.clear()
         state.buildings.clear()
         state.resources.clear()
+        state.projectiles.clear()
+        state.effects.clear()
 
         // Restore units
         for (us in payload.units) {
@@ -230,6 +235,7 @@ class SaveSystem(context: Context) {
             u.workerRole = try { WorkerRole.valueOf(us.workerRole) } catch (e: Exception) { WorkerRole.AUTO }
             u.carrying = us.carrying; u.carryAmount = us.carryAmount; u.hold = us.hold
             state.units.add(u)
+            state.ensureNextIdGreaterThan(u.id)
         }
 
         // Restore buildings
@@ -239,6 +245,7 @@ class SaveSystem(context: Context) {
             b.rallyX = bs.rallyX; b.rallyY = bs.rallyY; b.hasRally = bs.hasRally
             b.queue.addAll(bs.queue.map { TrainSlot(it.unitType, it.progress, it.trainTime) })
             state.buildings.add(b)
+            state.ensureNextIdGreaterThan(b.id)
         }
 
         // Restore resources
@@ -253,8 +260,18 @@ class SaveSystem(context: Context) {
                 animalHp = rs.animalHp; animalMaxHp = rs.animalMaxHp
             }
             state.resources.add(r)
+            state.ensureNextIdGreaterThan(r.id)
         }
 
+        val allEntities = mutableListOf<GameEntity>()
+        allEntities.addAll(state.units)
+        allEntities.addAll(state.buildings)
+        allEntities.addAll(state.resources)
+        val byId = allEntities.associateBy { it.id }
+        for (u in state.units) {
+            u.target = byId[u.targetId]
+        }
         state.rebuildSpatialIndices()
+        state.spatialRebuildTimer = 0.10f
     }
 }

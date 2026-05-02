@@ -30,14 +30,14 @@ fun GameScreen(
     val gameState = remember(worldId, worldSettings.seed) { GameState(worldSettings) }
     val simulation = remember(worldId, worldSettings.seed) {
         GameSimulation(gameState).also { sim ->
-            val loaded = if (worldId != null) {
-                val saveLoaded = saveSystem.loadGame(worldId, gameState)
-                if (saveLoaded) {
-                    sim.worldGenerator.generate()
-                    true
-                } else false
-            } else false
-            if (!loaded) sim.initialize()
+            // Build deterministic terrain/decor first, then overlay saved gameplay
+            // entities. The previous order loaded entities and then regenerated a
+            // fresh world on top of them, which made Load Game appear broken.
+            sim.initialize()
+            if (worldId != null) {
+                val loaded = saveSystem.loadGame(worldId, gameState)
+                if (!loaded) saveSystem.saveGame(worldId, gameState)
+            }
         }
     }
     val assetManager = remember(context) { AssetManager(context).also { it.preload() } }
@@ -59,8 +59,22 @@ fun GameScreen(
         }
     }
 
+    LaunchedEffect(worldId) {
+        val id = worldId ?: return@LaunchedEffect
+        while (true) {
+            delay(15000L)
+            val autosave = saveSystem.loadGlobalSettings().autosave && gameState.settings.autosave
+            if (autosave && !gameState.paused && !gameState.gameOver) {
+                synchronized(gameState) { saveSystem.saveGame(id, gameState) }
+            }
+        }
+    }
+
     DisposableEffect(Unit) {
         onDispose {
+            if (worldId != null) {
+                synchronized(gameState) { saveSystem.saveGame(worldId, gameState) }
+            }
             gameView?.destroy()
             renderer.destroy()
             assetManager.destroy()

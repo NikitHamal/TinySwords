@@ -30,8 +30,14 @@ class GameSimulation(val state: GameState) {
         state.time += clampedDt
         state.camera.zoom += (state.camera.targetZoom - state.camera.zoom) * kotlin.math.min(1f, clampedDt * CAMERA_ZOOM_SPEED)
 
-        // Rebuild spatial indices
-        state.rebuildSpatialIndices()
+        // Rebuild spatial indices at a fixed cadence instead of every frame. The
+        // world is large, but most indices tolerate 80-120ms of staleness and this
+        // removes a major source of per-frame allocation and jank on phones.
+        state.spatialRebuildTimer -= clampedDt
+        if (state.spatialRebuildTimer <= 0f) {
+            state.rebuildSpatialIndices()
+            state.spatialRebuildTimer = 0.10f
+        }
 
         // Update all systems
         updateResources(clampedDt)
@@ -140,6 +146,11 @@ class GameSimulation(val state: GameState) {
     private fun updateIdle(u: GameUnit, dt: Float) {
         val def = UNITS[u.type] ?: return
 
+        if (def.role == "worker") {
+            maybeAutoAssignWorker(u)
+            return
+        }
+
         // Auto-acquire targets for military units
         if (def.role != "worker") {
             val scanRange = if (def.role == "healer") def.range + 50f else 310f
@@ -159,6 +170,112 @@ class GameSimulation(val state: GameState) {
                 }
             }
         }
+    }
+
+    private fun maybeAutoAssignWorker(u: GameUnit) {
+        if (u.hold) return
+        if (u.carrying != null) {
+            u.order = UnitOrder.HARVEST
+            return
+        }
+        if (u.workerRole == WorkerRole.IDLE) return
+        val target = when (u.workerRole) {
+            WorkerRole.WOOD -> economy.nearestResource(u.x, u.y, ResourceType.TREE, 620f)
+            WorkerRole.GOLD -> economy.nearestResource(u.x, u.y, ResourceType.GOLD, 680f)
+            WorkerRole.FOOD -> economy.nearestResource(u.x, u.y, ResourceType.FOOD, 720f)
+            WorkerRole.BUILD -> nearestOwnFoundation(u)
+            WorkerRole.AUTO -> nearestUsefulWorkerTarget(u)
+            WorkerRole.IDLE -> null
+        }
+        when (target) {
+            is GameResource -> {
+                u.order = UnitOrder.HARVEST
+                u.target = target
+                u.targetId = target.id
+                u.gatherTimer = 0f
+                u.path.clear()
+            }
+            is GameBuilding -> {
+                u.order = UnitOrder.REPAIR
+                u.target = target
+                u.targetId = target.id
+                u.gatherTimer = 0f
+                u.path.clear()
+            }
+        }
+    }
+
+    private fun nearestOwnFoundation(u: GameUnit): GameBuilding? {
+        var best: GameBuilding? = null
+        var bestDist = 780f * 780f
+        for (b in state.buildings) {
+            if (b.dead || b.faction != u.faction || b.buildProgress >= 1f) continue
+            val d = dist2(u.x, u.y, b.x, b.y)
+            if (d < bestDist) { bestDist = d; best = b }
+        }
+        return best
+    }
+
+    private fun nearestUsefulWorkerTarget(u: GameUnit): GameEntity? {
+        nearestOwnFoundation(u)?.let { return it }
+        val candidates = listOfNotNull(
+            economy.nearestResource(u.x, u.y, ResourceType.TREE, 620f),
+            economy.nearestResource(u.x, u.y, ResourceType.GOLD, 680f),
+            economy.nearestResource(u.x, u.y, ResourceType.FOOD, 720f)
+        )
+        return candidates.minByOrNull { dist2(u.x, u.y, it.x, it.y) }
+    }
+
+    private fun depositCarriedResources(u: GameUnit) {
+        val faction = state.factions[u.faction]
+        when (u.carrying) {
+            "wood" -> faction.wood += u.carryAmount
+            "gold" -> faction.gold += u.carryAmount
+            "food" -> faction.food += u.carryAmount
+        }
+        u.carrying = null
+        u.carryAmount = 0f
+        u.gatherTimer = 0f
+        state.effects.add(GameEffect("dust", u.x, u.y - 4f, maxTime = 0.34f))
+    }
+
+    private fun buildingFootprintDistance(u: GameUnit, b: GameBuilding, pad: Float = 0f): Float {
+        val def = BUILDINGS[b.type] ?: return dist(u.x, u.y, b.x, b.y)
+        val left = b.x - def.placeW / 2f - pad
+        val right = b.x + def.placeW / 2f + pad
+        val top = b.y - def.placeH / 2f - pad
+        val bottom = b.y + def.placeH / 2f + pad
+        val dx = max(max(left - u.x, 0f), u.x - right)
+        val dy = max(max(top - u.y, 0f), u.y - bottom)
+        return sqrt(dx * dx + dy * dy)
+    }
+
+    private fun buildingApproachPoint(b: GameBuilding, u: GameUnit, gap: Float = 22f): Pair<Float, Float> {
+        val def = BUILDINGS[b.type] ?: return Pair(b.x, b.y)
+        val left = b.x - def.placeW / 2f
+        val right = b.x + def.placeW / 2f
+        val top = b.y - def.placeH / 2f
+        val bottom = b.y + def.placeH / 2f
+        val candidates = arrayOf(
+            Pair(b.x, bottom + gap),
+            Pair(left + def.placeW * 0.25f, bottom + gap),
+            Pair(right - def.placeW * 0.25f, bottom + gap),
+            Pair(b.x, top - gap),
+            Pair(left - gap, b.y),
+            Pair(right + gap, b.y)
+        )
+        var best = candidates[0]
+        var bestScore = Float.MAX_VALUE
+        for (p in candidates) {
+            if (!state.isSafeLand(p.first, p.second, 10f)) continue
+            val frontBias = if (p.second > b.y) -900f else 0f
+            val score = dist2(u.x, u.y, p.first, p.second) + frontBias
+            if (score < bestScore) {
+                bestScore = score
+                best = p
+            }
+        }
+        return best
     }
 
     private fun updateMove(u: GameUnit, dt: Float) {
@@ -232,28 +349,21 @@ class GameSimulation(val state: GameState) {
                 return
             }
 
-            val d = dist(u.x, u.y, dropoff.x, dropoff.y)
-            if (d < 40f) {
-                // Drop off resources
-                val faction = state.factions[u.faction]
-                when (u.carrying) {
-                    "wood" -> faction.wood += u.carryAmount
-                    "gold" -> faction.gold += u.carryAmount
-                    "food" -> faction.food += u.carryAmount
-                }
-                u.carrying = null
-                u.carryAmount = 0f
+            val approach = buildingApproachPoint(dropoff, u, 22f)
+            val closeEnough = buildingFootprintDistance(u, dropoff) <= 26f || dist2(u.x, u.y, approach.first, approach.second) <= 26f * 26f
+            if (closeEnough) {
+                depositCarriedResources(u)
 
-                // Go back for more
+                // Go back for more, or resume the persistent worker role when the
+                // old node was depleted. This mirrors the web game cargo loop.
                 val target = resolveTarget(u) as? GameResource
-                if (target != null && !target.depleted) {
-                    // Continue harvesting
-                } else {
+                if (target == null || target.depleted) {
                     u.order = UnitOrder.IDLE
                     u.target = null
+                    u.targetId = -1
                 }
             } else {
-                moveToward(u, dropoff.x, dropoff.y, dt, 30f)
+                moveToward(u, approach.first, approach.second, dt, 18f)
             }
             return
         }
@@ -326,8 +436,28 @@ class GameSimulation(val state: GameState) {
             return
         }
 
-        val d = dist(u.x, u.y, target.x, target.y)
-        if (d < 40f) {
+        if (target.buildProgress >= 1f && target.hp >= target.maxHp) {
+            u.order = UnitOrder.IDLE
+            u.target = null
+            u.targetId = -1
+            return
+        }
+
+        if (u.carrying != null) {
+            val dropoff = economy.nearestDropoff(u.faction, u.x, u.y)
+            if (dropoff != null) {
+                val approach = buildingApproachPoint(dropoff, u, 22f)
+                val closeEnough = buildingFootprintDistance(u, dropoff) <= 26f || dist2(u.x, u.y, approach.first, approach.second) <= 26f * 26f
+                if (closeEnough) depositCarriedResources(u) else moveToward(u, approach.first, approach.second, dt, 18f)
+            } else {
+                u.carrying = null
+                u.carryAmount = 0f
+            }
+            return
+        }
+
+        val d = buildingFootprintDistance(u, target)
+        if (d < 24f) {
             // Build/repair
             u.gatherTimer += dt
             if (u.gatherTimer >= 0.5f) {
@@ -344,7 +474,8 @@ class GameSimulation(val state: GameState) {
             }
             u.face = if (target.x >= u.x) 1 else -1
         } else {
-            moveToward(u, target.x, target.y, dt, 32f)
+            val approach = buildingApproachPoint(target, u, 22f)
+            moveToward(u, approach.first, approach.second, dt, 16f)
         }
     }
 
@@ -400,19 +531,24 @@ class GameSimulation(val state: GameState) {
         val def = UNITS[unit.type] ?: return true
         val speed = def.speed * dt
 
-        // Use pathfinding if far enough
-        if (d > 140f && unit.path.isEmpty() && unit.pathRetryTimer <= 0f) {
-            val path = pathfinder.prepareUnitPath(unit, targetX, targetY)
-            if (path != null) {
-                unit.path = path.toMutableList()
-                unit.pathIndex = 0
-                unit.pathVersion = state.navVersion
-            } else {
-                unit.pathRetryTimer = 0.72f
+        unit.pathRetryTimer = max(0f, unit.pathRetryTimer - dt)
+
+        // Use pathfinding only when a direct, sampled segment is blocked. This
+        // mirrors the web game's cheap-path fast path and prevents dozens of A*
+        // searches when the player drags a large army across open ground.
+        if (d > 160f && unit.path.isEmpty() && unit.pathRetryTimer <= 0f) {
+            val samples = (d / 96f).toInt().coerceIn(9, 36)
+            if (!pathfinder.isSegmentWalkable(unit.x, unit.y, targetX, targetY, samples)) {
+                val path = pathfinder.prepareUnitPath(unit, targetX, targetY)
+                if (path != null) {
+                    unit.path = path.toMutableList()
+                    unit.pathIndex = 0
+                    unit.pathVersion = state.navVersion
+                } else {
+                    unit.pathRetryTimer = 0.90f
+                }
             }
         }
-
-        unit.pathRetryTimer = max(0f, unit.pathRetryTimer - dt)
 
         // Invalidate path if nav changed
         if (unit.path.isNotEmpty() && unit.pathVersion != state.navVersion) {
@@ -441,34 +577,38 @@ class GameSimulation(val state: GameState) {
             }
         }
 
-        val newX = unit.x + moveX * speed
-        val newY = unit.y + moveY * speed
+        var newX = unit.x + moveX * speed
+        var newY = unit.y + moveY * speed
 
-        // Collision check
+        // Soft collision. The first Android pass used hard blocking, which made
+        // groups jam and feel unresponsive. A small separation impulse preserves
+        // readable formations without freezing the command queue.
+        var avoidX = 0f
+        var avoidY = 0f
+        for (other in state.unitIndex.query(unit.x, unit.y)) {
+            if (other.id == unit.id || other.dead || other.garrisoned) continue
+            val orDef = UNITS[other.type] ?: continue
+            val minDist = (def.radius + orDef.radius) * 0.86f
+            val od2 = dist2(newX, newY, other.x, other.y)
+            if (od2 > 0.01f && od2 < minDist * minDist) {
+                val od = sqrt(od2)
+                val push = ((minDist - od) / minDist).coerceIn(0f, 1f) * 8f
+                avoidX += ((newX - other.x) / od) * push
+                avoidY += ((newY - other.y) / od) * push
+            }
+        }
+        if (avoidX != 0f || avoidY != 0f) {
+            newX += avoidX
+            newY += avoidY
+        }
+
         if (state.isLand(newX, newY)) {
-            // Check unit collision
-            var blocked = false
-            for (other in state.unitIndex.query(unit.x, unit.y)) {
-                if (other.id == unit.id || other.dead || other.garrisoned) continue
-                val orDef = UNITS[other.type] ?: continue
-                val minDist = def.radius + orDef.radius
-                val od = dist2(newX, newY, other.x, other.y)
-                if (od < minDist * minDist) {
-                    blocked = true
-                    break
-                }
-            }
-
-            if (!blocked) {
-                unit.lastX = unit.x
-                unit.lastY = unit.y
-                unit.x = newX
-                unit.y = newY
-                unit.face = if (moveX >= 0) 1 else -1
-                unit.stuck = 0f
-            } else {
-                unit.stuck += dt
-            }
+            unit.lastX = unit.x
+            unit.lastY = unit.y
+            unit.x = newX
+            unit.y = newY
+            unit.face = if (moveX >= 0) 1 else -1
+            unit.stuck = 0f
         } else {
             unit.stuck += dt
         }
@@ -506,6 +646,7 @@ class GameSimulation(val state: GameState) {
             u.attackMove = attackMove
             u.path.clear()
             u.pathIndex = 0
+            u.pathRetryTimer = (i % 12) * 0.035f
             u.stuck = 0f
         }
     }
@@ -527,6 +668,14 @@ class GameSimulation(val state: GameState) {
             u.target = resource
             u.targetId = resource.id
             u.gatherTimer = 0f
+            u.hasGoal = false
+            u.workerRole = when (resource.type) {
+                ResourceType.TREE -> WorkerRole.WOOD
+                ResourceType.GOLD -> WorkerRole.GOLD
+                ResourceType.FOOD -> WorkerRole.FOOD
+            }
+            // Preserve existing cargo; the worker will deposit it first and then
+            // continue to the newly requested node instead of deleting resources.
             u.path.clear()
         }
     }
@@ -538,6 +687,7 @@ class GameSimulation(val state: GameState) {
             u.target = building
             u.targetId = building.id
             u.gatherTimer = 0f
+            u.hasGoal = false
             u.path.clear()
         }
     }

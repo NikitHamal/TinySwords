@@ -28,6 +28,9 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
     // Global entity ID counter
     private var nextGid: Int = 1
     fun nextId(): Int = nextGid++
+    fun ensureNextIdGreaterThan(id: Int) {
+        if (id >= nextGid) nextGid = id + 1
+    }
 
     // Camera
     val camera = Camera()
@@ -70,6 +73,7 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
     var navVersion: Int = 0
 
     // Spatial indices
+    var spatialRebuildTimer: Float = 0f
     val unitIndex = SpatialIndex<GameUnit>(UNIT_BUCKET_SIZE)
     val resourceIndex = SpatialIndex<GameResource>(RESOURCE_BUCKET_SIZE)
     val buildingIndex = SpatialIndex<GameBuilding>(BUILDING_BUCKET_SIZE)

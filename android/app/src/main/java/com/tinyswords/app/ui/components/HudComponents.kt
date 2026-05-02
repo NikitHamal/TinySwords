@@ -20,23 +20,23 @@ import com.tinyswords.app.ui.theme.GameTypography
 
 // ── Resource Pill ──
 @Composable
-fun ResourcePill(label: String, value: Int, color: Color, modifier: Modifier = Modifier) {
+fun ResourcePill(label: String, value: String, color: Color, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
             .background(GameColors.Panel, RoundedCornerShape(6.dp))
             .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(6.dp))
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 6.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(10.dp)
+                .size(9.dp)
                 .background(color, RoundedCornerShape(2.dp))
         )
         Text(
-            text = "$value",
-            style = GameTypography.Body.copy(fontWeight = FontWeight.Bold, color = Color.White),
+            text = value,
+            style = GameTypography.Body.copy(fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp),
         )
         Text(
             text = label,
@@ -53,13 +53,13 @@ fun ResourceBar(
 ) {
     Row(
         modifier = modifier
-            .padding(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        ResourcePill("WOOD", wood, GameColors.WoodColor)
-        ResourcePill("GOLD", gold, GameColors.GoldColor)
-        ResourcePill("FOOD", food, GameColors.FoodColor)
-        ResourcePill("$popUsed/$popCap", popUsed, GameColors.PopColor)
+        ResourcePill("WOOD", wood.toString(), GameColors.WoodColor)
+        ResourcePill("GOLD", gold.toString(), GameColors.GoldColor)
+        ResourcePill("FOOD", food.toString(), GameColors.FoodColor)
+        ResourcePill("POP", "$popUsed/$popCap", GameColors.PopColor)
     }
 }
 
@@ -77,17 +77,17 @@ fun QuickControlPanel(
     Row(
         modifier = modifier
             .horizontalScroll(rememberScrollState())
-            .background(GameColors.Panel.copy(alpha = 0.88f), RoundedCornerShape(8.dp))
-            .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(8.dp))
-            .padding(5.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .background(GameColors.Panel.copy(alpha = 0.78f), RoundedCornerShape(7.dp))
+            .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(7.dp))
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         CommandButton("WRK", onClick = onWorkers)
-        CommandButton("ARMY", onClick = onArmy)
+        CommandButton("ARM", onClick = onArmy)
         CommandButton("ALL", onClick = onAll)
-        CommandButton("HOME", onClick = onHome)
-        CommandButton("X", onClick = onCancel)
+        CommandButton("BASE", onClick = onHome)
+        CommandButton("CLR", onClick = onCancel)
     }
 }
 
@@ -220,7 +220,9 @@ fun SelectionPanel(
                 val typeName = when (first.type) {
                     ResourceType.TREE -> "Forest"
                     ResourceType.GOLD -> "Gold Deposit"
-                    ResourceType.FOOD -> if (first.isAnimal) first.animalKind.replaceFirstChar { it.uppercase() } else "Food"
+                    ResourceType.FOOD -> if (first.isAnimal) {
+                        when (first.animalKind) { "grouse" -> "Black Grouse" else -> first.animalKind.replaceFirstChar { it.uppercase() } }
+                    } else "Food"
                 }
                 Text(
                     text = typeName,
@@ -257,18 +259,19 @@ fun CommandButton(
 
     Box(
         modifier = modifier
-            .height(40.dp)
-            .widthIn(min = 60.dp)
+            .height(34.dp)
+            .widthIn(min = 46.dp)
             .background(bg, RoundedCornerShape(4.dp))
             .border(1.dp, GameColors.ButtonBorder, RoundedCornerShape(4.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
+            .padding(horizontal = 6.dp, vertical = 3.dp),
         contentAlignment = Alignment.Center
     ) {
         Text(
             text = text,
             style = GameTypography.Button.copy(
-                color = if (enabled) GameColors.TextPrimary else GameColors.TextSecondary
+                color = if (enabled) GameColors.TextPrimary else GameColors.TextSecondary,
+                fontSize = 11.sp
             )
         )
     }
@@ -295,10 +298,10 @@ fun ActionDock(
     Row(
         modifier = modifier
             .horizontalScroll(rememberScrollState())
-            .background(GameColors.Panel, RoundedCornerShape(8.dp))
+            .background(GameColors.Panel.copy(alpha = 0.86f), RoundedCornerShape(8.dp))
             .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(8.dp))
-            .padding(6.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (hasUnits) {
@@ -306,16 +309,15 @@ fun ActionDock(
             CommandButton("STOP", onClick = onStop)
             CommandButton("HOLD", onClick = onHold)
 
-            Spacer(modifier = Modifier.width(4.dp))
-
-            // Formation buttons
-            CommandButton("LINE", onClick = { onFormation("line") }, isActive = formationMode == "line")
-            CommandButton("BOX", onClick = { onFormation("box") }, isActive = formationMode == "box")
-            CommandButton("V", onClick = { onFormation("wedge") }, isActive = formationMode == "wedge")
-            CommandButton("SPLIT", onClick = { onFormation("split") }, isActive = formationMode == "split")
+            val nextFormation = when (formationMode) {
+                "box" -> "line"
+                "line" -> "wedge"
+                "wedge" -> "split"
+                else -> "box"
+            }
+            CommandButton("FORM ${formationMode.uppercase().take(3)}", onClick = { onFormation(nextFormation) }, isActive = true)
 
             if (hasWorkers) {
-                Spacer(modifier = Modifier.width(4.dp))
                 CommandButton("BUILD", onClick = onBuildMenu)
             }
         }
@@ -327,7 +329,7 @@ fun ActionDock(
                 for ((idx, unitType) in bdef.trains.withIndex()) {
                     val udef = UNITS[unitType] ?: continue
                     CommandButton(
-                        text = "${udef.label}\n${udef.costGold}G",
+                        text = "${udef.label.take(4)} ${udef.costGold}G",
                         onClick = { onTrain(unitType) }
                     )
                 }

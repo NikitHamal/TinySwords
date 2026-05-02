@@ -116,7 +116,7 @@ class GameView(
             }
 
             val elapsedMs = (System.nanoTime() - start) / 1_000_000L
-            val targetMs = 18L // ~55fps cap; smoother than 30fps, lighter than unbounded 60fps on budget phones.
+            val targetMs = 22L // ~45fps cap; stable on budget Android devices while keeping RTS input responsive.
             if (elapsedMs < targetMs) {
                 try { Thread.sleep(targetMs - elapsedMs) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
             }
@@ -263,9 +263,13 @@ class GameView(
     private fun handleTap(wx: Float, wy: Float) {
         if (state.placingBuilding != null) {
             val type = state.placingBuilding!!
+            val selectedWorkers = state.selected.filterIsInstance<GameUnit>().filter { it.faction == 0 && it.type == "worker" && !it.dead && !it.garrisoned }
             val building = simulation.economy.placeBuilding(type, 0, wx, wy, asFoundation = true)
             if (building != null) {
                 state.placingBuilding = null
+                if (selectedWorkers.isNotEmpty()) {
+                    simulation.orderRepair(selectedWorkers, building)
+                }
                 haptic(24)
             }
             post { onSelectionChanged() }
