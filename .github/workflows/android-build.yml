@@ -1,0 +1,95 @@
+name: Android build
+
+on:
+  push:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build signed APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve commit metadata
+        id: meta
+        run: |
+          SHA_SHORT="$(git rev-parse --short HEAD)"
+          echo "sha=${SHA_SHORT}" >> "$GITHUB_OUTPUT"
+          echo "COMMIT_SHA=${SHA_SHORT}" >> "$GITHUB_ENV"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.9"
+
+      - name: Generate Gradle wrapper
+        working-directory: android
+        run: gradle wrapper --gradle-version 8.9
+
+      - name: Cache Android SDK
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.android/build-cache
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-android-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-android-
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-34 build-tools;34.0.0 platform-tools"
+
+      - name: Assemble release
+        working-directory: android
+        run: ./gradlew :app:assembleRelease --no-daemon --stacktrace
+
+      - name: Assemble debug
+        working-directory: android
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Locate APKs
+        id: apks
+        run: |
+          set -e
+          REL=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n1 || true)
+          DBG=$(find android/app/build/outputs/apk/debug   -name '*.apk' | head -n1 || true)
+          echo "release=${REL}" >> "$GITHUB_OUTPUT"
+          echo "debug=${DBG}"   >> "$GITHUB_OUTPUT"
+          echo "Found release APK: ${REL}"
+          echo "Found debug APK:   ${DBG}"
+
+      - name: Upload release APK
+        if: steps.apks.outputs.release != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: TinySwords-release-${{ steps.meta.outputs.sha }}
+          path: ${{ steps.apks.outputs.release }}
+          if-no-files-found: error
+
+      - name: Upload debug APK
+        if: steps.apks.outputs.debug != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: TinySwords-debug-${{ steps.meta.outputs.sha }}
+          path: ${{ steps.apks.outputs.debug }}
+          if-no-files-found: warn

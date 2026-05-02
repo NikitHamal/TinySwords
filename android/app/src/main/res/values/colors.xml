@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ts_panel">#1f2c3d</color>
+    <color name="ts_panel_dark">#0f1827</color>
+    <color name="ts_grass">#3aa15a</color>
+    <color name="ts_water">#2c6a8e</color>
+    <color name="ts_gold">#f7dc62</color>
+    <color name="ts_wood">#9ccb77</color>
+    <color name="ts_food">#f6a167</color>
+</resources>

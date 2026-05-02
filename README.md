@@ -1,10 +1,56 @@
-# Tiny Swords: Realm War RTS - Hunting World Pass
+# Tiny Swords: Realm War
 
-A self-contained HTML5 top-down RTS using the uploaded Tiny Swords free asset pack and the user-provided CraftPix top-down hunting animal sprite pack.
+Top-down pixel-art RTS using the Tiny Swords free art pack. Originally an
+HTML5 build; the repo now also ships a **native Android port** in Kotlin +
+Jetpack Compose under [`android/`](android/) with an upgraded pixel-art HUD
+and CI/CD that produces signed release APKs renamed by commit hash on every
+push to every branch.
 
-This build removes the previously generated prop/terrain assets, expands the world substantially, and integrates real animated hunting animals into the economy loop.
+| Build | Path | Tech |
+| --- | --- | --- |
+| Web | `index.html`, `js/` | HTML5 Canvas + JS |
+| Android | `android/` | Kotlin 2.0, Jetpack Compose, native Canvas |
 
-## Run
+## Android quick start
+
+```bash
+cd android
+./gradlew :app:assembleRelease   # signed release APK
+./gradlew :app:installDebug       # install onto a connected device
+```
+
+Output APKs are renamed `TinySwords-<release|debug>-<commitSha>.apk` and
+land in `android/app/build/outputs/apk/`.
+
+The repo ships a **default public keystore** at `android/keystore/tinyswords.jks`
+so any clone can produce installable signed builds locally and through CI.
+See [`android/keystore/README.md`](android/keystore/README.md) for the
+intentional rationale and instructions for replacing it.
+
+CI: GitHub Actions runs on **all branches** via
+[`.github/workflows/android-build.yml`](.github/workflows/android-build.yml).
+Signed APKs are attached as workflow artifacts.
+
+### Android architecture
+
+```
+android/app/src/main/java/com/tinyswords/realmwar/
+  game/      GameDefs, GameState, WorldGenerator, GameEngine, SimulationSystems (units, AI, projectiles)
+  render/    WorldRenderer (Canvas + sprite cache), MinimapRenderer
+  audio/     SoundBank (SoundPool wrapper)
+  assets/    SpriteCache, AssetPaths
+  storage/   WorldStorage (SharedPreferences-backed JSON catalogue)
+  ui/        AppRoot, MenuScreens (loading, title, world list, create, settings),
+             GameScreen (custom View canvas + Compose HUD), Theme
+```
+
+The HUD is a chunky pixel-styled overlay: gold-accented resource chips and
+buttons, a build-menu drawer, selection-aware action dock, and a live
+minimap with camera viewport. Touch controls cover one-finger pan, two-finger
+pinch zoom, tap to select / move / attack / gather, and long-press for stop
+or rally.
+
+## Run the web build
 
 Open `index.html` in a modern browser. For the cleanest result, run a local static server from this folder and open the localhost URL.
 
