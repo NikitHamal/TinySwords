@@ -1,0 +1,58 @@
+name: Android Build Release APK
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  build:
+    name: Build Signed Release APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Grant execute permission for gradlew
+        working-directory: android
+        run: chmod +x gradlew 2>/dev/null || true
+
+      - name: Create Gradle Wrapper
+        working-directory: android
+        run: |
+          if [ ! -f gradlew ]; then
+            gradle wrapper --gradle-version 8.5
+          fi
+
+      - name: Build Release APK
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Get short commit hash
+        id: commit
+        run: echo "hash=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Rename APK with commit hash
+        run: |
+          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          if [ -n "$APK_PATH" ]; then
+            cp "$APK_PATH" "android/app/build/outputs/apk/release/TinySwords-release-${{ steps.commit.outputs.hash }}.apk"
+          fi
+
+      - name: Upload Release APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TinySwords-release-${{ steps.commit.outputs.hash }}
+          path: android/app/build/outputs/apk/release/TinySwords-release-*.apk
+          retention-days: 30
+          if-no-files-found: error
