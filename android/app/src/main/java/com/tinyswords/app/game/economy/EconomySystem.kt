@@ -148,7 +148,6 @@ class EconomySystem(private val state: GameState) {
 
         for (r in state.resourceIndex.queryRange(x, y, range)) {
             if (r.dead || r.depleted || r.type != type) continue
-            if (r.isAnimal && r.animalHp > 0f) continue // Don't auto-gather live animals
             val d = dist2(x, y, r.x, r.y)
             if (d < bestDist) {
                 bestDist = d

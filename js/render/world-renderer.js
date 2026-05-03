@@ -251,20 +251,128 @@ Game.prototype.drawShoreLines = function (sx, sy, ex, ey) {
   }
 };
 
+Game.prototype._bucketKey = function (bx, by) {
+  return bx * 73856093 ^ by * 19349663;
+};
+
+Game.prototype._querySpatialRect = function (map, bucketSize, left, top, right, bottom, out) {
+  out.length = 0;
+  if (!map || !bucketSize) return out;
+  const bx0 = Math.floor(left / bucketSize);
+  const by0 = Math.floor(top / bucketSize);
+  const bx1 = Math.floor(right / bucketSize);
+  const by1 = Math.floor(bottom / bucketSize);
+  for (let by = by0; by <= by1; by++) {
+    for (let bx = bx0; bx <= bx1; bx++) {
+      const list = map.get(this._bucketKey(bx, by));
+      if (!list) continue;
+      for (let i = 0; i < list.length; i++) {
+        const e = list[i];
+        if (e.x >= left && e.x <= right && e.y >= top && e.y <= bottom) out.push(e);
+      }
+    }
+  }
+  return out;
+};
+
+Game.prototype.rebuildDecorRenderSpatialIndex = function () {
+  const bucketSize = 256;
+  this.decorRenderBucketSize = bucketSize;
+  const map = this._decorRenderBucketMap || (this._decorRenderBucketMap = new Map());
+  const sky = this._skyDecor || (this._skyDecor = []);
+  map.clear();
+  sky.length = 0;
+  for (let i = 0; i < this.decor.length; i++) {
+    const d = this.decor[i];
+    if (!d || d.dead) continue;
+    if (d.sky) { sky.push(d); continue; }
+    const bx = Math.floor(d.x / bucketSize), by = Math.floor(d.y / bucketSize);
+    const key = this._bucketKey(bx, by);
+    let list = map.get(key);
+    if (!list) { list = []; map.set(key, list); }
+    list.push(d);
+  }
+  this.decorRenderBuckets = map;
+  this.decorRenderVersion = this.decor.length;
+};
+
+Game.prototype._pushDrawable = function (drawables, y, kind, item) {
+  const pool = this._drawablePool || (this._drawablePool = []);
+  const idx = drawables.length;
+  const d = pool[idx] || (pool[idx] = { y: 0, kind: '', item: null });
+  d.y = y; d.kind = kind; d.item = item;
+  drawables.push(d);
+};
+
 Game.prototype.drawWorldEntities = function () {
   this.drawSelectedRanges && this.drawSelectedRanges();
-  const drawables = [];
-  const inView = (x, y, pad = 180) => x > this.camera.x - pad && y > this.camera.y - pad && x < this.camera.x + VIEW_W / this.camera.zoom + pad && y < this.camera.y + VIEW_H / this.camera.zoom + pad;
-  for (const d of this.decor) if (inView(d.x, d.y, d.sky ? 360 : 100)) drawables.push({ y: d.sky ? d.y + 900000 : d.y + (d.front ? 6 : -18), kind: 'decor', item: d });
-  for (const r of this.resources) if (!r.dead && inView(r.x, r.y, 130)) drawables.push({ y: r.y + (r.type === 'tree' ? -10 : 0), kind: 'resource', item: r });
-  for (const b of this.buildings) if (!b.dead && inView(b.x, b.y, 280)) drawables.push({ y: b.y + b.h * .34, kind: 'building', item: b });
-  for (const u of this.units) if (!u.dead && inView(u.x, u.y, 140)) drawables.push({ y: u.y, kind: 'unit', item: u });
+  if (this._shouldRebuildSpatial || !this.unitBuckets) this.rebuildUnitSpatialIndex && this.rebuildUnitSpatialIndex();
+  if (this._shouldRebuildSpatial || !this.resourceBuckets) this.rebuildResourceSpatialIndex && this.rebuildResourceSpatialIndex();
+  if (this._shouldRebuildSpatial || !this.buildingBuckets) this.rebuildBuildingSpatialIndex && this.rebuildBuildingSpatialIndex();
+  if (!this.decorRenderBuckets || this.decorRenderVersion !== this.decor.length) this.rebuildDecorRenderSpatialIndex();
+
+  const zoom = this.camera.zoom || 1;
+  const left = this.camera.x, top = this.camera.y;
+  const right = left + VIEW_W / zoom, bottom = top + VIEW_H / zoom;
+  const inView = (x, y, pad = 180) => x > left - pad && y > top - pad && x < right + pad && y < bottom + pad;
+  const drawables = this._drawables || (this._drawables = []);
+  drawables.length = 0;
+
+  const decorPad = 180;
+  const decorCandidates = this._decorQueryBuf || (this._decorQueryBuf = []);
+  this._querySpatialRect(this.decorRenderBuckets, this.decorRenderBucketSize || 256, left - decorPad, top - decorPad, right + decorPad, bottom + decorPad, decorCandidates);
+  for (let i = 0; i < decorCandidates.length; i++) {
+    const d = decorCandidates[i];
+    if (!d.dead) this._pushDrawable(drawables, d.y + (d.front ? 6 : -18), 'decor', d);
+  }
+  const sky = this._skyDecor || [];
+  for (let i = 0; i < sky.length; i++) {
+    const d = sky[i];
+    if (!d.dead && inView(d.x, d.y, 420)) this._pushDrawable(drawables, d.y + 900000, 'decor', d);
+  }
+
+  const resources = this._resourceRenderBuf || (this._resourceRenderBuf = []);
+  this._querySpatialRect(this.resourceBuckets, this.resourceBucketSize || 128, left - 150, top - 180, right + 150, bottom + 150, resources);
+  for (let i = 0; i < resources.length; i++) {
+    const r = resources[i];
+    if (!r.dead && (r.amount > 0 || r.depleted) && inView(r.x, r.y, 150)) this._pushDrawable(drawables, r.y + (r.type === 'tree' ? -10 : 0), 'resource', r);
+  }
+
+  const buildings = this._buildingRenderBuf || (this._buildingRenderBuf = []);
+  this._querySpatialRect(this.buildingBuckets, this.buildingBucketSize || 192, left - 320, top - 340, right + 320, bottom + 300, buildings);
+  for (let i = 0; i < buildings.length; i++) {
+    const b = buildings[i];
+    if (!b.dead && inView(b.x, b.y, 320)) this._pushDrawable(drawables, b.y + b.h * .34, 'building', b);
+  }
+
+  const units = this._unitRenderBuf || (this._unitRenderBuf = []);
+  this._querySpatialRect(this.unitBuckets, this.unitBucketSize || 72, left - 150, top - 170, right + 150, bottom + 150, units);
+  for (let i = 0; i < units.length; i++) {
+    const u = units[i];
+    if (!u.dead && !u.garrisoned && inView(u.x, u.y, 150)) this._pushDrawable(drawables, u.y, 'unit', u);
+  }
+
   drawables.sort((a, b) => a.y - b.y);
   const perf = this.worldSettings?.graphics === 'performance';
-  if (!perf) { for (const d of drawables) if (d.kind === 'decor') this.drawDecor(d.item); else if (d.kind === 'resource') this.drawResource(d.item); else if (d.kind === 'building') this.drawBuilding(d.item); else this.drawUnit(d.item); }
-  else { for (const d of drawables) if (d.kind === 'decor') this.drawDecorPerf(d.item); else if (d.kind === 'resource') this.drawResourcePerf(d.item); else if (d.kind === 'building') this.drawBuildingPerf(d.item); else this.drawUnitPerf(d.item); }
-  for (const p of this.projectiles) if (inView(p.x, p.y, 180)) this.drawProjectile(p);
-  for (const e of this.effects) if (inView(e.x, e.y, 180)) this.drawEffect(e);
+  if (!perf) {
+    for (let i = 0; i < drawables.length; i++) {
+      const d = drawables[i];
+      if (d.kind === 'decor') this.drawDecor(d.item);
+      else if (d.kind === 'resource') this.drawResource(d.item);
+      else if (d.kind === 'building') this.drawBuilding(d.item);
+      else this.drawUnit(d.item);
+    }
+  } else {
+    for (let i = 0; i < drawables.length; i++) {
+      const d = drawables[i];
+      if (d.kind === 'decor') this.drawDecorPerf(d.item);
+      else if (d.kind === 'resource') this.drawResourcePerf(d.item);
+      else if (d.kind === 'building') this.drawBuildingPerf(d.item);
+      else this.drawUnitPerf(d.item);
+    }
+  }
+  for (let i = 0; i < this.projectiles.length; i++) { const p = this.projectiles[i]; if (inView(p.x, p.y, 180)) this.drawProjectile(p); }
+  for (let i = 0; i < this.effects.length; i++) { const e = this.effects[i]; if (inView(e.x, e.y, 180)) this.drawEffect(e); }
 };
 
 Game.prototype.drawShadow = function (x, y, w, h) {

@@ -81,6 +81,7 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
     val resourceIndex = SpatialIndex<GameResource>(RESOURCE_BUCKET_SIZE)
     val buildingIndex = SpatialIndex<GameBuilding>(BUILDING_BUCKET_SIZE)
     val decorIndex = SpatialIndex<GameDecor>(DECOR_BUCKET_SIZE)
+    val decorRenderIndex = SpatialIndex<GameDecor>(DECOR_BUCKET_SIZE * 2f)
     private val entityById = HashMap<Int, GameEntity>(1024)
 
     // Building placement mode
@@ -104,7 +105,12 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
         resourceIndex.rebuild(resources)
         buildingIndex.rebuild(buildings)
         decorIndex.clear()
-        for (d in decor) if (!d.dead && d.isSolid) decorIndex.insert(d)
+        decorRenderIndex.clear()
+        for (d in decor) {
+            if (d.dead) continue
+            if (d.isSolid) decorIndex.insert(d)
+            decorRenderIndex.insert(d)
+        }
         rebuildEntityIndex()
     }
 

@@ -37,6 +37,7 @@ Game.prototype.reset = function() {
   for (const f of this.factions) if (f.id === 0 || f.ai) this.spawnFaction(f);
   this.markNavDirty && this.markNavDirty();
   this.rebuildDecorSpatialIndex && this.rebuildDecorSpatialIndex();
+  this.rebuildDecorRenderSpatialIndex && this.rebuildDecorRenderSpatialIndex();
   this.buildMinimapTerrainCache && this.buildMinimapTerrainCache();
   this.camera.x = clamp(this.factions[0].base.x - VIEW_W / this.camera.zoom / 2, 0, WORLD_W - VIEW_W / this.camera.zoom);
   this.camera.y = clamp(this.factions[0].base.y - VIEW_H / this.camera.zoom / 2, 0, WORLD_H - VIEW_H / this.camera.zoom);
@@ -245,6 +246,7 @@ Game.prototype.pruneInvalidWorldObjects = function() {
   });
   this.clearOverlapsAroundStructures();
   this.rebuildDecorSpatialIndex && this.rebuildDecorSpatialIndex();
+  this.rebuildDecorRenderSpatialIndex && this.rebuildDecorRenderSpatialIndex();
 };
 
 Game.prototype.clearOverlapsAroundStructures = function() {
@@ -272,6 +274,7 @@ Game.prototype.clearOverlapsAroundStructures = function() {
     }
     return true;
   });
+  this.rebuildDecorRenderSpatialIndex && this.rebuildDecorRenderSpatialIndex();
 };
 
 Game.prototype.isSafeLand = function(x, y, radius = 28) {

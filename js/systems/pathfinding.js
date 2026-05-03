@@ -185,7 +185,7 @@ Game.prototype.findPath = function(startX, startY, goalX, goalY, maxNodes = 1600
 
 Game.prototype.clearUnitPath = function(u) {
   if (!u) return;
-  u.path = null; u.pathGoal = null; u.pathIndex = 0; u.pathRetry = 0;
+  u.path = null; u.pathGoal = null; u.pathIndex = 0; u.pathRetry = 0; u.directPathUntil = 0;
 };
 
 Game.prototype.isSegmentWalkable = function(u, ax, ay, bx, by, samples = 9) {
@@ -200,16 +200,30 @@ Game.prototype.isSegmentWalkable = function(u, ax, ay, bx, by, samples = 9) {
 };
 
 Game.prototype.prepareUnitPath = function(u, x, y, d) {
-  if (d < 140 && this.isSegmentWalkable(u, u.x, u.y, x, y, 6) && !this.isBlocked(x, y, u)) return null;
+  const nav = this.navVersion || 1;
   const goalChanged = !u.pathGoal || dist2(u.pathGoal.x, u.pathGoal.y, x, y) > 42 * 42;
-  const stale = u.pathVersion !== (this.navVersion || 1);
+  const stale = u.pathVersion !== nav;
   u.pathRetry = Math.max(0, (u.pathRetry || 0) - .016);
+
+  if (!u.path || goalChanged || stale) {
+    if (!goalChanged && !stale && u.directPathUntil && u.directPathUntil > (this.time || 0)) return null;
+    const samples = d < 180 ? 6 : Math.ceil(Math.min(36, Math.max(9, d / 96)));
+    if (this.isSegmentWalkable(u, u.x, u.y, x, y, samples) && !this.isBlocked(x, y, u)) {
+      this.clearUnitPath(u);
+      u.pathGoal = { x, y };
+      u.pathVersion = nav;
+      u.directPathUntil = (this.time || 0) + .20;
+      return null;
+    }
+  }
+
   if (!u.path || goalChanged || stale) {
     if (u.pathRetry > 0 && !goalChanged && !stale) return u.path;
     u.path = this.findPath(u.x, u.y, x, y);
     u.pathGoal = { x, y };
     u.pathIndex = 0;
-    u.pathVersion = this.navVersion || 1;
+    u.pathVersion = nav;
+    u.directPathUntil = 0;
     u.pathRetry = u.path ? .18 : .72;
   }
   return u.path;

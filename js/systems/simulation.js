@@ -127,7 +127,7 @@ Game.prototype.rebuildResourceSpatialIndex = function() {
   const map = this._resBucketMap;
   map.clear();
   for (const r of this.resources) {
-    if (r.dead || r.amount <= 0) continue;
+    if (r.dead) continue;
     const bx = (r.x / bucketSize) | 0, by = (r.y / bucketSize) | 0;
     const key = bx * 73856093 ^ by * 19349663;
     let list = map.get(key);

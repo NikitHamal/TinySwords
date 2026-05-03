@@ -241,6 +241,14 @@ body:not(.in-game) #gameCanvas { filter: saturate(.92) brightness(.60) blur(1px)
   justify-content: center;
 }
 .title-card { padding: 28px 30px; text-align: center; width: 100%; max-width: 480px; }
+.game-logo {
+  display: block;
+  width: clamp(72px, 12vw, 112px);
+  height: clamp(72px, 12vw, 112px);
+  margin: 0 auto 14px;
+  image-rendering: auto;
+  filter: drop-shadow(0 8px 0 rgba(0,0,0,.20)) drop-shadow(0 22px 28px rgba(0,0,0,.32));
+}
 .feature-card h3, .section-head h3 { margin: 0; color: var(--gold); font-size: 18px; }
 .feature-card ul { margin: 14px 0 0; padding-left: 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
 .eyebrow { color: var(--muted); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
@@ -889,6 +897,7 @@ body:not(.in-game) #gameCanvas { filter: saturate(.92) brightness(.60) blur(1px)
     linear-gradient(180deg, rgba(22, 42, 42, .96), rgba(7, 17, 21, .98)) !important;
 }
 .title-card { max-width: 560px !important; padding: 32px 34px !important; }
+.game-logo { width: clamp(78px, 13vw, 118px); height: clamp(78px, 13vw, 118px); }
 .title-card h1 {
   color: #ffe48a !important;
   font-size: clamp(48px, 9vw, 104px) !important;

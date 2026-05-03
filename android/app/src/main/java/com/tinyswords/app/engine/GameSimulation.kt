@@ -580,6 +580,8 @@ class GameSimulation(val state: GameState) {
                 } else {
                     unit.pathRetryTimer = 0.90f
                 }
+            } else {
+                unit.pathRetryTimer = 0.16f
             }
         }
 

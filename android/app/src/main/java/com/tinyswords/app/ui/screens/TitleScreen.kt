@@ -10,9 +10,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.tinyswords.app.R
 import com.tinyswords.app.ui.components.AssetIcon
 import com.tinyswords.app.ui.theme.GameColors
 import com.tinyswords.app.ui.theme.GameTypography
@@ -47,6 +49,11 @@ fun TitleScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)
             ) {
+                Image(
+                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    contentDescription = null,
+                    modifier = Modifier.size(if (compact) 64.dp else 92.dp)
+                )
                 Text(
                     text = "TINY\nSWORDS",
                     style = GameTypography.Title.copy(fontSize = if (compact) 32.sp else 46.sp, lineHeight = if (compact) 31.sp else 43.sp),

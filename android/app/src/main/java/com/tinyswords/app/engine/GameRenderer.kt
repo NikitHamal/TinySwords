@@ -74,6 +74,7 @@ class GameRenderer(private val assets: AssetManager) {
     private val resourceQueryBuffer = ArrayList<GameResource>(768)
     private val buildingQueryBuffer = ArrayList<GameBuilding>(128)
     private val unitQueryBuffer = ArrayList<GameUnit>(512)
+    private val decorQueryBuffer = ArrayList<GameDecor>(256)
     private var terrainCacheKey: String = ""
     private var terrainChunkTiles = 16
     private var terrainChunkPx = (TILE * terrainChunkTiles).toInt()
@@ -292,16 +293,11 @@ class GameRenderer(private val assets: AssetManager) {
             pushDrawable(out, r, r.y + if (r.type == ResourceType.TREE) -10f else 0f)
         }
 
-        // Decor is intentionally light-weight in the generated worlds, so scanning it
-        // directly avoids maintaining another moving index for clouds/water props while
-        // still culling all off-screen sprites before sort/draw.
-        for (d in state.decor) {
+        state.decorRenderIndex.queryRect(left - 420f, top - 420f, right + 420f, bottom + 420f, decorQueryBuffer)
+        for (d in decorQueryBuffer) {
             if (d.dead) continue
-            if (d.isSky) {
-                pushDrawable(out, d, d.y + 900000f, true)
-            } else if (d.x >= left && d.x <= right && d.y >= top && d.y <= bottom) {
-                pushDrawable(out, d, d.y - 18f)
-            }
+            if (d.isSky) pushDrawable(out, d, d.y + 900000f, true)
+            else pushDrawable(out, d, d.y - 18f)
         }
 
         state.buildingIndex.queryRect(left - 260f, top - 280f, right + 260f, bottom + 260f, buildingQueryBuffer)
@@ -969,44 +965,10 @@ class GameRenderer(private val assets: AssetManager) {
         val h = mapH.toInt().coerceAtLeast(1)
         val terrain = getMinimapTerrain(state, w, h)
         if (terrain != null) canvas.drawBitmap(terrain, 0f, 0f, null) else canvas.drawColor(Color.rgb(20, 51, 64))
+        getMinimapEntities(state, w, h)?.let { canvas.drawBitmap(it, 0f, 0f, null) }
 
         val scaleX = mapW / state.worldW
         val scaleY = mapH / state.worldH
-
-        fillPaint.color = Color.rgb(26, 90, 0)
-        for (r in state.resources) {
-            if (r.dead || r.depleted || r.type != ResourceType.TREE) continue
-            val rx = r.x * scaleX; val ry = r.y * scaleY
-            canvas.drawRect(rx - 1f, ry - 1f, rx + 1f, ry + 1f, fillPaint)
-        }
-        fillPaint.color = Color.rgb(212, 160, 23)
-        for (r in state.resources) {
-            if (r.dead || r.depleted || r.type != ResourceType.GOLD) continue
-            val rx = r.x * scaleX; val ry = r.y * scaleY
-            canvas.drawRect(rx - 1.5f, ry - 1.5f, rx + 1.5f, ry + 1.5f, fillPaint)
-        }
-        fillPaint.color = Color.rgb(204, 102, 51)
-        for (r in state.resources) {
-            if (r.dead || r.depleted || r.type != ResourceType.FOOD) continue
-            val rx = r.x * scaleX; val ry = r.y * scaleY
-            canvas.drawRect(rx - 1f, ry - 1f, rx + 1f, ry + 1f, fillPaint)
-        }
-
-        for (f in 0..4) {
-            val fColor = FACTIONS.getOrNull(f)?.color ?: Color.BLUE
-            fillPaint.color = fColor
-            for (b in state.buildings) {
-                if (b.dead || b.faction != f) continue
-                val s = if (b.type == "castle") 4.8f else 3f
-                val bx = b.x * scaleX; val by = b.y * scaleY
-                canvas.drawRect(bx - s, by - s, bx + s, by + s, fillPaint)
-            }
-            for (u in state.units) {
-                if (u.dead || u.garrisoned || u.faction != f) continue
-                val ux = u.x * scaleX; val uy = u.y * scaleY
-                canvas.drawRect(ux - 1.5f, uy - 1.5f, ux + 1.5f, uy + 1.5f, fillPaint)
-            }
-        }
 
         val cam = state.camera
         strokePaint.color = Color.rgb(255, 246, 96)
@@ -1018,6 +980,61 @@ class GameRenderer(private val assets: AssetManager) {
         val right = (cam.x + visibleW / 2f) * scaleX
         val bottom = (cam.y + visibleH / 2f) * scaleY
         canvas.drawRect(left, top, right, bottom, strokePaint)
+    }
+
+
+    private fun getMinimapEntities(state: GameState, w: Int, h: Int): Bitmap? {
+        if (w <= 0 || h <= 0 || state.worldW <= 0f || state.worldH <= 0f) return null
+        val key = "$w:$h:${state.resources.size}:${state.buildings.size}:${state.units.size}:${state.time.toInt()}"
+        if (key == minimapEntitiesKey && minimapEntities?.isRecycled == false && state.time - minimapEntitiesTime < 0.16f) {
+            return minimapEntities
+        }
+        val bitmap = if (minimapEntities?.width == w && minimapEntities?.height == h && minimapEntities?.isRecycled == false) {
+            minimapEntities!!
+        } else {
+            minimapEntities?.recycle()
+            Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888).also { minimapEntities = it }
+        }
+        bitmap.eraseColor(Color.TRANSPARENT)
+        val c = Canvas(bitmap)
+        val sx = w.toFloat() / state.worldW
+        val sy = h.toFloat() / state.worldH
+
+        fillPaint.color = Color.rgb(26, 90, 0)
+        for (r in state.resources) {
+            if (r.dead || r.depleted || r.type != ResourceType.TREE) continue
+            val rx = r.x * sx; val ry = r.y * sy
+            c.drawRect(rx - 1f, ry - 1f, rx + 1f, ry + 1f, fillPaint)
+        }
+        fillPaint.color = Color.rgb(212, 160, 23)
+        for (r in state.resources) {
+            if (r.dead || r.depleted || r.type != ResourceType.GOLD) continue
+            val rx = r.x * sx; val ry = r.y * sy
+            c.drawRect(rx - 1.5f, ry - 1.5f, rx + 1.5f, ry + 1.5f, fillPaint)
+        }
+        fillPaint.color = Color.rgb(204, 102, 51)
+        for (r in state.resources) {
+            if (r.dead || r.depleted || r.type != ResourceType.FOOD) continue
+            val rx = r.x * sx; val ry = r.y * sy
+            c.drawRect(rx - 1f, ry - 1f, rx + 1f, ry + 1f, fillPaint)
+        }
+        for (f in 0..4) {
+            fillPaint.color = FACTIONS.getOrNull(f)?.color ?: Color.BLUE
+            for (b in state.buildings) {
+                if (b.dead || b.faction != f) continue
+                val s = if (b.type == "castle") 4.8f else 3f
+                val bx = b.x * sx; val by = b.y * sy
+                c.drawRect(bx - s, by - s, bx + s, by + s, fillPaint)
+            }
+            for (u in state.units) {
+                if (u.dead || u.garrisoned || u.faction != f) continue
+                val ux = u.x * sx; val uy = u.y * sy
+                c.drawRect(ux - 1.5f, uy - 1.5f, ux + 1.5f, uy + 1.5f, fillPaint)
+            }
+        }
+        minimapEntitiesKey = key
+        minimapEntitiesTime = state.time
+        return bitmap
     }
 
     private fun getMinimapTerrain(state: GameState, w: Int, h: Int): Bitmap? {

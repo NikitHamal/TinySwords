@@ -81,9 +81,33 @@ class AISystem(
             if (f.canAfford(bdef.costWood, bdef.costGold, bdef.costFood)) {
                 val pos = findBuildPosition(f.id, toBuild)
                 if (pos != null) {
-                    economy.placeBuilding(toBuild, f.id, pos.first, pos.second, asFoundation = false)
+                    economy.placeBuilding(toBuild, f.id, pos.first, pos.second, asFoundation = true)?.let { foundation ->
+                        assignBuildersToFoundation(f.id, foundation)
+                    }
                 }
             }
+        }
+    }
+
+
+    private fun assignBuildersToFoundation(factionId: Int, foundation: GameBuilding) {
+        val builders = state.units
+            .asSequence()
+            .filter { !it.dead && !it.garrisoned && it.faction == factionId && it.type == "worker" }
+            .sortedBy { unit ->
+                val idleBias = if (unit.order == UnitOrder.IDLE || unit.workerRole == WorkerRole.BUILD) -800_000f else 0f
+                dist2(unit.x, unit.y, foundation.x, foundation.y) + idleBias
+            }
+            .take(if (foundation.type == "castle") 4 else 2)
+            .toList()
+        for (worker in builders) {
+            worker.order = UnitOrder.REPAIR
+            worker.target = foundation
+            worker.targetId = foundation.id
+            worker.hasGoal = false
+            worker.gatherTimer = 0f
+            worker.workerRole = WorkerRole.BUILD
+            worker.path.clear()
         }
     }
 
