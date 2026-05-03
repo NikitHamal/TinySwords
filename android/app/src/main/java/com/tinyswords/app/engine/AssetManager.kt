@@ -18,6 +18,7 @@ class AssetManager(private val context: Context) {
     private val cache = HashMap<String, Bitmap>(128)
     private val missing = HashSet<String>()
     private val paths = HashMap<String, String>(256)
+    private val opaqueKeys = HashSet<String>()
 
     private val opts = BitmapFactory.Options().apply {
         inScaled = false
@@ -70,8 +71,6 @@ class AssetManager(private val context: Context) {
         paths[key] = path
     }
 
-    private val opaqueKeys = HashSet<String>()
-
     private fun addOpaque(key: String, path: String) {
         paths[key] = path
         opaqueKeys.add(key)
@@ -85,8 +84,8 @@ class AssetManager(private val context: Context) {
             return null
         }
         val useOpaqueOpts = opaqueKeys.contains(key)
-        val opts = if (useOpaqueOpts) optsOpaque else opts
-        val bitmap = loadFromAssets(path, opts)
+        val decodeOpts = if (useOpaqueOpts) optsOpaque else opts
+        val bitmap = loadFromAssets(path, decodeOpts)
         return if (bitmap != null) {
             cache[key] = bitmap
             bitmap
