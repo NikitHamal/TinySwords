@@ -11,6 +11,7 @@ import com.tinyswords.app.util.dist
 import com.tinyswords.app.util.dist2
 import com.tinyswords.app.util.formationOffset
 import kotlin.math.*
+import java.util.ArrayDeque
 
 class GameSimulation(val state: GameState) {
     val pathfinder = Pathfinder(state)
@@ -18,6 +19,17 @@ class GameSimulation(val state: GameState) {
     val economy = EconomySystem(state)
     val ai = AISystem(state, economy, combat, pathfinder)
     val worldGenerator = WorldGenerator(state)
+
+    private data class PathRequest(
+        val unitId: Int,
+        val order: UnitOrder,
+        val targetX: Float,
+        val targetY: Float,
+        val navVersion: Int
+    )
+
+    private val pathRequests = ArrayDeque<PathRequest>()
+    private val queuedPathUnits = HashSet<Int>()
 
     fun initialize() {
         worldGenerator.generate()
@@ -40,6 +52,7 @@ class GameSimulation(val state: GameState) {
         }
 
         // Update all systems
+        processPathRequests()
         updateResources(clampedDt)
         updateUnits(clampedDt)
         economy.updateBuildings(clampedDt)
@@ -203,14 +216,14 @@ class GameSimulation(val state: GameState) {
                 u.target = target
                 u.targetId = target.id
                 u.gatherTimer = 0f
-                u.path.clear()
+                clearUnitPath(u)
             }
             is GameBuilding -> {
                 u.order = UnitOrder.REPAIR
                 u.target = target
                 u.targetId = target.id
                 u.gatherTimer = 0f
-                u.path.clear()
+                clearUnitPath(u)
             }
         }
     }
@@ -554,6 +567,79 @@ class GameSimulation(val state: GameState) {
         state.rebuildEntityIndex()
     }
 
+    private fun processPathRequests() {
+        if (pathRequests.isEmpty()) return
+        val performanceMode = state.settings.safeGraphics() == "performance"
+        var nodesLeft = if (performanceMode) 9000 else 18000
+        var jobsLeft = if (performanceMode) 1 else 2
+        while (pathRequests.isNotEmpty() && jobsLeft > 0 && nodesLeft >= 768) {
+            val request = pathRequests.removeFirst()
+            queuedPathUnits.remove(request.unitId)
+            val unit = state.units.firstOrNull { it.id == request.unitId } ?: continue
+            if (isStalePathRequest(unit, request)) continue
+
+            val result = pathfinder.prepareUnitPathDetailed(unit, request.targetX, request.targetY, maxNodes = nodesLeft)
+            nodesLeft -= result.visitedNodes.coerceAtLeast(if (result.direct) 0 else 1)
+            jobsLeft--
+
+            when {
+                result.direct -> {
+                    clearUnitPath(unit)
+                    unit.pathIndex = 0
+                    unit.pathVersion = state.navVersion
+                    unit.pathRetryTimer = max(unit.pathRetryTimer, 0.18f)
+                }
+                result.path != null -> {
+                    unit.path = result.path.toMutableList()
+                    unit.pathIndex = 0
+                    unit.pathVersion = state.navVersion
+                    unit.pathRetryTimer = 0.22f
+                    unit.stuck = 0f
+                }
+                else -> {
+                    clearUnitPath(unit)
+                    unit.pathIndex = 0
+                    unit.pathRetryTimer = if (result.visitedNodes >= 768 && !result.reachable) 0.32f else 0.90f
+                }
+            }
+        }
+    }
+
+    private fun isStalePathRequest(unit: GameUnit, request: PathRequest): Boolean {
+        if (unit.dead || unit.garrisoned) return true
+        if (unit.order != request.order) return true
+        if (request.navVersion != state.navVersion) return true
+        if (!request.targetX.isFinite() || !request.targetY.isFinite()) return true
+        return false
+    }
+
+    private fun enqueuePathRequest(unit: GameUnit, targetX: Float, targetY: Float) {
+        val existing = pathRequests.firstOrNull { it.unitId == unit.id }
+        if (existing != null && existing.order == unit.order && existing.navVersion == state.navVersion &&
+            dist2(existing.targetX, existing.targetY, targetX, targetY) < 48f * 48f) {
+            return
+        }
+        cancelPathRequest(unit)
+        queuedPathUnits.add(unit.id)
+        pathRequests.addLast(PathRequest(unit.id, unit.order, targetX, targetY, state.navVersion))
+    }
+
+    private fun cancelPathRequest(unit: GameUnit) {
+        if (!queuedPathUnits.remove(unit.id)) return
+        val kept = ArrayDeque<PathRequest>()
+        while (pathRequests.isNotEmpty()) {
+            val request = pathRequests.removeFirst()
+            if (request.unitId != unit.id) kept.addLast(request)
+        }
+        pathRequests.addAll(kept)
+    }
+
+    private fun clearUnitPath(unit: GameUnit) {
+        cancelPathRequest(unit)
+        unit.path.clear()
+        unit.pathIndex = 0
+    }
+
     fun moveToward(unit: GameUnit, targetX: Float, targetY: Float, dt: Float, stopDistance: Float): Boolean {
         val dx = targetX - unit.x
         val dy = targetY - unit.y
@@ -566,29 +652,22 @@ class GameSimulation(val state: GameState) {
 
         unit.pathRetryTimer = max(0f, unit.pathRetryTimer - dt)
 
-        // Use pathfinding only when a direct, sampled segment is blocked. This
-        // mirrors the web game's cheap-path fast path and prevents dozens of A*
-        // searches when the player drags a large army across open ground.
+        // Invalidate path if nav changed
+        if (unit.path.isNotEmpty() && unit.pathVersion != state.navVersion) {
+            clearUnitPath(unit)
+            unit.pathIndex = 0
+            cancelPathRequest(unit)
+        }
+
         if (d > 160f && unit.path.isEmpty() && unit.pathRetryTimer <= 0f) {
             val samples = (d / 96f).toInt().coerceIn(9, 36)
             if (!pathfinder.isSegmentWalkable(unit.x, unit.y, targetX, targetY, samples)) {
-                val path = pathfinder.prepareUnitPath(unit, targetX, targetY)
-                if (path != null) {
-                    unit.path = path.toMutableList()
-                    unit.pathIndex = 0
-                    unit.pathVersion = state.navVersion
-                } else {
-                    unit.pathRetryTimer = 0.90f
-                }
+                enqueuePathRequest(unit, targetX, targetY)
+                unit.pathRetryTimer = 0.12f
             } else {
+                cancelPathRequest(unit)
                 unit.pathRetryTimer = 0.16f
             }
-        }
-
-        // Invalidate path if nav changed
-        if (unit.path.isNotEmpty() && unit.pathVersion != state.navVersion) {
-            unit.path.clear()
-            unit.pathIndex = 0
         }
 
         // Follow path or move directly
@@ -604,7 +683,7 @@ class GameSimulation(val state: GameState) {
             if (wpD < 24f) {
                 unit.pathIndex++
                 if (unit.pathIndex >= unit.path.size) {
-                    unit.path.clear()
+                    clearUnitPath(unit)
                 }
             } else {
                 moveX = wpDx / wpD
@@ -652,7 +731,7 @@ class GameSimulation(val state: GameState) {
         if (unit.stuck > STUCK_TIMEOUT) {
             unit.order = UnitOrder.IDLE
             unit.stuck = 0f
-            unit.path.clear()
+            clearUnitPath(unit)
             return false
         }
 
@@ -679,7 +758,7 @@ class GameSimulation(val state: GameState) {
             u.goalY = targetY + oy
             u.hasGoal = true
             u.attackMove = attackMove
-            u.path.clear()
+            clearUnitPath(u)
             u.pathIndex = 0
             u.pathRetryTimer = (i % 12) * 0.035f
             u.stuck = 0f
@@ -692,7 +771,7 @@ class GameSimulation(val state: GameState) {
             u.order = UnitOrder.ATTACK
             u.target = target
             u.targetId = target.id
-            u.path.clear()
+            clearUnitPath(u)
         }
     }
 
@@ -711,7 +790,7 @@ class GameSimulation(val state: GameState) {
             }
             // Preserve existing cargo; the worker will deposit it first and then
             // continue to the newly requested node instead of deleting resources.
-            u.path.clear()
+            clearUnitPath(u)
         }
     }
 
@@ -723,7 +802,7 @@ class GameSimulation(val state: GameState) {
             u.targetId = building.id
             u.gatherTimer = 0f
             u.hasGoal = false
-            u.path.clear()
+            clearUnitPath(u)
         }
     }
 
@@ -732,7 +811,7 @@ class GameSimulation(val state: GameState) {
             u.order = UnitOrder.IDLE
             u.target = null
             u.hasGoal = false
-            u.path.clear()
+            clearUnitPath(u)
         }
     }
 
@@ -741,7 +820,7 @@ class GameSimulation(val state: GameState) {
             u.hold = !u.hold
             u.order = UnitOrder.IDLE
             u.target = null
-            u.path.clear()
+            clearUnitPath(u)
         }
     }
 

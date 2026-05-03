@@ -1,6 +1,7 @@
 package com.tinyswords.app.engine
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.opengl.GLES20
 import android.opengl.GLUtils
@@ -69,10 +70,7 @@ class GameGlRenderer(private val assets: AssetManager) {
         textures.clear()
         minimapTerrainTexture = 0
         minimapTerrainKey = ""
-        // Warm the always-visible textures on the GL thread so the first frame is not blank.
-        listOf("tileGrass", "tileWarm", "tileAlt", "tileMoss", "tileDeep", "water", "waterFoam", "shadow", "cursorSelect", "cursorAction").forEach {
-            textures.get(it)
-        }
+        textures.buildAtlases()
     }
 
     fun onSurfaceChanged(width: Int, height: Int) {
@@ -775,7 +773,7 @@ class GameGlRenderer(private val assets: AssetManager) {
         val (scx, scy) = worldToScreen(cx, cy)
         val sw = w * zoom
         val sh = h * zoom
-        batch.drawRotatedTexture(tex.id, scx, scy, sw, sh, angle, sx.toFloat() / tex.width, sy.toFloat() / tex.height, (sx + fw).toFloat() / tex.width, (sy + fh).toFloat() / tex.height, alpha)
+        batch.drawRotatedTexture(tex.id, scx, scy, sw, sh, angle, tex.u(sx), tex.v(sy), tex.u(sx + fw), tex.v(sy + fh), alpha)
     }
 
     private fun drawTextureWorld(tex: GlTexture, sx: Int, sy: Int, fw: Int, fh: Int, left: Float, top: Float, right: Float, bottom: Float, alpha: Int, r: Float = 1f, g: Float = 1f, b: Float = 1f, flipX: Boolean = false) {
@@ -783,7 +781,7 @@ class GameGlRenderer(private val assets: AssetManager) {
         val y1 = worldYToScreen(top)
         val x2 = worldXToScreen(right)
         val y2 = worldYToScreen(bottom)
-        batch.drawTexture(tex.id, x1, y1, x2, y2, sx.toFloat() / tex.width, sy.toFloat() / tex.height, (sx + fw).toFloat() / tex.width, (sy + fh).toFloat() / tex.height, alpha, r, g, b, flipX)
+        batch.drawTexture(tex.id, x1, y1, x2, y2, tex.u(sx), tex.v(sy), tex.u(sx + fw), tex.v(sy + fh), alpha, r, g, b, flipX)
     }
 
     private fun drawWorldRect(left: Float, top: Float, right: Float, bottom: Float, r: Int, g: Int, b: Int, a: Int) {
@@ -886,21 +884,148 @@ class GameGlRenderer(private val assets: AssetManager) {
     private fun worldYToScreen(y: Float): Float = (y - camY) * zoom + viewH / 2f
     private fun worldToScreen(x: Float, y: Float): Pair<Float, Float> = Pair(worldXToScreen(x), worldYToScreen(y))
 
-    data class GlTexture(val id: Int, val width: Int, val height: Int)
+    data class GlTexture(
+        val id: Int,
+        val width: Int,
+        val height: Int,
+        val atlasWidth: Int = width,
+        val atlasHeight: Int = height,
+        val atlasX: Int = 0,
+        val atlasY: Int = 0
+    ) {
+        fun u(sourceX: Int): Float = (atlasX + sourceX.coerceIn(0, width)).toFloat() / atlasWidth.toFloat()
+        fun v(sourceY: Int): Float = (atlasY + sourceY.coerceIn(0, height)).toFloat() / atlasHeight.toFloat()
+    }
 
     private class GlTextureCache(private val assets: AssetManager) {
-        private val cache = object : LinkedHashMap<String, GlTexture>(192, 0.75f, true) {
+        private val regions = HashMap<String, GlTexture>(384)
+        private val standalone = object : LinkedHashMap<String, GlTexture>(64, 0.75f, true) {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, GlTexture>?): Boolean {
-                val remove = size > 220
+                val remove = size > 96
                 if (remove) eldest?.value?.let { GLES20.glDeleteTextures(1, intArrayOf(it.id), 0) }
                 return remove
             }
         }
+        private val atlasTextureIds = ArrayList<Int>(8)
+        private var atlasesReady = false
+
+        fun buildAtlases() {
+            clear()
+            val maxTexture = IntArray(1)
+            GLES20.glGetIntegerv(GLES20.GL_MAX_TEXTURE_SIZE, maxTexture, 0)
+            val pageSize = maxTexture[0].coerceAtLeast(2048).coerceAtMost(4096)
+            val sourceByPath = LinkedHashMap<String, AtlasSource>(384)
+            for (key in assets.registeredKeys()) {
+                val path = assets.pathForKey(key) ?: continue
+                val existing = sourceByPath[path]
+                if (existing != null) {
+                    existing.keys.add(key)
+                } else {
+                    val bounds = assets.textureBounds(key) ?: continue
+                    sourceByPath[path] = AtlasSource(path, bounds.first, bounds.second, ArrayList<String>(2).also { it.add(key) })
+                }
+            }
+            val sources = sourceByPath.values.sortedWith(compareByDescending<AtlasSource> { it.height }.thenByDescending { it.width })
+            var page = AtlasPage(pageSize, assets)
+            val oversize = ArrayList<AtlasSource>()
+
+            fun flushPage() {
+                if (page.isEmpty()) return
+                uploadAtlasPage(page)
+                page.dispose()
+                page = AtlasPage(pageSize, assets)
+            }
+
+            for (src in sources) {
+                val w = src.width
+                val h = src.height
+                if (w + AtlasPage.PADDING * 2 > pageSize || h + AtlasPage.PADDING * 2 > pageSize) {
+                    oversize.add(src)
+                    continue
+                }
+                if (!page.place(src)) {
+                    flushPage()
+                    if (!page.place(src)) {
+                        oversize.add(src)
+                    }
+                }
+            }
+            flushPage()
+            for (src in oversize) uploadStandaloneSource(src)
+            assets.releaseDecodedBitmaps()
+            atlasesReady = true
+        }
 
         fun get(key: String): GlTexture? {
-            cache[key]?.let { return it }
-            val bitmap = assets.get(key) ?: return null
-            if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return null
+            regions[key]?.let { return it }
+            standalone[key]?.let { return it }
+            if (!atlasesReady) buildAtlases()
+            regions[key]?.let { return it }
+            val bitmap = assets.decodeForTexture(key) ?: return null
+            if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) {
+                bitmap.recycleSafely()
+                return null
+            }
+            val tex = uploadSingleBitmap(bitmap)
+            bitmap.recycleSafely()
+            standalone[key] = tex
+            return tex
+        }
+
+        fun clear() {
+            if (atlasTextureIds.isNotEmpty()) {
+                val ids = atlasTextureIds.toIntArray()
+                GLES20.glDeleteTextures(ids.size, ids, 0)
+                atlasTextureIds.clear()
+            }
+            if (standalone.isNotEmpty()) {
+                val ids = IntArray(standalone.size)
+                var i = 0
+                for (tex in standalone.values) ids[i++] = tex.id
+                GLES20.glDeleteTextures(ids.size, ids, 0)
+                standalone.clear()
+            }
+            regions.clear()
+            atlasesReady = false
+        }
+
+        private fun uploadAtlasPage(page: AtlasPage) {
+            val textureId = uploadBitmap(page.bitmap)
+            atlasTextureIds.add(textureId)
+            for (placement in page.placements) {
+                val src = placement.source
+                for (key in src.keys) {
+                    regions[key] = GlTexture(
+                        id = textureId,
+                        width = src.width,
+                        height = src.height,
+                        atlasWidth = page.size,
+                        atlasHeight = page.size,
+                        atlasX = placement.x,
+                        atlasY = placement.y
+                    )
+                }
+            }
+        }
+
+        private fun uploadStandaloneSource(src: AtlasSource) {
+            val key = src.keys.firstOrNull() ?: return
+            val bitmap = assets.decodeForTexture(key) ?: return
+            if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) {
+                bitmap.recycleSafely()
+                return
+            }
+            val tex = uploadSingleBitmap(bitmap)
+            bitmap.recycleSafely()
+            for (alias in src.keys) standalone[alias] = tex
+        }
+
+        private fun uploadSingleBitmap(bitmap: Bitmap): GlTexture {
+            val textureId = uploadBitmap(bitmap)
+            return GlTexture(textureId, bitmap.width, bitmap.height)
+        }
+
+        private fun uploadBitmap(bitmap: Bitmap): Int {
             val ids = IntArray(1)
             GLES20.glGenTextures(1, ids, 0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
@@ -909,19 +1034,74 @@ class GameGlRenderer(private val assets: AssetManager) {
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
             GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bitmap, 0)
-            val tex = GlTexture(ids[0], bitmap.width, bitmap.height)
-            cache[key] = tex
-            return tex
+            return ids[0]
         }
 
-        fun clear() {
-            if (cache.isNotEmpty()) {
-                val ids = IntArray(cache.size)
-                var i = 0
-                for (tex in cache.values) ids[i++] = tex.id
-                GLES20.glDeleteTextures(ids.size, ids, 0)
-                cache.clear()
+        private data class AtlasSource(val path: String, val width: Int, val height: Int, val keys: ArrayList<String>)
+
+        private data class AtlasPlacement(val source: AtlasSource, val x: Int, val y: Int)
+
+        private class AtlasPage(val size: Int, private val assets: AssetManager) {
+            val bitmap: Bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            private val canvas = Canvas(bitmap)
+            val placements = ArrayList<AtlasPlacement>(128)
+            private var rowX = PADDING
+            private var rowY = PADDING
+            private var rowH = 0
+
+            fun isEmpty(): Boolean = placements.isEmpty()
+
+            fun place(source: AtlasSource): Boolean {
+                val w = source.width
+                val h = source.height
+                if (rowX + w + PADDING > size) {
+                    rowX = PADDING
+                    rowY += rowH + PADDING
+                    rowH = 0
+                }
+                if (rowY + h + PADDING > size) return false
+                val key = source.keys.firstOrNull() ?: return false
+                val sourceBitmap = assets.decodeForTexture(key) ?: return false
+                if (sourceBitmap.isRecycled || sourceBitmap.width <= 0 || sourceBitmap.height <= 0) {
+                    sourceBitmap.recycleSafely()
+                    return false
+                }
+                val x = rowX
+                val y = rowY
+                canvas.drawBitmap(sourceBitmap, x.toFloat(), y.toFloat(), null)
+                duplicateEdges(sourceBitmap, x, y)
+                sourceBitmap.recycleSafely()
+                placements.add(AtlasPlacement(source, x, y))
+                rowX += w + PADDING
+                rowH = max(rowH, h)
+                return true
             }
+
+            private fun duplicateEdges(src: Bitmap, x: Int, y: Int) {
+                val w = src.width
+                val h = src.height
+                if (x <= 0 || y <= 0 || x + w >= size || y + h >= size) return
+                for (ix in 0 until w) {
+                    bitmap.setPixel(x + ix, y - 1, src.getPixel(ix, 0))
+                    bitmap.setPixel(x + ix, y + h, src.getPixel(ix, h - 1))
+                }
+                for (iy in 0 until h) {
+                    bitmap.setPixel(x - 1, y + iy, src.getPixel(0, iy))
+                    bitmap.setPixel(x + w, y + iy, src.getPixel(w - 1, iy))
+                }
+                bitmap.setPixel(x - 1, y - 1, src.getPixel(0, 0))
+                bitmap.setPixel(x + w, y - 1, src.getPixel(w - 1, 0))
+                bitmap.setPixel(x - 1, y + h, src.getPixel(0, h - 1))
+                bitmap.setPixel(x + w, y + h, src.getPixel(w - 1, h - 1))
+            }
+
+            fun dispose() = bitmap.recycleSafely()
+
+            companion object { const val PADDING = 2 }
+        }
+
+        private fun Bitmap.recycleSafely() {
+            if (!isRecycled) recycle()
         }
     }
 

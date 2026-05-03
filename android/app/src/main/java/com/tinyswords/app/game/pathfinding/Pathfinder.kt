@@ -4,121 +4,126 @@ import com.tinyswords.app.game.*
 import com.tinyswords.app.game.entities.GameUnit
 import com.tinyswords.app.game.entities.PathPoint
 import com.tinyswords.app.util.dist
-import java.util.*
 import kotlin.math.*
 
 class Pathfinder(private val state: GameState) {
 
-    private data class Node(
-        val col: Int, val row: Int,
-        var g: Int = Int.MAX_VALUE,
-        var f: Int = Int.MAX_VALUE,
-        var parentCol: Int = -1, var parentRow: Int = -1,
-        var open: Boolean = false, var closed: Boolean = false
+    data class PathSearchResult(
+        val path: List<PathPoint>?,
+        val visitedNodes: Int,
+        val direct: Boolean,
+        val reachable: Boolean
     )
 
     private val dx = intArrayOf(1, -1, 0, 0, 1, 1, -1, -1)
     private val dy = intArrayOf(0, 0, 1, -1, 1, -1, 1, -1)
-    private val cost = intArrayOf(10, 10, 10, 10, 14, 14, 14, 14)
+    private val moveCost = intArrayOf(10, 10, 10, 10, 14, 14, 14, 14)
+
+    private var cachedCols = 0
+    private var cachedRows = 0
+    private var searchStamp = 1
+    private var gScore = IntArray(0)
+    private var parent = IntArray(0)
+    private var touched = IntArray(0)
+    private var closed = IntArray(0)
+    private val heap = IntMinHeap()
 
     fun findPath(startX: Float, startY: Float, goalX: Float, goalY: Float, maxNodes: Int = 32000): List<PathPoint>? {
+        return findPathDetailed(startX, startY, goalX, goalY, maxNodes).path
+    }
+
+    fun findPathDetailed(startX: Float, startY: Float, goalX: Float, goalY: Float, maxNodes: Int = 32000): PathSearchResult {
         val pc = state.pathCols
         val pr = state.pathRows
+        if (pc <= 0 || pr <= 0 || state.pathGrid.isEmpty()) return PathSearchResult(null, 0, direct = false, reachable = false)
+        ensureGrid(pc, pr)
+        beginSearch()
 
         var sc = (startX / PATH_CELL).toInt().coerceIn(0, pc - 1)
         var sr = (startY / PATH_CELL).toInt().coerceIn(0, pr - 1)
         var gc = (goalX / PATH_CELL).toInt().coerceIn(0, pc - 1)
         var gr = (goalY / PATH_CELL).toInt().coerceIn(0, pr - 1)
 
-        // Snap to nearest walkable cell if blocked
-        val snappedStart = snapToWalkable(sc, sr, 10) ?: return null
+        val snappedStart = snapToWalkable(sc, sr, 10) ?: return PathSearchResult(null, 0, direct = false, reachable = false)
         sc = snappedStart.first
         sr = snappedStart.second
         val snappedGoal = snapToWalkable(gc, gr, 24)
-        if (snappedGoal != null) { gc = snappedGoal.first; gr = snappedGoal.second }
+        if (snappedGoal != null) {
+            gc = snappedGoal.first
+            gr = snappedGoal.second
+        }
 
-        if (sc == gc && sr == gr) return listOf(PathPoint(goalX, goalY))
+        val startIdx = sr * pc + sc
+        val goalIdx = gr * pc + gc
+        if (startIdx == goalIdx) return PathSearchResult(listOf(PathPoint(goalX, goalY)), 0, direct = false, reachable = true)
 
-        val nodes = HashMap<Long, Node>(maxNodes / 2)
-        val openSet = PriorityQueue<Node>(256, compareBy { it.f })
-
-        fun key(c: Int, r: Int): Long = (c.toLong() shl 32) or (r.toLong() and 0xFFFFFFFFL)
-        fun getNode(c: Int, r: Int): Node = nodes.getOrPut(key(c, r)) { Node(c, r) }
-
-        val startNode = getNode(sc, sr)
-        startNode.g = 0
-        startNode.f = heuristic(sc, sr, gc, gr)
-        startNode.open = true
-        openSet.add(startNode)
+        setG(startIdx, 0)
+        parent[startIdx] = -1
+        heap.clear()
+        heap.push(startIdx, octileDistanceCost(sc, sr, gc, gr))
 
         var visited = 0
-
-        while (openSet.isNotEmpty() && visited < maxNodes) {
-            val current = openSet.poll()!!
-            if (current.closed) continue
-            current.closed = true
-            current.open = false
+        val nodeLimit = maxNodes.coerceAtLeast(1)
+        while (!heap.isEmpty() && visited < nodeLimit) {
+            val current = heap.pop()
+            if (closed[current] == searchStamp) continue
+            closed[current] = searchStamp
             visited++
 
-            if (current.col == gc && current.row == gr) {
-                return reconstructPath(nodes, current, goalX, goalY)
+            if (current == goalIdx) {
+                return PathSearchResult(reconstructPath(current, goalX, goalY), visited, direct = false, reachable = true)
             }
 
+            val cc = current % pc
+            val cr = current / pc
+            val currentG = getG(current)
             for (i in 0..7) {
-                val nc = current.col + dx[i]
-                val nr = current.row + dy[i]
-
+                val nc = cc + dx[i]
+                val nr = cr + dy[i]
                 if (nc < 0 || nc >= pc || nr < 0 || nr >= pr) continue
-                if (state.pathGrid[nr * pc + nc].toInt() != 0) continue
+                val nIdx = nr * pc + nc
+                if (state.pathGrid[nIdx].toInt() != 0) continue
+                if (closed[nIdx] == searchStamp) continue
 
-                // Diagonal: check adjacent cells
                 if (i >= 4) {
-                    val c1 = current.col + dx[i]
-                    val c2 = current.col
-                    val r1 = current.row
-                    val r2 = current.row + dy[i]
-                    if (c1 in 0 until pc && r1 in 0 until pr && state.pathGrid[r1 * pc + c1].toInt() != 0) continue
-                    if (c2 in 0 until pc && r2 in 0 until pr && state.pathGrid[r2 * pc + c2].toInt() != 0) continue
+                    val sideA = cr * pc + nc
+                    val sideB = nr * pc + cc
+                    if (state.pathGrid[sideA].toInt() != 0 || state.pathGrid[sideB].toInt() != 0) continue
                 }
 
-                val neighbor = getNode(nc, nr)
-                if (neighbor.closed) continue
-
-                val newG = current.g + cost[i]
-                if (newG < neighbor.g) {
-                    neighbor.g = newG
-                    neighbor.f = newG + heuristic(nc, nr, gc, gr)
-                    neighbor.parentCol = current.col
-                    neighbor.parentRow = current.row
-                    if (!neighbor.open) {
-                        neighbor.open = true
-                        openSet.add(neighbor)
-                    }
+                val candidateG = currentG + moveCost[i]
+                if (touched[nIdx] != searchStamp || candidateG < gScore[nIdx]) {
+                    setG(nIdx, candidateG)
+                    parent[nIdx] = current
+                    heap.push(nIdx, candidateG + octileDistanceCost(nc, nr, gc, gr))
                 }
             }
         }
 
-        return null // No path found
+        return PathSearchResult(null, visited, direct = false, reachable = false)
     }
 
     fun prepareUnitPath(unit: GameUnit, targetX: Float, targetY: Float): List<PathPoint>? {
-        val d = dist(unit.x, unit.y, targetX, targetY)
+        return prepareUnitPathDetailed(unit, targetX, targetY).path
+    }
 
-        // Direct line fast path. Most Tiny Swords movement is across open grass;
-        // avoid A* unless sampled terrain/building obstacles actually block the ray.
+    fun prepareUnitPathDetailed(unit: GameUnit, targetX: Float, targetY: Float, maxNodes: Int = 9000): PathSearchResult {
+        val d = dist(unit.x, unit.y, targetX, targetY)
         val samples = (d / 96f).toInt().coerceIn(9, 36)
         if (isSegmentWalkable(unit.x, unit.y, targetX, targetY, samples)) {
-            return null // Move directly
+            return PathSearchResult(null, 0, direct = true, reachable = true)
         }
 
-        val budget = if (d > 2600f) 9000 else 6000
-        val path = findPath(unit.x, unit.y, targetX, targetY, maxNodes = budget) ?: return null
-
-        // Smooth path
-        return smoothPath(path)
+        val distanceBudget = if (d > 2600f) 9000 else 6000
+        val result = findPathDetailed(unit.x, unit.y, targetX, targetY, maxNodes = min(maxNodes, distanceBudget))
+        val rawPath = result.path ?: return result
+        return result.copy(path = smoothPath(rawPath))
     }
 
     fun isSegmentWalkable(ax: Float, ay: Float, bx: Float, by: Float, samples: Int = 9): Boolean {
+        val pc = state.pathCols
+        val pr = state.pathRows
+        if (pc <= 0 || pr <= 0 || state.pathGrid.isEmpty()) return false
         for (i in 0..samples) {
             val t = i.toFloat() / samples
             val px = ax + (bx - ax) * t
@@ -126,76 +131,148 @@ class Pathfinder(private val state: GameState) {
             if (state.isWater(px, py)) return false
             val col = (px / PATH_CELL).toInt()
             val row = (py / PATH_CELL).toInt()
-            if (col in 0 until state.pathCols && row in 0 until state.pathRows) {
-                if (state.pathGrid[row * state.pathCols + col].toInt() != 0) return false
-            }
+            if (col in 0 until pc && row in 0 until pr) {
+                if (state.pathGrid[row * pc + col].toInt() != 0) return false
+            } else return false
         }
         return true
     }
 
-    private fun heuristic(ac: Int, ar: Int, bc: Int, br: Int): Int {
-        val dx = abs(bc - ac)
-        val dy = abs(br - ar)
-        return max(dx, dy) * 10 + min(dx, dy) * 4
+    private fun ensureGrid(pc: Int, pr: Int) {
+        val total = pc * pr
+        if (pc == cachedCols && pr == cachedRows && gScore.size == total) return
+        cachedCols = pc
+        cachedRows = pr
+        gScore = IntArray(total)
+        parent = IntArray(total)
+        touched = IntArray(total)
+        closed = IntArray(total)
+        heap.ensureCapacity(total.coerceAtMost(32768))
+        searchStamp = 1
+    }
+
+    private fun beginSearch() {
+        searchStamp++
+        if (searchStamp == Int.MAX_VALUE) {
+            touched.fill(0)
+            closed.fill(0)
+            searchStamp = 1
+        }
+    }
+
+    private fun setG(index: Int, value: Int) {
+        touched[index] = searchStamp
+        gScore[index] = value
+    }
+
+    private fun getG(index: Int): Int = if (touched[index] == searchStamp) gScore[index] else Int.MAX_VALUE / 4
+
+    private fun octileDistanceCost(ac: Int, ar: Int, bc: Int, br: Int): Int {
+        val hx = abs(bc - ac)
+        val hy = abs(br - ar)
+        return max(hx, hy) * 10 + min(hx, hy) * 4
     }
 
     private fun snapToWalkable(col: Int, row: Int, maxDist: Int): Pair<Int, Int>? {
         val pc = state.pathCols
         val pr = state.pathRows
-        if (col in 0 until pc && row in 0 until pr && state.pathGrid[row * pc + col].toInt() == 0) {
-            return Pair(col, row)
-        }
+        if (col in 0 until pc && row in 0 until pr && state.pathGrid[row * pc + col].toInt() == 0) return Pair(col, row)
         for (r in 1..maxDist) {
             for (dr in -r..r) for (dc in -r..r) {
                 if (abs(dr) != r && abs(dc) != r) continue
                 val nc = col + dc
                 val nr = row + dr
-                if (nc in 0 until pc && nr in 0 until pr && state.pathGrid[nr * pc + nc].toInt() == 0) {
-                    return Pair(nc, nr)
-                }
+                if (nc in 0 until pc && nr in 0 until pr && state.pathGrid[nr * pc + nc].toInt() == 0) return Pair(nc, nr)
             }
         }
         return null
     }
 
-    private fun reconstructPath(nodes: Map<Long, Node>, end: Node, goalX: Float, goalY: Float): List<PathPoint> {
-        val result = mutableListOf<PathPoint>()
-        var current: Node? = end
-        fun key(c: Int, r: Int): Long = (c.toLong() shl 32) or (r.toLong() and 0xFFFFFFFFL)
-
-        while (current != null && result.size < 128) {
-            result.add(PathPoint(
-                (current.col + 0.5f) * PATH_CELL,
-                (current.row + 0.5f) * PATH_CELL
-            ))
-            if (current.parentCol < 0) break
-            current = nodes[key(current.parentCol, current.parentRow)]
+    private fun reconstructPath(goalIndex: Int, goalX: Float, goalY: Float): List<PathPoint> {
+        val pc = cachedCols
+        val result = ArrayList<PathPoint>(96)
+        var current = goalIndex
+        var guard = 0
+        while (current >= 0 && guard < 256) {
+            val c = current % pc
+            val r = current / pc
+            result.add(PathPoint((c + 0.5f) * PATH_CELL, (r + 0.5f) * PATH_CELL))
+            current = parent[current]
+            guard++
         }
-
         result.reverse()
-
-        // Replace last point with exact goal
-        if (result.isNotEmpty()) {
-            result[result.lastIndex] = PathPoint(goalX, goalY)
-        }
-
+        if (result.isNotEmpty()) result[result.lastIndex] = PathPoint(goalX, goalY)
         return result
     }
 
     private fun smoothPath(path: List<PathPoint>): List<PathPoint> {
         if (path.size <= 2) return path
-        val smoothed = mutableListOf(path[0])
+        val smoothed = ArrayList<PathPoint>(path.size)
+        smoothed.add(path[0])
         var i = 0
         while (i < path.size - 1) {
             var furthest = i + 1
             for (j in i + 2 until path.size) {
-                if (isSegmentWalkable(path[i].x, path[i].y, path[j].x, path[j].y)) {
-                    furthest = j
-                } else break
+                if (isSegmentWalkable(path[i].x, path[i].y, path[j].x, path[j].y)) furthest = j else break
             }
             smoothed.add(path[furthest])
             i = furthest
         }
         return smoothed
+    }
+
+    private class IntMinHeap(initialCapacity: Int = 256) {
+        private var nodes = IntArray(initialCapacity)
+        private var priorities = IntArray(initialCapacity)
+        private var size = 0
+
+        fun ensureCapacity(capacity: Int) {
+            if (nodes.size >= capacity) return
+            var newCap = nodes.size
+            while (newCap < capacity) newCap *= 2
+            nodes = nodes.copyOf(newCap)
+            priorities = priorities.copyOf(newCap)
+        }
+
+        fun clear() { size = 0 }
+        fun isEmpty(): Boolean = size == 0
+
+        fun push(node: Int, priority: Int) {
+            if (size >= nodes.size) {
+                nodes = nodes.copyOf(nodes.size * 2)
+                priorities = priorities.copyOf(priorities.size * 2)
+            }
+            var i = size++
+            while (i > 0) {
+                val parentIndex = (i - 1) ushr 1
+                if (priorities[parentIndex] <= priority) break
+                nodes[i] = nodes[parentIndex]
+                priorities[i] = priorities[parentIndex]
+                i = parentIndex
+            }
+            nodes[i] = node
+            priorities[i] = priority
+        }
+
+        fun pop(): Int {
+            val result = nodes[0]
+            val lastNode = nodes[--size]
+            val lastPriority = priorities[size]
+            var i = 0
+            while (true) {
+                val left = i * 2 + 1
+                if (left >= size) break
+                val right = left + 1
+                var child = left
+                if (right < size && priorities[right] < priorities[left]) child = right
+                if (priorities[child] >= lastPriority) break
+                nodes[i] = nodes[child]
+                priorities[i] = priorities[child]
+                i = child
+            }
+            nodes[i] = lastNode
+            priorities[i] = lastPriority
+            return result
+        }
     }
 }

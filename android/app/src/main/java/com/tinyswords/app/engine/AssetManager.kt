@@ -95,6 +95,36 @@ class AssetManager(private val context: Context) {
         }
     }
 
+    fun registeredKeys(): List<String> = paths.keys.toList()
+
+    fun pathForKey(key: String): String? = paths[key]
+
+    fun decodeForTexture(key: String): Bitmap? {
+        val path = paths[key] ?: return null
+        val decodeOpts = if (opaqueKeys.contains(key)) optsOpaque else opts
+        return loadFromAssets(path, decodeOpts)
+    }
+
+    fun textureBounds(key: String): Pair<Int, Int>? {
+        val path = paths[key] ?: return null
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            context.assets.open(path).use { stream -> BitmapFactory.decodeStream(stream, null, bounds) }
+            if (bounds.outWidth > 0 && bounds.outHeight > 0) Pair(bounds.outWidth, bounds.outHeight) else null
+        } catch (_: IOException) {
+            null
+        } catch (_: RuntimeException) {
+            null
+        }
+    }
+
+    fun releaseDecodedBitmaps() {
+        for ((_, bitmap) in cache) {
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
+        cache.clear()
+    }
+
     private fun registerTerrain() {
         val tileDir = "Tiny Swords (Free Pack)/Terrain/Tileset"
         addOpaque("tileGrass", "$tileDir/Tilemap_color1.png")

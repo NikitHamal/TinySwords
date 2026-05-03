@@ -618,7 +618,7 @@ class GameView @JvmOverloads constructor(
         val released = CountDownLatch(1)
         try {
             queueEvent {
-                try { glRenderer.destroy() } finally { released.countDown() }
+                try { renderer.destroy() } finally { released.countDown() }
             }
             released.await(350, TimeUnit.MILLISECONDS)
         } catch (_: Throwable) {
