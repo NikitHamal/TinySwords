@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.sp
 import com.tinyswords.app.MainActivity
 import com.tinyswords.app.data.CrashHandler
 import com.tinyswords.app.ui.theme.GameColors
+import com.tinyswords.app.ui.theme.GameTypography
 
 @Composable
 fun CrashScreen(crashTrace: String) {
