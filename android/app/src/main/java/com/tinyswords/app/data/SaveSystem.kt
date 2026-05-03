@@ -246,10 +246,9 @@ class SaveSystem(context: Context) {
         state.camera.targetZoom = payload.cameraZoom
         state.formationMode = payload.formationMode
 
-        // Apply saved settings if present, preserving graphics mode
-        if (payload.settings != null) {
-            state.settings = payload.settings.copy(graphics = payload.settings.graphics ?: "balanced")
-        }
+        // Graphics mode is already set from WorldSettings passed at construction.
+        // Gson may leave payload.settings.graphics null for old saves; safeGraphics()
+        // handles this by defaulting to "balanced".
 
         // Factions
         for (fs in payload.factions) {
