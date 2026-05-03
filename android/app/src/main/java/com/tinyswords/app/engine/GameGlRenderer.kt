@@ -1063,14 +1063,14 @@ class GameGlRenderer(private val assets: AssetManager) {
                 val key = source.keys.firstOrNull() ?: return false
                 val sourceBitmap = assets.decodeForTexture(key) ?: return false
                 if (sourceBitmap.isRecycled || sourceBitmap.width <= 0 || sourceBitmap.height <= 0) {
-                    sourceBitmap.recycleSafely()
+                    recycleBitmap(sourceBitmap)
                     return false
                 }
                 val x = rowX
                 val y = rowY
                 canvas.drawBitmap(sourceBitmap, x.toFloat(), y.toFloat(), null)
                 duplicateEdges(sourceBitmap, x, y)
-                sourceBitmap.recycleSafely()
+                recycleBitmap(sourceBitmap)
                 placements.add(AtlasPlacement(source, x, y))
                 rowX += w + PADDING
                 rowH = max(rowH, h)
@@ -1095,7 +1095,11 @@ class GameGlRenderer(private val assets: AssetManager) {
                 bitmap.setPixel(x + w, y + h, src.getPixel(w - 1, h - 1))
             }
 
-            fun dispose() = bitmap.recycleSafely()
+            fun dispose() = recycleBitmap(bitmap)
+
+            private fun recycleBitmap(value: Bitmap) {
+                if (!value.isRecycled) value.recycle()
+            }
 
             companion object { const val PADDING = 2 }
         }
