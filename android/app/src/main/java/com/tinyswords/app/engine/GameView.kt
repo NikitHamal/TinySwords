@@ -1,42 +1,47 @@
 package com.tinyswords.app.engine
 
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.PixelFormat
+import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.util.AttributeSet
 import android.util.Log
 import android.view.MotionEvent
-import android.view.SurfaceHolder
-import android.view.SurfaceView
 import com.tinyswords.app.game.*
 import com.tinyswords.app.game.entities.*
 import com.tinyswords.app.util.dist2
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import javax.microedition.khronos.egl.EGLConfig
+import javax.microedition.khronos.opengles.GL10
 import kotlin.math.*
 
-class GameView(
+/**
+ * Android battlefield host backed by OpenGL ES instead of Canvas.
+ *
+ * The view owns input, command dispatch and the fixed-step simulation loop;
+ * GameGlRenderer owns only GPU resources and drawing. Keeping those boundaries
+ * makes lifecycle recovery and future native/C++ migration much safer.
+ */
+class GameView @JvmOverloads constructor(
     context: Context,
     private val simulation: GameSimulation,
-    private val renderer: GameRenderer,
+    private val renderer: GameGlRenderer,
     private val onSelectionChanged: () -> Unit,
-    private val onGameOver: (winner: Int) -> Unit
-) : SurfaceView(context), SurfaceHolder.Callback, Runnable {
+    private val onGameOver: (winner: Int) -> Unit,
+    attrs: AttributeSet? = null
+) : GLSurfaceView(context, attrs) {
 
-    private var gameThread: Thread? = null
-    @Volatile private var running = false
-    private var lastFrameTime: Long = 0L
-    private var gameOverFired = false
     private val commandQueue = ConcurrentLinkedQueue<() -> Unit>()
+    private val glRenderer = LoopRenderer()
+    private var lastFrameTime: Long = 0L
     private var fixedStepAccumulator = 0f
-    private val minimapBgPaint = android.graphics.Paint().apply { color = android.graphics.Color.argb(210, 18, 35, 42) }
-    private val minimapBorderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-        color = android.graphics.Color.argb(210, 170, 137, 96)
-        style = android.graphics.Paint.Style.STROKE
-        strokeWidth = 2.3f
-    }
+    private var gameOverFired = false
+    private var surfaceW = 1f
+    private var surfaceH = 1f
 
     private var primaryPointerId = -1
     private var touchStartX = 0f
@@ -75,51 +80,41 @@ class GameView(
     val state get() = simulation.state
 
     init {
-        holder.addCallback(this)
-        holder.setFormat(PixelFormat.OPAQUE)
+        setEGLContextClientVersion(2)
+        setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+        setPreserveEGLContextOnPause(true)
+        setRenderer(glRenderer)
+        renderMode = RENDERMODE_CONTINUOUSLY
         isFocusable = true
         isClickable = true
         keepScreenOn = true
     }
 
-    override fun surfaceCreated(holder: SurfaceHolder) {
-        if (running) return
-        running = true
-        lastFrameTime = System.nanoTime()
-        gameThread = Thread(this, "TinySwordsGameLoop").also { it.start() }
-    }
+    private inner class LoopRenderer : GLSurfaceView.Renderer {
+        override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+            lastFrameTime = System.nanoTime()
+            fixedStepAccumulator = 0f
+            renderer.onSurfaceCreated()
+        }
 
-    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
-        synchronized(state) { clampCamera(width.toFloat(), height.toFloat()) }
-    }
+        override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+            surfaceW = width.coerceAtLeast(1).toFloat()
+            surfaceH = height.coerceAtLeast(1).toFloat()
+            renderer.onSurfaceChanged(width, height)
+            synchronized(state) { clampCamera(surfaceW, surfaceH) }
+        }
 
-    override fun surfaceDestroyed(holder: SurfaceHolder) {
-        running = false
-        try { gameThread?.join(600) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
-        gameThread = null
-    }
-
-    override fun run() {
-        val targetFrameNs = 16_666_667L
-        val fixedStep = 1f / 60f
-        val maxStepsPerFrame = 4
-
-        while (running) {
+        override fun onDrawFrame(gl: GL10?) {
             val frameStart = System.nanoTime()
             val rawDt = ((frameStart - lastFrameTime) / 1_000_000_000f).coerceIn(0.001f, 0.10f)
             lastFrameTime = frameStart
+            val fixedStep = 1f / 60f
+            val maxStepsPerFrame = 4
             fixedStepAccumulator = (fixedStepAccumulator + rawDt).coerceAtMost(fixedStep * maxStepsPerFrame)
 
-            var canvas: Canvas? = null
             try {
-                canvas = lockCanvasFast()
-                if (canvas == null) {
-                    Thread.sleep(4)
-                    continue
-                }
                 synchronized(state) {
                     drainCommands()
-
                     var steps = 0
                     while (fixedStepAccumulator >= fixedStep && steps < maxStepsPerFrame) {
                         simulation.update(fixedStep)
@@ -134,42 +129,12 @@ class GameView(
                         gameOverFired = true
                         post { onGameOver(state.winnerFaction) }
                     }
-                    val viewW = canvas.width.toFloat()
-                    val viewH = canvas.height.toFloat()
-                    clampCamera(viewW, viewH)
-                    renderer.render(canvas, state, viewW, viewH)
-                    drawMinimapOverlay(canvas, viewW, viewH)
+                    clampCamera(surfaceW, surfaceH)
+                    renderer.render(state, minimapExpanded)
                 }
             } catch (t: Throwable) {
-                Log.e("TinySwords", "Game loop error", t)
-                try { Thread.sleep(80) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
-            } finally {
-                if (canvas != null) {
-                    try { holder.unlockCanvasAndPost(canvas) } catch (_: Throwable) { }
-                }
+                Log.e("TinySwords", "OpenGL game loop error", t)
             }
-
-            val elapsedNs = System.nanoTime() - frameStart
-            val remainingNs = targetFrameNs - elapsedNs
-            if (remainingNs > 1_200_000L) {
-                val sleepMs = remainingNs / 1_000_000L
-                val sleepNs = (remainingNs % 1_000_000L).toInt()
-                try { Thread.sleep(sleepMs, sleepNs) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
-            } else if (remainingNs > 0L) {
-                Thread.yield()
-            }
-        }
-    }
-
-    private fun lockCanvasFast(): Canvas? {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            try {
-                holder.lockHardwareCanvas()
-            } catch (_: Throwable) {
-                holder.lockCanvas()
-            }
-        } else {
-            holder.lockCanvas()
         }
     }
 
@@ -182,6 +147,7 @@ class GameView(
 
     fun runCommand(action: () -> Unit) {
         commandQueue.add(action)
+        requestRender()
     }
 
     private data class MiniRect(val x: Float, val y: Float, val w: Float, val h: Float)
@@ -190,19 +156,6 @@ class GameView(
         val w = if (minimapExpanded) (viewW * 0.30f).coerceIn(220f, 340f) else (viewW * 0.18f).coerceIn(150f, 220f)
         val h = (w * 0.68f).coerceIn(96f, if (minimapExpanded) 230f else 150f)
         return MiniRect(viewW - w - 12f, 12f, w, h)
-    }
-
-    private fun drawMinimapOverlay(canvas: Canvas, viewW: Float, viewH: Float) {
-        val r = minimapRect(viewW, viewH)
-        canvas.save()
-        canvas.translate(r.x, r.y)
-        canvas.clipRect(0f, 0f, r.w, r.h)
-
-        canvas.drawRoundRect(0f, 0f, r.w, r.h, 8f, 8f, minimapBgPaint)
-        renderer.renderMinimap(canvas, state, r.w, r.h, viewW, viewH)
-
-        canvas.drawRoundRect(1f, 1f, r.w - 1f, r.h - 1f, 8f, 8f, minimapBorderPaint)
-        canvas.restore()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -662,7 +615,19 @@ class GameView(
     fun resume() { runCommand { state.paused = false } }
 
     fun destroy() {
-        running = false
-        try { gameThread?.join(600) } catch (_: InterruptedException) { Thread.currentThread().interrupt() }
+        val released = CountDownLatch(1)
+        try {
+            queueEvent {
+                try { glRenderer.destroy() } finally { released.countDown() }
+            }
+            released.await(350, TimeUnit.MILLISECONDS)
+        } catch (_: Throwable) {
+            released.countDown()
+        }
+        try {
+            onPause()
+        } catch (_: Throwable) {
+            // Surface may already be detached; safe to ignore during Compose disposal.
+        }
     }
 }

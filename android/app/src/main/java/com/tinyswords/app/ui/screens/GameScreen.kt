@@ -16,6 +16,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.tinyswords.app.audio.SoundBank
 import com.tinyswords.app.data.SaveSystem
 import com.tinyswords.app.engine.*
@@ -32,7 +35,7 @@ private data class GameBundle(
     val gameState: GameState,
     val simulation: GameSimulation,
     val assetManager: AssetManager,
-    val renderer: GameRenderer
+    val renderer: GameGlRenderer
 )
 
 @Composable
@@ -74,7 +77,7 @@ fun GameScreen(
 
         loadingStage = "Opening battlefield"
         loadingProgress = 0.94f
-        val renderer = GameRenderer(assets)
+        val renderer = GameGlRenderer(assets)
         bundle = GameBundle(gameState, simulation, assets, renderer)
     }
 
@@ -114,6 +117,19 @@ private fun ActiveGameScreen(
     var gameOverWinner by remember { mutableStateOf(-1) }
     var isGameOver by remember { mutableStateOf(false) }
     var volume by remember { mutableStateOf(saveSystem.loadGlobalSettings().volume) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE -> gameView?.onPause()
+                Lifecycle.Event.ON_RESUME -> gameView?.onResume()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -139,7 +155,7 @@ private fun ActiveGameScreen(
                 synchronized(gameState) { saveSystem.saveGame(worldId, gameState) }
             }
             gameView?.destroy()
-            renderer.destroy()
+            // GameView queues OpenGL resource disposal on the GL thread.
             assetManager.destroy()
         }
     }

@@ -8,4 +8,3 @@
 -keep class com.tinyswords.app.game.** { *; }
 -keep class com.tinyswords.app.engine.** { *; }
 -keep class com.tinyswords.app.util.** { *; }
--dontoptimize
