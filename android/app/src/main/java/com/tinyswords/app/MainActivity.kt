@@ -2,7 +2,6 @@ package com.tinyswords.app
 
 import android.os.Bundle
 import android.view.View
-import android.view.WindowInsetsController
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import com.tinyswords.app.audio.SoundBank
+import com.tinyswords.app.data.CrashHandler
 import com.tinyswords.app.data.SaveSystem
 import com.tinyswords.app.game.WorldSettings
 import com.tinyswords.app.ui.screens.*
@@ -22,6 +22,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        Thread.setDefaultUncaughtExceptionHandler(CrashHandler(this))
+
         // Immersive fullscreen
         setupImmersive()
 
@@ -31,6 +33,14 @@ class MainActivity : ComponentActivity() {
 
         val globalSettings = saveSystem.loadGlobalSettings()
         soundBank.setVolume(globalSettings.volume)
+
+        val crashTrace = CrashHandler.getCrashTrace(this)
+        if (crashTrace != null) {
+            setContent {
+                CrashScreen(crashTrace)
+            }
+            return
+        }
 
         setContent {
             TinySwordsApp(saveSystem, soundBank)
