@@ -102,7 +102,7 @@ class GameView(
     override fun run() {
         val targetFrameNs = 16_666_667L
         val fixedStep = 1f / 60f
-        val maxStepsPerFrame = 2
+        val maxStepsPerFrame = 4
 
         while (running) {
             val frameStart = System.nanoTime()

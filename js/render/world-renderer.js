@@ -87,7 +87,7 @@ Game.prototype.getTerrainChunkCanvas = function (cx, cy, chunkTiles) {
   }
   this._terrainChunkCache.set(key, c);
   this._terrainChunkOrder.push(key);
-  const maxChunks = this.worldSettings?.graphics === 'performance' ? 64 : 112;
+  const maxChunks = this.worldSettings?.graphics === 'performance' ? 128 : 112;
   while (this._terrainChunkOrder.length > maxChunks) {
     const oldKey = this._terrainChunkOrder.shift();
     this._terrainChunkCache.delete(oldKey);
@@ -96,7 +96,8 @@ Game.prototype.getTerrainChunkCanvas = function (cx, cy, chunkTiles) {
 };
 
 Game.prototype.drawTerrain = function () {
-  const chunkTiles = this.worldSettings?.graphics === 'performance' ? 20 : 16;
+  const perf = this.worldSettings?.graphics === 'performance';
+  const chunkTiles = perf ? 32 : 16;
   const sx = Math.floor(this.camera.x / TILE) - 2;
   const sy = Math.floor(this.camera.y / TILE) - 2;
   const ex = Math.ceil((this.camera.x + VIEW_W / this.camera.zoom) / TILE) + 2;
@@ -115,6 +116,7 @@ Game.prototype.drawTerrain = function () {
       ctx.drawImage(c, cx * chunkPx, cy * chunkPx);
     }
   }
+  if (!perf) this.drawShoreLines(sx, sy, ex, ey);
 };
 
 
@@ -188,29 +190,24 @@ Game.prototype.drawGrassGround = function (tx, ty, x, y) {
 };
 
 Game.prototype.drawWaterTile = function (tx, ty, x, y) {
+  const perf = this.worldSettings?.graphics === 'performance';
   const img = assets.water;
   if (img) ctx.drawImage(img, 0, 0, 64, 64, x, y, TILE, TILE);
   else { ctx.fillStyle = '#47aaa6'; ctx.fillRect(x, y, TILE, TILE); }
+  if (perf) return;
 
-  // Animated water foam on shore water tiles.
-  // The waterFoam sheet (3072×192) has 16 frames × 3×3 edge tile grid (192×192 each frame).
-  // Drawn on the water tile, touching the adjacent land.
   if (assets.waterFoam) {
-    const landN = this.landAtTile(tx, ty - 1);
-    const landS = this.landAtTile(tx, ty + 1);
-    const landW = this.landAtTile(tx - 1, ty);
-    const landE = this.landAtTile(tx + 1, ty);
+    const landN = this.landAtTile(tx, ty - 1), landS = this.landAtTile(tx, ty + 1), landW = this.landAtTile(tx - 1, ty), landE = this.landAtTile(tx + 1, ty);
     if (landN || landS || landW || landE) {
       let fsx = 64, fsy = 64;
-      // Invert mapping: if land is North, this water is South of land, so we use South edge foam (sy=128)
       if (landN && !landS && !landW && !landE) { fsx = 64; fsy = 128; }
       else if (landS && !landN && !landW && !landE) { fsx = 64; fsy = 0; }
       else if (landW && !landN && !landS && !landE) { fsx = 128; fsy = 64; }
       else if (landE && !landN && !landS && !landW) { fsx = 0; fsy = 64; }
-      else if (landN && landW) { fsx = 128; fsy = 128; } // Inner corner SE
-      else if (landN && landE) { fsx = 0; fsy = 128; } // Inner corner SW
-      else if (landS && landW) { fsx = 128; fsy = 0; } // Inner corner NE
-      else if (landS && landE) { fsx = 0; fsy = 0; } // Inner corner NW
+      else if (landN && landW) { fsx = 128; fsy = 128; }
+      else if (landN && landE) { fsx = 0; fsy = 128; }
+      else if (landS && landW) { fsx = 128; fsy = 0; }
+      else if (landS && landE) { fsx = 0; fsy = 0; }
 
       const foamFrame = (Math.floor(this.time * 5.4 + ((tx * 31 + ty * 17) & 15)) & 15);
       ctx.globalAlpha = .78;
@@ -219,7 +216,6 @@ Game.prototype.drawWaterTile = function (tx, ty, x, y) {
     }
   }
 
-  // Subtle interior shimmer
   const n = (tx * 31 + ty * 17 + 731) & 1023;
   if (n < 389) {
     const phase = this.time * 1.35 + tx * .73 + ty * .41;
@@ -264,12 +260,9 @@ Game.prototype.drawWorldEntities = function () {
   for (const b of this.buildings) if (!b.dead && inView(b.x, b.y, 280)) drawables.push({ y: b.y + b.h * .34, kind: 'building', item: b });
   for (const u of this.units) if (!u.dead && inView(u.x, u.y, 140)) drawables.push({ y: u.y, kind: 'unit', item: u });
   drawables.sort((a, b) => a.y - b.y);
-  for (const d of drawables) {
-    if (d.kind === 'decor') this.drawDecor(d.item);
-    else if (d.kind === 'resource') this.drawResource(d.item);
-    else if (d.kind === 'building') this.drawBuilding(d.item);
-    else this.drawUnit(d.item);
-  }
+  const perf = this.worldSettings?.graphics === 'performance';
+  if (!perf) { for (const d of drawables) if (d.kind === 'decor') this.drawDecor(d.item); else if (d.kind === 'resource') this.drawResource(d.item); else if (d.kind === 'building') this.drawBuilding(d.item); else this.drawUnit(d.item); }
+  else { for (const d of drawables) if (d.kind === 'decor') this.drawDecorPerf(d.item); else if (d.kind === 'resource') this.drawResourcePerf(d.item); else if (d.kind === 'building') this.drawBuildingPerf(d.item); else this.drawUnitPerf(d.item); }
   for (const p of this.projectiles) if (inView(p.x, p.y, 180)) this.drawProjectile(p);
   for (const e of this.effects) if (inView(e.x, e.y, 180)) this.drawEffect(e);
 };
@@ -828,6 +821,137 @@ Game.prototype.drawSelectedRanges = function () {
   for (const e of this.selected.filter(isAlive)) {
     if (e.entity === 'building' && e.type === 'tower') this.drawRangeCircle(e.x, e.y, BUILDINGS.tower.range, faction(e.faction).color);
     if (e.entity === 'unit') this.drawRangeCircle(e.x, e.y, UNITS[e.type].range, faction(e.faction).color);
+  }
+};
+
+// Performance-mode draw variants: skip shadows, flash filters, gold shimmer, and animal shadows.
+Game.prototype.drawUnitPerf = function (u) {
+  const f = faction(u.faction);
+  const def = UNITS[u.type];
+  let anim = 'idle';
+  if (u.order === 'move' || u.order === 'attackMove' || (u.carry && u.order !== 'idle')) anim = 'run';
+  if (u.order === 'attack' && u.target) anim = dist(u, u.target) > def.range + 8 ? 'run' : 'attack';
+  if (u.type === 'monk' && (u.order === 'heal' || u.healAnim > 0)) anim = 'attack';
+  if (u.type === 'worker' && u.order === 'harvest' && !u.carry) anim = (u.gather > 0 || u.huntSwing > 0) ? (u.target && u.target.type === 'gold' ? 'mine' : 'chop') : 'run';
+  if (u.type === 'worker' && u.order === 'repair' && u.target) anim = 'build';
+  if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= def.range + 8) anim = 'fight';
+
+  let key = `u_${f.key}_${u.type}_${anim}`;
+  if (u.type === 'worker') {
+    if (u.carry) key = `u_${f.key}_worker_carry${u.carry.type[0].toUpperCase()}${u.carry.type.slice(1)}`;
+    else if (anim === 'mine') key = `u_${f.key}_worker_mine`;
+    else if (anim === 'chop') key = `u_${f.key}_worker_chop`;
+    else if (anim === 'build') key = `u_${f.key}_worker_build`;
+    else if (anim === 'fight') key = `u_${f.key}_worker_fight`;
+    else key = `u_${f.key}_worker_${anim === 'run' ? 'run' : 'idle'}`;
+  }
+  const img = assets[key] || assets[`u_${f.key}_${u.type}_idle`];
+  if (u.selected) this.drawSelectionCircle(u.x, u.y, u.r + 8, '#f5d37d');
+  if (img) {
+    const fw = def.fw, fh = def.fh;
+    const frames = Math.max(1, (img.width / fw) | 0);
+    const frame = Math.floor(u.anim) % frames;
+    const scale = def.scale * SPRITE_BOOST;
+    const w = fw * scale, h = fh * scale;
+    const drawYOffset = def.drawYOffset || 0;
+    if (u.face < 0) {
+      ctx.save();
+      ctx.translate(Math.round(u.x), Math.round(u.y + 7 + drawYOffset));
+      ctx.scale(-1, 1);
+      ctx.drawImage(img, frame * fw, 0, fw, fh, Math.round(-w / 2), Math.round(-h + 16), Math.round(w), Math.round(h));
+      ctx.restore();
+    } else {
+      ctx.drawImage(img, frame * fw, 0, fw, fh, u.x - w / 2, u.y + 7 + drawYOffset - h + 16, w, h);
+    }
+  } else {
+    ctx.fillStyle = f.color;
+    ctx.beginPath();
+    ctx.arc(u.x, u.y, u.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  if (u.hp < u.maxHp) this.drawHpBar(u.x, u.y - (def.fh * def.scale * SPRITE_BOOST) + 8 + (def.drawYOffset || 0), u.hp / u.maxHp, u.faction, 36);
+};
+
+Game.prototype.drawBuildingPerf = function (b) {
+  const def = BUILDINGS[b.type];
+  if (b.type === 'tower' && this.normalizeTowerStats) this.normalizeTowerStats(b);
+  const metrics = this.getBuildingDrawMetrics(b);
+  const img = metrics.img;
+  if (img) { ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1; ctx.drawImage(img, Math.round(b.x - metrics.w / 2), Math.round(metrics.drawY), Math.round(metrics.w), Math.round(metrics.h)); ctx.globalAlpha = 1; }
+  else { ctx.fillStyle = faction(b.faction).color; ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
+  if (b.build < 1) this.drawProgress(b.x, metrics.barY + 5, b.build, '#e8c965');
+  else if (b.hp < b.maxHp) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
+  if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
+  if (b.type === 'tower' && b.build >= 1) {
+    const fKey = faction(b.faction).key;
+    const archerImg = assets[`u_${fKey}_archer_idle`];
+    if (archerImg) {
+      const scale = UNITS.archer.scale * SPRITE_BOOST * .92;
+      const fw = UNITS.archer.fw, fh = UNITS.archer.fh;
+      const frames = Math.max(1, Math.floor(archerImg.width / fw));
+      const fr = Math.floor(this.time * 4) % frames;
+      const w = fw * scale, h = fh * scale;
+      ctx.drawImage(archerImg, fr * fw, 0, fw, fh, b.x - w / 2 + 2, b.y - b.h + 18, w, h);
+    }
+  }
+};
+
+Game.prototype.drawResourcePerf = function (r) {
+  const moving = r.type === 'food' && r.animal && Math.hypot(r.vx || 0, r.vy || 0) > 7;
+  if (r.type === 'food' && r.animal && this.drawHuntAnimalPerf(r, moving)) return;
+  let sprite = assets[r.sprite];
+  let spec = r.type === 'tree' ? RESOURCE_SPECS.tree : r.type === 'gold' ? RESOURCE_SPECS.gold : RESOURCE_SPECS.meat;
+  if (r.type === 'tree' && r.depleted) { sprite = assets[r.sprite] || assets.stump1 || sprite; spec = RESOURCE_SPECS.treeDepleted; }
+  if (r.type === 'food' && !r.animal) { sprite = assets.meat || sprite; spec = RESOURCE_SPECS.meat; }
+  if (sprite) {
+    const fw = spec.fw, fh = spec.fh;
+    const frames = Math.max(1, Math.floor(sprite.width / fw));
+    const fps = r.type === 'tree' ? (r.depleted ? 0 : 4.0) : 0;
+    const fr = fps ? Math.floor(this.time * fps + r.bob) % frames : 0;
+    this.drawSpriteFrameAnchored(sprite, fr * fw, 0, fw, fh, r.x, r.y, spec.scale, spec.baseline, {});
+  } else {
+    ctx.fillStyle = r.type === 'gold' ? '#e6ca59' : '#6fa75a';
+    ctx.fillRect(r.x - r.r, r.y - r.r, r.r * 2, r.r * 2);
+  }
+  if (this.selected.includes(r)) { const p = getResourceInteractionPoint(r); this.drawSelectionCircle(p.x, p.y, getResourceFootprint(r) + 8, '#f5d37d'); }
+};
+
+Game.prototype.drawHuntAnimalPerf = function (r, moving) {
+  const spec = getHuntAnimal(r.animalKind);
+  if (!spec) return false;
+  const anim = (r.panic || 0) > 0 ? (moving ? 'run' : 'idle') : (moving ? (spec.walk ? 'walk' : 'run') : 'idle');
+  let key = spec[anim] || spec.idle;
+  if (!moving && r.animalKind === 'sheep' && rngHash(r.id, 3, 66) > .82) key = 'sheepGrass';
+  const img = assets[key] || assets[spec.idle];
+  if (!img) return false;
+  const fw = spec.fw || 32, fh = spec.fh || 32;
+  const frames = Math.max(1, Math.floor(img.width / fw));
+  const rows = Math.max(1, Math.floor(img.height / fh));
+  const row = clamp(r.animalDir || 0, 0, rows - 1);
+  const fps = (spec.fps && spec.fps[anim]) || (moving ? 6 : 2);
+  const fr = Math.floor(this.time * fps + r.bob) % frames;
+  const flip = (spec.flipByFacing || rows === 1) ? (r.face || 1) : 1;
+  this.drawSpriteFrameAnchored(img, fr * fw, row * fh, fw, fh, r.x, r.y, spec.scale, spec.baseline, { flip });
+  if (this.selected.includes(r)) { const p = getResourceInteractionPoint(r); this.drawSelectionCircle(p.x, p.y, getResourceFootprint(r) + 8, '#f5d37d'); }
+  return true;
+};
+
+Game.prototype.drawDecorPerf = function (d) {
+  const img = assets[d.kind];
+  if (!img) return;
+  const spec = DECOR_SPECS[d.kind] || { fw: img.width, fh: img.height, baseline: img.height, shadow: [12, 4], fps: 0 };
+  let fw = spec.fw || img.width, fh = spec.fh || img.height;
+  if (d.kind.startsWith('cloud')) { fw = img.width; fh = img.height; }
+  const frames = Math.max(1, Math.floor(img.width / fw));
+  const frame = spec.fps ? Math.floor(this.time * spec.fps + (d.id % frames)) % frames : 0;
+  const drift = d.sky ? Math.sin(this.time * (d.speed || 1) * .22 + d.drift) * 18 : 0;
+  const cloudScale = d.sky ? CLOUD_BOOST : 1;
+  const scale = d.scale * cloudScale;
+  const alpha = d.sky ? .82 : 1;
+  this.drawSpriteFrameAnchored(img, frame * fw, 0, fw, fh, d.x + drift, d.y, scale, spec.baseline || fh, { alpha });
+  if (this.selected.includes(d)) {
+    const sr = Math.max(14, (spec.fw || 64) * scale * .28);
+    this.drawSelectionCircle(d.x, d.y, sr, '#f5d37d');
   }
 };
 

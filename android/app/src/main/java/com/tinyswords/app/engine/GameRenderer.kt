@@ -72,11 +72,11 @@ class GameRenderer(private val assets: AssetManager) {
     private val buildingQueryBuffer = ArrayList<GameBuilding>(128)
     private val unitQueryBuffer = ArrayList<GameUnit>(512)
     private var terrainCacheKey: String = ""
-    private val terrainChunkTiles = 16
-    private val terrainChunkPx = (TILE * terrainChunkTiles).toInt()
-    private val terrainChunks = object : LinkedHashMap<Long, Bitmap>(72, 0.75f, true) {
+    private var terrainChunkTiles = 16
+    private var terrainChunkPx = (TILE * terrainChunkTiles).toInt()
+    private val terrainChunks = object : LinkedHashMap<Long, Bitmap>(128, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Bitmap>?): Boolean {
-            val remove = size > 72
+            val remove = size > 128
             if (remove) eldest?.value?.let { if (!it.isRecycled) it.recycle() }
             return remove
         }
@@ -111,7 +111,10 @@ class GameRenderer(private val assets: AssetManager) {
         collectDrawables(state, drawables, camLeft - 180f, camTop - 180f, camRight + 180f, camBottom + 180f)
         drawables.sortWith(drawableComparator)
 
-        for (d in drawables) if (!d.isSky) drawShadow(canvas, d)
+        val perf = state.settings.graphics == "performance"
+        if (!perf) {
+            for (d in drawables) if (!d.isSky) drawShadow(canvas, d)
+        }
         for (d in drawables) if (!d.isSky) drawEntity(canvas, state, d)
         drawProjectiles(canvas, state, camLeft - 180f, camTop - 180f, camRight + 180f, camBottom + 180f)
         drawEffects(canvas, state, camLeft - 180f, camTop - 180f, camRight + 180f, camBottom + 180f)
@@ -122,20 +125,16 @@ class GameRenderer(private val assets: AssetManager) {
         canvas.restore()
     }
 
-    private fun drawTerrain(canvas: Canvas, state: GameState, left: Float, top: Float, right: Float, bottom: Float) {
-        fillPaint.color = Color.rgb(72, 170, 168)
-        canvas.drawRect(left - 180f, top - 180f, right + 180f, bottom + 180f, fillPaint)
-
-        val startCol = max(0, floor(left / TILE).toInt() - 1)
-        val endCol = min(state.landCols - 1, ceil(right / TILE).toInt() + 1)
-        val startRow = max(0, floor(top / TILE).toInt() - 1)
-        val endRow = min(state.landRows - 1, ceil(bottom / TILE).toInt() + 1)
-
-        for (row in startRow..endRow) {
-            for (col in startCol..endCol) {
-                if (!landAtTile(state, col, row)) {
-                    drawWaterTile(canvas, state, col, row, col * TILE, row * TILE)
-                }
+private fun drawTerrain(canvas: Canvas, state: GameState, left: Float, top: Float, right: Float, bottom: Float) {
+        val worldKey = "${state.landCols}:${state.landRows}:${state.worldW}:${state.worldH}:${state.settings.seed}:${state.landMap.size}"
+        val perf = state.settings.graphics == "performance"
+        val newChunkTiles = if (perf) 32 else 16
+        if (worldKey != terrainCacheKey || newChunkTiles != terrainChunkTiles) {
+            clearTerrainChunks()
+            terrainCacheKey = worldKey
+            terrainChunkTiles = newChunkTiles
+            terrainChunkPx = (TILE * terrainChunkTiles).toInt()
+        }
             }
         }
         for (row in startRow..endRow) {
@@ -183,6 +182,8 @@ class GameRenderer(private val assets: AssetManager) {
             fillPaint.color = Color.rgb(72, 170, 168)
             canvas.drawRect(x, y, x + TILE, y + TILE, fillPaint)
         }
+
+        if (state.settings.graphics == "performance") return
 
         val foam = assets.get("waterFoam") ?: return
         val landN = landAtTile(state, col, row - 1)

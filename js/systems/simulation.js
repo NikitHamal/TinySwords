@@ -783,11 +783,7 @@ Game.prototype.run = function(ts) {
   this.lastFrame = ts;
   this.update(Math.min(MAX_DT, rawDt) * (this.fast ? 1.7 : 1));
   this.draw();
-  const mobile = window.matchMedia('(max-width: 768px)').matches;
-  const perf = this.worldSettings && this.worldSettings.graphics === 'performance';
-  const delay = perf ? 33 : (mobile ? 20 : 0);
-  if (delay > 0) setTimeout(() => requestAnimationFrame(t => this.run(t)), delay);
-  else requestAnimationFrame(t => this.run(t));
+  requestAnimationFrame(t => this.run(t));
 };
 
 
@@ -1081,7 +1077,7 @@ Game.prototype.update = function(dt) {
     this._shouldRebuildSpatial = this._spatialTimer <= 0 || !this.unitBuckets || !this.resourceBuckets || !this.buildingBuckets;
     if (this._shouldRebuildSpatial) {
       const perf = this.worldSettings && this.worldSettings.graphics === 'performance';
-      this._spatialTimer = perf ? .14 : .08;
+      this._spatialTimer = (this.worldSettings && this.worldSettings.graphics === 'performance') ? .20 : .08;
     }
     this.updateBuildings(dt);
     this.updateResources(dt);

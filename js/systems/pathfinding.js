@@ -83,7 +83,7 @@ Game.prototype.findNearestWalkableCell = function(cell, maxR = 18) {
   return null;
 };
 
-Game.prototype.findPath = function(startX, startY, goalX, goalY, maxNodes = 32000) {
+Game.prototype.findPath = function(startX, startY, goalX, goalY, maxNodes = 16000) {
   this.ensurePathGrid();
   const start = this.findNearestWalkableCell(this.worldToPathCell(startX, startY), 10);
   const goal = this.findNearestWalkableCell(this.worldToPathCell(goalX, goalY), 24);
@@ -93,11 +93,19 @@ Game.prototype.findPath = function(startX, startY, goalX, goalY, maxNodes = 3200
   const cols = this.pathCols, rows = this.pathRows, total = cols * rows;
   const startKey = start.y * cols + start.x;
   const goalKey = goal.y * cols + goal.x;
-  const came = new Int32Array(total);
-  const gScore = new Float32Array(total);
-  const closed = new Uint8Array(total);
+
+  if (!this._pathCame || this._pathCame.length !== total) {
+    this._pathCame = new Int32Array(total);
+    this._pathGScore = new Float32Array(total);
+    this._pathClosed = new Uint8Array(total);
+  }
+  const came = this._pathCame;
+  const gScore = this._pathGScore;
+  const closed = this._pathClosed;
   came.fill(-1);
   gScore.fill(Infinity);
+  closed.fill(0);
+
   const heap = [];
   const heuristic = (key) => {
     const ax = key % cols, ay = Math.floor(key / cols);

@@ -24,6 +24,11 @@ class AssetManager(private val context: Context) {
         inDither = false
         inPreferredConfig = Bitmap.Config.ARGB_8888
     }
+    private val optsOpaque = BitmapFactory.Options().apply {
+        inScaled = false
+        inDither = false
+        inPreferredConfig = Bitmap.Config.RGB_565
+    }
 
     init {
         registerTerrain()
@@ -42,33 +47,16 @@ class AssetManager(private val context: Context) {
         critical.forEach { get(it) }
     }
 
-    fun get(key: String): Bitmap? {
-        cache[key]?.let { if (!it.isRecycled) return it }
-        if (missing.contains(key)) return null
-        val path = paths[key] ?: run {
-            missing.add(key)
-            return null
-        }
-        val bitmap = loadFromAssets(path)
-        return if (bitmap != null) {
-            cache[key] = bitmap
-            bitmap
-        } else {
-            missing.add(key)
-            null
-        }
-    }
-
     fun getOrLoad(path: String): Bitmap? {
         cache[path]?.let { if (!it.isRecycled) return it }
         if (missing.contains(path)) return null
-        return loadFromAssets(path)?.also { cache[path] = it } ?: run {
+        return loadFromAssets(path, opts)?.also { cache[path] = it } ?: run {
             missing.add(path)
             null
         }
     }
 
-    private fun loadFromAssets(path: String): Bitmap? {
+    private fun loadFromAssets(path: String, opts: BitmapFactory.Options): Bitmap? {
         return try {
             context.assets.open(path).use { stream -> BitmapFactory.decodeStream(stream, null, opts) }
         } catch (_: IOException) {
@@ -82,14 +70,40 @@ class AssetManager(private val context: Context) {
         paths[key] = path
     }
 
+    private val opaqueKeys = HashSet<String>()
+
+    private fun addOpaque(key: String, path: String) {
+        paths[key] = path
+        opaqueKeys.add(key)
+    }
+
+    fun get(key: String): Bitmap? {
+        cache[key]?.let { if (!it.isRecycled) return it }
+        if (missing.contains(key)) return null
+        val path = paths[key] ?: run {
+            missing.add(key)
+            return null
+        }
+        val useOpaqueOpts = opaqueKeys.contains(key)
+        val opts = if (useOpaqueOpts) optsOpaque else opts
+        val bitmap = loadFromAssets(path, opts)
+        return if (bitmap != null) {
+            cache[key] = bitmap
+            bitmap
+        } else {
+            missing.add(key)
+            null
+        }
+    }
+
     private fun registerTerrain() {
         val tileDir = "Tiny Swords (Free Pack)/Terrain/Tileset"
-        add("tileGrass", "$tileDir/Tilemap_color1.png")
-        add("tileWarm", "$tileDir/Tilemap_color2.png")
-        add("tileAlt", "$tileDir/Tilemap_color3.png")
-        add("tileMoss", "$tileDir/Tilemap_color4.png")
-        add("tileDeep", "$tileDir/Tilemap_color5.png")
-        add("water", "$tileDir/Water Background color.png")
+        addOpaque("tileGrass", "$tileDir/Tilemap_color1.png")
+        addOpaque("tileWarm", "$tileDir/Tilemap_color2.png")
+        addOpaque("tileAlt", "$tileDir/Tilemap_color3.png")
+        addOpaque("tileMoss", "$tileDir/Tilemap_color4.png")
+        addOpaque("tileDeep", "$tileDir/Tilemap_color5.png")
+        addOpaque("water", "$tileDir/Water Background color.png")
         add("waterFoam", "$tileDir/Water Foam.png")
         add("shadow", "$tileDir/Shadow.png")
     }
