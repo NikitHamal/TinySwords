@@ -10,7 +10,8 @@ data class WorldSettings(
     val resourceDensity: String = "normal",
     val rivals: Int = 4,
     val autosave: Boolean = true,
-    val seed: String = System.currentTimeMillis().toString()
+    val seed: String = System.currentTimeMillis().toString(),
+    val graphics: String = "balanced"
 )
 
 data class Camera(

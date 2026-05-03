@@ -64,6 +64,9 @@ class GameRenderer(private val assets: AssetManager) {
 
     private var minimapTerrain: Bitmap? = null
     private var minimapKey: String = ""
+    private var minimapEntities: Bitmap? = null
+    private var minimapEntitiesKey: String = ""
+    private var minimapEntitiesTime: Float = -99f
 
     private val drawablesBuffer = ArrayList<DrawableEntity>(1536)
     private val drawablePool = ArrayList<DrawableEntity>(1536)
@@ -125,7 +128,7 @@ class GameRenderer(private val assets: AssetManager) {
         canvas.restore()
     }
 
-private fun drawTerrain(canvas: Canvas, state: GameState, left: Float, top: Float, right: Float, bottom: Float) {
+    private fun drawTerrain(canvas: Canvas, state: GameState, left: Float, top: Float, right: Float, bottom: Float) {
         val worldKey = "${state.landCols}:${state.landRows}:${state.worldW}:${state.worldH}:${state.settings.seed}:${state.landMap.size}"
         val perf = state.settings.graphics == "performance"
         val newChunkTiles = if (perf) 32 else 16
@@ -135,17 +138,63 @@ private fun drawTerrain(canvas: Canvas, state: GameState, left: Float, top: Floa
             terrainChunkTiles = newChunkTiles
             terrainChunkPx = (TILE * terrainChunkTiles).toInt()
         }
+
+        fillPaint.color = Color.rgb(72, 170, 168)
+        canvas.drawRect(left - 180f, top - 180f, right + 180f, bottom + 180f, fillPaint)
+
+        val startChunkCol = floor(left / terrainChunkPx).toInt() - 1
+        val endChunkCol = ceil(right / terrainChunkPx).toInt() + 1
+        val startChunkRow = floor(top / terrainChunkPx).toInt() - 1
+        val endChunkRow = ceil(bottom / terrainChunkPx).toInt() + 1
+
+        for (chunkRow in startChunkRow..endChunkRow) {
+            for (chunkCol in startChunkCol..endChunkCol) {
+                val bitmap = terrainChunkBitmap(state, chunkCol, chunkRow) ?: continue
+                canvas.drawBitmap(bitmap, (chunkCol * terrainChunkPx).toFloat(), (chunkRow * terrainChunkPx).toFloat(), spritePaint)
             }
-        }
-        for (row in startRow..endRow) {
-            for (col in startCol..endCol) {
-                if (landAtTile(state, col, row)) {
-                    val idx = row * state.landCols + col
-                    val biome = state.biomeMap.getOrElse(idx) { 0 }.coerceIn(0, 4)
-                    drawGrassTile(canvas, state, col, row, col * TILE, row * TILE, biomeTileKeys[biome])
+}
+    }
+
+    private fun terrainChunkBitmap(state: GameState, chunkCol: Int, chunkRow: Int): Bitmap? {
+        val key = (chunkCol.toLong() shl 32) xor (chunkRow.toLong() and 0xFFFFFFFFL)
+        terrainChunks[key]?.let { if (!it.isRecycled) return it }
+        if (terrainChunkPx <= 0) return null
+        val bitmap = Bitmap.createBitmap(terrainChunkPx, terrainChunkPx, Bitmap.Config.RGB_565)
+        val c = Canvas(bitmap)
+        fillPaint.color = Color.rgb(72, 170, 168)
+        c.drawRect(0f, 0f, terrainChunkPx.toFloat(), terrainChunkPx.toFloat(), fillPaint)
+        val baseCol = chunkCol * terrainChunkTiles
+        val baseRow = chunkRow * terrainChunkTiles
+
+        for (rowOff in 0 until terrainChunkTiles) {
+            for (colOff in 0 until terrainChunkTiles) {
+                val col = baseCol + colOff
+                val row = baseRow + rowOff
+                if (!landAtTile(state, col, row)) {
+                    drawWaterTile(c, state, col, row, colOff * TILE, rowOff * TILE)
                 }
             }
         }
+        for (rowOff in 0 until terrainChunkTiles) {
+            for (colOff in 0 until terrainChunkTiles) {
+                val col = baseCol + colOff
+                val row = baseRow + rowOff
+                if (landAtTile(state, col, row)) {
+                    val idx = row * state.landCols + col
+                    val biome = state.biomeMap.getOrElse(idx) { 0 }.coerceIn(0, 4)
+                    drawGrassTile(c, state, col, row, colOff * TILE, rowOff * TILE, biomeTileKeys[biome])
+                }
+            }
+        }
+        terrainChunks[key] = bitmap
+        return bitmap
+    }
+
+    private fun clearTerrainChunks() {
+        for ((_, bitmap) in terrainChunks) {
+            if (!bitmap.isRecycled) bitmap.recycle()
+        }
+        terrainChunks.clear()
     }
 
     private fun landAtTile(state: GameState, col: Int, row: Int): Boolean {
@@ -999,6 +1048,9 @@ private fun drawTerrain(canvas: Canvas, state: GameState, left: Float, top: Floa
     fun destroy() {
         minimapTerrain?.recycle()
         minimapTerrain = null
+        minimapEntities?.recycle()
+        minimapEntities = null
+        clearTerrainChunks()
     }
 
     companion object {
