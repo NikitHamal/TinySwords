@@ -2,3 +2,10 @@
 -keep class com.google.gson.** { *; }
 -keepattributes Signature
 -keepattributes *Annotation*
+-keepclassmembers class com.tinyswords.app.game.** { *; }
+-keepclassmembers class com.tinyswords.app.engine.** { *; }
+-keepclassmembers class com.tinyswords.app.util.** { *; }
+-keep class com.tinyswords.app.game.** { *; }
+-keep class com.tinyswords.app.engine.** { *; }
+-keep class com.tinyswords.app.util.** { *; }
+-dontoptimize

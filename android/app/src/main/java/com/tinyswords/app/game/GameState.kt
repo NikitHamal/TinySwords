@@ -12,7 +12,9 @@ data class WorldSettings(
     val autosave: Boolean = true,
     val seed: String = System.currentTimeMillis().toString(),
     val graphics: String = "balanced"
-)
+) {
+    fun safeGraphics(): String = graphics ?: "balanced"
+}
 
 data class Camera(
     var x: Float = 700f,

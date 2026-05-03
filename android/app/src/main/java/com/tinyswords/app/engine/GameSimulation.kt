@@ -36,7 +36,7 @@ class GameSimulation(val state: GameState) {
         state.spatialRebuildTimer -= clampedDt
         if (state.spatialRebuildTimer <= 0f) {
             state.rebuildSpatialIndices()
-            state.spatialRebuildTimer = if (state.settings.graphics == "performance") 0.20f else 0.12f
+            state.spatialRebuildTimer = if (state.settings.safeGraphics() == "performance") 0.20f else 0.12f
         }
 
         // Update all systems

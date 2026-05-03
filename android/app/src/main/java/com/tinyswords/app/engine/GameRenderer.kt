@@ -114,7 +114,7 @@ class GameRenderer(private val assets: AssetManager) {
         collectDrawables(state, drawables, camLeft - 180f, camTop - 180f, camRight + 180f, camBottom + 180f)
         drawables.sortWith(drawableComparator)
 
-        val perf = state.settings.graphics == "performance"
+        val perf = state.settings.safeGraphics() == "performance"
         if (!perf) {
             for (d in drawables) if (!d.isSky) drawShadow(canvas, d)
         }
@@ -130,7 +130,7 @@ class GameRenderer(private val assets: AssetManager) {
 
     private fun drawTerrain(canvas: Canvas, state: GameState, left: Float, top: Float, right: Float, bottom: Float) {
         val worldKey = "${state.landCols}:${state.landRows}:${state.worldW}:${state.worldH}:${state.settings.seed}:${state.landMap.size}"
-        val perf = state.settings.graphics == "performance"
+        val perf = state.settings.safeGraphics() == "performance"
         val newChunkTiles = if (perf) 32 else 16
         if (worldKey != terrainCacheKey || newChunkTiles != terrainChunkTiles) {
             clearTerrainChunks()
@@ -232,7 +232,7 @@ class GameRenderer(private val assets: AssetManager) {
             canvas.drawRect(x, y, x + TILE, y + TILE, fillPaint)
         }
 
-        if (state.settings.graphics == "performance") return
+        if (state.settings.safeGraphics() == "performance") return
 
         val foam = assets.get("waterFoam") ?: return
         val landN = landAtTile(state, col, row - 1)
