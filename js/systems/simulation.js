@@ -26,7 +26,9 @@ Game.prototype.updateCamera = function(dt) {
     }
     this.camera.x = clamp(this.camera.x + dx, 0, WORLD_W - VIEW_W / this.camera.zoom);
     this.camera.y = clamp(this.camera.y + dy, 0, WORLD_H - VIEW_H / this.camera.zoom);
-    this.camera.zoom += (this.camera.targetZoom - this.camera.zoom) * Math.min(1, dt * 8);
+    const zoomDiff = this.camera.targetZoom - this.camera.zoom;
+    if (Math.abs(zoomDiff) < 0.003) this.camera.zoom = this.camera.targetZoom;
+    else this.camera.zoom += zoomDiff * Math.min(1, dt * 6);
   
 };
 
@@ -37,13 +39,14 @@ Game.prototype.passiveHeal = function(b, dt) {
     b.cd -= dt;
     if (b.cd > 0) return;
     let healed = false;
-    for (const u of this.units) {
+    const near = this.nearbyUnits ? this.nearbyUnits(b.x, b.y, 240) : this.units;
+    for (let i = 0; i < near.length; i++) {
+      const u = near[i];
       if (u.faction === b.faction && !u.dead && !u.garrisoned && u.hp < u.maxHp && dist2(u.x, u.y, b.x, b.y) < 240 * 240) {
         u.hp = Math.min(u.maxHp, u.hp + 10); healed = true;
       }
     }
     if (healed) { b.cd = 1.2; this.effects.push({ kind: 'heal', x: b.x, y: b.y - 10, time: .9, max: .9 }); this.sfx.heal(this.audioGainAt(b.x, b.y)); }
-  
 };
 
 Game.prototype.setAnimalDirection = function(r, vx, vy) {
@@ -873,7 +876,10 @@ Game.prototype.towerAttack = function(b, dt) {
 
 Game.prototype.updateUnits = function(dt) {
   if (this._shouldRebuildSpatial || !this.unitBuckets) this.rebuildUnitSpatialIndex();
-  for (const u of this.units) {
+  this._sepFrame = (this._sepFrame || 0) + 1;
+  const sepParity = this._sepFrame & 1;
+  for (let idx = 0; idx < this.units.length; idx++) {
+    const u = this.units[idx];
     if (u.dead) continue;
     if (u.garrisoned) { u.garrisoned = null; if (u.order === 'garrison') u.order = 'idle'; }
     u.flash = Math.max(0, u.flash - dt * 4);
@@ -887,7 +893,7 @@ Game.prototype.updateUnits = function(dt) {
     if (u.type === 'monk') this.updateMonk(u, dt);
     else if (u.type === 'worker') this.updateWorker(u, dt);
     else this.updateFighter(u, dt);
-    this.separate(u, dt);
+    if ((idx & 1) === sepParity) this.separate(u, dt);
     if (this.isWater(u.x, u.y)) this.nudgeUnitToLand(u);
     u.x = clamp(u.x, 20, WORLD_W - 20); u.y = clamp(u.y, 20, WORLD_H - 20);
     if (activeMove) {
@@ -1403,7 +1409,7 @@ Game.prototype.buildingInteractionCandidates = function(b, u, distance = 20) {
 };
 
 Game.prototype.buildingApproachPoint = function(b, u) {
-  const candidates = this.buildingInteractionCandidates(b, u, 8);
+  const candidates = this.buildingInteractionCandidates(b, u, 22);
   if (!candidates.length) {
     const rect = getBuildingFootprintRect(b, undefined, undefined, 0);
     const dx = u.x < rect.x ? -1 : u.x > rect.x + rect.w ? 1 : 0;
@@ -1618,14 +1624,14 @@ Game.prototype.updateWorker = function(u, dt) {
     if (!b || b.dead || (b.build >= 1 && b.hp >= b.maxHp)) { u.order = 'idle'; u.target = null; u.gather = 0; this.resumeWorkerRole(u); return; }
     const p = this.buildingApproachPoint(b, u);
     const rect = getBuildingFootprintRect(b, undefined, undefined, 0);
-    const alreadyClose = this.rectDistanceToPoint(rect, u.x, u.y) <= Math.max(20, (u.r || 10) + 8);
+    const alreadyClose = this.rectDistanceToPoint(rect, u.x, u.y) <= Math.max(42, (u.r || 10) + 28);
     let working = alreadyClose;
     if (!working) {
       const old = u.interactionBuilding;
       u.interactionBuilding = b;
       working = this.moveToward(u, p.x, p.y, dt, 10);
       u.interactionBuilding = old;
-      working = working || this.rectDistanceToPoint(rect, u.x, u.y) <= Math.max(22, (u.r || 10) + 10);
+      working = working || this.rectDistanceToPoint(rect, u.x, u.y) <= Math.max(46, (u.r || 10) + 30);
     }
     if (working) {
       this.clearUnitPath && this.clearUnitPath(u);

@@ -326,8 +326,12 @@ class TinySwordsApp {
         canvas.width = VIEW_W;
         canvas.height = VIEW_H;
         ctx.imageSmoothingEnabled = false;
-        this.setScreen('hud');
-        requestAnimationFrame((t) => this.game.run(t));
+        // Draw first frame while generation screen is still visible, then switch
+        requestAnimationFrame((t) => {
+          this.game.draw();
+          this.setScreen('hud');
+          requestAnimationFrame((t2) => this.game.run(t2));
+        });
       });
     };
     tick();

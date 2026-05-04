@@ -1,5 +1,7 @@
 // Canvas renderer: terrain, animated water, entities, FX, minimap.
 Game.prototype.draw = function () {
+  const zoomDelta = Math.abs(this.camera.zoom - this.camera.targetZoom);
+  this._zooming = zoomDelta > 0.008;
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.fillStyle = '#143340';
   ctx.fillRect(0, 0, VIEW_W, VIEW_H);
@@ -12,7 +14,7 @@ Game.prototype.draw = function () {
   this.drawBuildingDragGhost();
   ctx.restore();
   this.drawScreenOverlays();
-  this.drawMinimap();
+  if (!this._zooming) this.drawMinimap();
 };
 
 Game.prototype.terrainChunkCacheSeed = function () {
@@ -116,7 +118,7 @@ Game.prototype.drawTerrain = function () {
       ctx.drawImage(c, cx * chunkPx, cy * chunkPx);
     }
   }
-  if (!perf) this.drawShoreLines(sx, sy, ex, ey);
+  if (!perf && !this._zooming) this.drawShoreLines(sx, sy, ex, ey);
 };
 
 
@@ -318,13 +320,16 @@ Game.prototype.drawWorldEntities = function () {
   const drawables = this._drawables || (this._drawables = []);
   drawables.length = 0;
 
+  const skipDecor = this._zooming && (this.worldSettings?.graphics === 'performance');
   const decorPad = 180;
   const decorCandidates = this._decorQueryBuf || (this._decorQueryBuf = []);
-  this._querySpatialRect(this.decorRenderBuckets, this.decorRenderBucketSize || 256, left - decorPad, top - decorPad, right + decorPad, bottom + decorPad, decorCandidates);
-  for (let i = 0; i < decorCandidates.length; i++) {
-    const d = decorCandidates[i];
-    if (!d.dead) this._pushDrawable(drawables, d.y + (d.front ? 6 : -18), 'decor', d);
-  }
+  if (!skipDecor) {
+    this._querySpatialRect(this.decorRenderBuckets, this.decorRenderBucketSize || 256, left - decorPad, top - decorPad, right + decorPad, bottom + decorPad, decorCandidates);
+    for (let i = 0; i < decorCandidates.length; i++) {
+      const d = decorCandidates[i];
+      if (!d.dead) this._pushDrawable(drawables, d.y + (d.front ? 6 : -18), 'decor', d);
+    }
+  } else { decorCandidates.length = 0; }
   const sky = this._skyDecor || [];
   for (let i = 0; i < sky.length; i++) {
     const d = sky[i];
@@ -371,8 +376,10 @@ Game.prototype.drawWorldEntities = function () {
       else this.drawUnitPerf(d.item);
     }
   }
-  for (let i = 0; i < this.projectiles.length; i++) { const p = this.projectiles[i]; if (inView(p.x, p.y, 180)) this.drawProjectile(p); }
-  for (let i = 0; i < this.effects.length; i++) { const e = this.effects[i]; if (inView(e.x, e.y, 180)) this.drawEffect(e); }
+  if (!this._zooming || !perf) {
+    for (let i = 0; i < this.projectiles.length; i++) { const p = this.projectiles[i]; if (inView(p.x, p.y, 180)) this.drawProjectile(p); }
+    for (let i = 0; i < this.effects.length; i++) { const e = this.effects[i]; if (inView(e.x, e.y, 180)) this.drawEffect(e); }
+  }
 };
 
 Game.prototype.drawShadow = function (x, y, w, h) {
@@ -732,21 +739,13 @@ Game.prototype.drawTowerRange = function (b) { this.drawRangeCircle(b.x, b.y, BU
 
 Game.prototype.drawHpBar = function (x, y, pct, fid, width = 58) {
   pct = clamp(pct, 0, 1);
-  if (assets.uiBarBase && assets.uiBarFill) {
+  if (assets.uiBarBase) {
     const w = width, h = 12;
     ctx.drawImage(assets.uiBarBase, x - w / 2, y, w, h);
-
-    // Draw fill relative to pct. SmallBar_Fill is 64x64, but we stretch it to fit the inside of the base
-    const fillWidth = Math.max(0.1, (w - 6) * pct); // 3px padding on each side
+    const fillWidth = Math.max(0.1, (w - 6) * pct);
     if (fillWidth > 0) {
-      // The fill image has transparent edges or is a block, we draw it over the bar base
-      // Color tint the fill depending on pct? We could draw it, then use source-atop to color it.
-      ctx.save();
-      ctx.drawImage(assets.uiBarFill, x - w / 2 + 3, y + 2, fillWidth, h - 4);
-      ctx.globalCompositeOperation = 'source-atop';
       ctx.fillStyle = pct > .6 ? '#8ce37a' : pct > .3 ? '#f3d36a' : '#ff7070';
       ctx.fillRect(x - w / 2 + 3, y + 2, fillWidth, h - 4);
-      ctx.restore();
     }
   } else {
     ctx.fillStyle = 'rgba(0,0,0,.45)';
@@ -859,7 +858,9 @@ Game.prototype.buildMinimapTerrainCache = function () {
 
 Game.prototype.getMinimapEntityLayer = function (w, h) {
   const key = `${w}x${h}:${this.resources.length}:${this.buildings.length}:${this.units.length}:${this.attackPings ? this.attackPings.length : 0}`;
-  if (this._minimapEntityCanvas && this._minimapEntityKey === key && this.time - this._minimapEntityTime < .16) return this._minimapEntityCanvas;
+  const perf = this.worldSettings?.graphics === 'performance';
+  const cacheTTL = perf ? .45 : .16;
+  if (this._minimapEntityCanvas && this._minimapEntityKey === key && this.time - this._minimapEntityTime < cacheTTL) return this._minimapEntityCanvas;
   const c = this._minimapEntityCanvas || (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : document.createElement('canvas'));
   if (c.width !== w) c.width = w;
   if (c.height !== h) c.height = h;

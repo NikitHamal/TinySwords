@@ -87,7 +87,7 @@ Game.prototype.renderActions = function() {
   if (!own.length) { HUD.actionDock && HUD.actionDock.classList.add('hidden'); return; }
   const units = own.filter(e => e.entity === 'unit');
   const buildings = own.filter(e => e.entity === 'building');
-  HUD.actionTitle.textContent = units.length ? `Unit Commands · ${FORMATION_MODES[this.formationMode || 'box'].label}` : 'Building Commands';
+  HUD.actionTitle.textContent = units.length ? 'Commands' : 'Building';
   if (units.length) {
     HUD.actionBar.appendChild(this.makeAction('', 'Build', 'Workers construct', 'iconBuild', () => this.toggleBuildMenu(), !units.some(u => u.type === 'worker')));
     HUD.actionBar.appendChild(this.makeAction('', 'Attack Move', 'Move toward pointer', 'iconAttack', () => { this.orderMoveFormation(units, this.pointer.wx, this.pointer.wy, true); }));
@@ -231,8 +231,7 @@ Game.prototype.renderSelectionPanel = function() {
   if (s.length > 1) {
     const groups = {};
     for (const e of s) groups[e.type] = (groups[e.type] || 0) + 1;
-    const formation = s.some(e => e.entity === 'unit') ? `<span class="formation-tag">${FORMATION_MODES[this.formationMode || 'box'].label}</span>` : '';
-    this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""></div><span><small>Group</small><b>${s.length} selected ${formation}</b></span>`);
+    this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""></div><span><small>Group</small><b>${s.length} selected</b></span>`);
     this.setHudHtml(HUD.selectionBody, Object.entries(groups).map(([t, n]) => `<div class="selection-row"><span>${UNITS[t]?.label || BUILDINGS[t]?.label || t}</span><b>${n}</b></div>`).join(''));
     return;
   }
@@ -282,19 +281,17 @@ Game.prototype.renderActions = function() {
 
   const units = own.filter(e => e.entity === 'unit');
   const buildings = own.filter(e => e.entity === 'building');
-  HUD.actionTitle.textContent = units.length ? `Unit Commands · ${FORMATION_MODES[this.formationMode || 'box'].label}` : 'Building Commands';
+  HUD.actionTitle.textContent = units.length ? 'Commands' : 'Building';
 
   if (units.length) {
     const workers = units.filter(u => u.type === 'worker');
-    HUD.actionBar.appendChild(this.makeAction('', 'Build', 'Open build menu', 'iconBuild', () => this.toggleBuildMenu(), !workers.length));
-    if (workers.length) HUD.actionBar.appendChild(this.makeAction('E', 'Worker Roles', 'Economy jobs', 'iconWorker', () => this.toggleWorkerRoles(true)));
-    HUD.actionBar.appendChild(this.makeAction('', 'Attack Move', 'Fight along path', 'iconAttack', () => { this.orderMoveFormation(units, this.pointer.wx, this.pointer.wy, true); }));
-    HUD.actionBar.appendChild(this.makeAction('', 'Stop', 'Cancel orders', 'iconStop', () => this.stopSelected()));
-    HUD.actionBar.appendChild(this.makeAction('', 'Hold', 'Defensive stance', 'iconRally', () => this.holdSelected()));
-    HUD.actionBar.appendChild(this.makeAction('Z', 'Line', 'Wide front', 'iconRally', () => this.setFormationMode('line')));
-    HUD.actionBar.appendChild(this.makeAction('X', 'Box', 'Compact', 'iconRally', () => this.setFormationMode('box')));
-    HUD.actionBar.appendChild(this.makeAction('C', 'Wedge', 'Charge', 'iconRally', () => this.setFormationMode('wedge')));
-    HUD.actionBar.appendChild(this.makeAction('V', 'Split', 'Archers back', 'iconRally', () => this.setFormationMode('split')));
+    if (workers.length) {
+      HUD.actionBar.appendChild(this.makeAction('B', 'Build', '', 'iconBuild', () => this.toggleBuildMenu()));
+      HUD.actionBar.appendChild(this.makeAction('E', 'Roles', '', 'iconWorker', () => this.toggleWorkerRoles(true)));
+    }
+    HUD.actionBar.appendChild(this.makeAction('A', 'Attack', '', 'iconAttack', () => { this.orderMoveFormation(units, this.pointer.wx, this.pointer.wy, true); }));
+    HUD.actionBar.appendChild(this.makeAction('S', 'Stop', '', 'iconStop', () => this.stopSelected()));
+    HUD.actionBar.appendChild(this.makeAction('H', 'Hold', '', 'iconRally', () => this.holdSelected()));
   }
 
   if (buildings.length) {

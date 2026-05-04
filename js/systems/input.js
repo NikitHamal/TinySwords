@@ -646,11 +646,6 @@ Game.prototype.bindEvents = function() {
     if (e.ctrlKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); this.assignControlGroup(e.key); return; }
     if (/^[1-9]$/.test(e.key)) { e.preventDefault(); this.recallControlGroup(e.key) || this.activateHotkey(e.key); return; }
     if (e.key === '0') { this.selectUnits(this.units.filter(u => u.faction === 0 && !u.dead)); return; }
-    const modeKey = e.key.toLowerCase();
-    if (modeKey === 'z') this.setFormationMode('line');
-    if (modeKey === 'x') this.setFormationMode('box');
-    if (modeKey === 'c') this.setFormationMode('wedge');
-    if (modeKey === 'v') this.setFormationMode('split');
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());
@@ -843,11 +838,6 @@ Game.prototype.bindEvents = function() {
     if (e.ctrlKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); this.assignControlGroup(e.key); return; }
     if (/^[1-9]$/.test(e.key)) { e.preventDefault(); this.recallControlGroup(e.key) || this.activateHotkey(e.key); return; }
     if (e.key === '0') { this.selectUnits(this.units.filter(u => u.faction === 0 && !u.dead)); return; }
-
-    if (k === 'z') this.setFormationMode('line');
-    if (k === 'x') this.setFormationMode('box');
-    if (k === 'c') this.setFormationMode('wedge');
-    if (k === 'v') this.setFormationMode('split');
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());
@@ -995,11 +985,6 @@ Game.prototype.bindEvents = function() {
     if (e.ctrlKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); this.assignControlGroup(e.key); return; }
     if (/^[1-9]$/.test(e.key)) { e.preventDefault(); this.recallControlGroup(e.key) || this.activateHotkey(e.key); return; }
     if (e.key === '0') { this.selectUnits(this.units.filter(u => u.faction === 0 && !u.dead)); return; }
-
-    if (k === 'z') this.setFormationMode('line');
-    if (k === 'x') this.setFormationMode('box');
-    if (k === 'c') this.setFormationMode('wedge');
-    if (k === 'v') this.setFormationMode('split');
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());

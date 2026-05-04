@@ -11,7 +11,8 @@
       <stop offset="1" stop-color="#2C6857"/>
     </linearGradient>
   </defs>
-  <rect width="128" height="128" rx="24" fill="url(#bg)"/>
+  <!-- background removed for transparent logo -->
+
   <path d="M64 15 78 35 68 86 64 98 60 86 50 35Z" fill="#F8E087"/>
   <path d="M29 34 38 28 77 75 71 81Z" fill="#DCEAF0"/>
   <path d="M99 34 90 28 51 75 57 81Z" fill="#DCEAF0"/>
@@ -25,5 +26,5 @@
   <path d="M103 92 90 82 85 87 98 98Z" fill="#C98A43"/>
   <path d="M63 15 66 15 64 27Z" fill="#FFF5B2" opacity="0.85"/>
   <path d="M87 18 92 28 103 32 92 36 87 47 82 36 71 32 82 28Z" fill="#F8E087" opacity="0.95"/>
-  <rect x="6" y="6" width="116" height="116" rx="20" fill="none" stroke="#F2D56A" stroke-opacity="0.24" stroke-width="4"/>
+  <!-- border rect removed for transparent logo -->
 </svg>
