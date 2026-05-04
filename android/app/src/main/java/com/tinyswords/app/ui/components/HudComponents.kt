@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tinyswords.app.game.BUILDINGS
 import com.tinyswords.app.game.FACTIONS
-import com.tinyswords.app.game.FactionState
+import com.tinyswords.app.game.entities.FactionState
 import com.tinyswords.app.game.UNITS
 import com.tinyswords.app.game.entities.GameBuilding
 import com.tinyswords.app.game.entities.GameEntity
