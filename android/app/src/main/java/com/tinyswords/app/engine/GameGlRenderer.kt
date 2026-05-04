@@ -204,12 +204,15 @@ class GameGlRenderer(private val assets: AssetManager) {
         state.resourceIndex.queryRect(left, top, right, bottom, resourceQueryBuffer)
         for (r in resourceQueryBuffer) {
             if (r.dead) continue
+            if (zoom < 0.6f && r.depleted) continue
             pushDrawable(out, r, r.y + if (r.type == ResourceType.TREE) -10f else 0f)
         }
 
-        state.decorRenderIndex.queryRect(left - 420f, top - 420f, right + 420f, bottom + 420f, decorQueryBuffer)
+        val padding = 180f / zoom.coerceAtLeast(0.1f)
+        state.decorRenderIndex.queryRect(left - padding, top - padding, right + padding, bottom + padding, decorQueryBuffer)
         for (d in decorQueryBuffer) {
             if (d.dead) continue
+            if (zoom < 0.6f && (d.kind.startsWith("bush") || d.kind.startsWith("rock"))) continue
             if (d.isSky) pushDrawable(out, d, d.y + 900000f, true) else pushDrawable(out, d, d.y - 18f)
         }
 
@@ -324,8 +327,11 @@ class GameGlRenderer(private val assets: AssetManager) {
                 drawCircleOutlineWorld(building.x, building.y, def.towerRange, 2f, 255, 130, 130, 70)
             }
         }
-        if (building.hp < building.maxHp || building.selected) drawHpBar(building.x, drawY - 8f, building.hp.toFloat() / building.maxHp, 48f)
-        if (building.buildProgress < 1f) drawProgressBar(building.x, drawY - 18f, building.buildProgress, 48f)
+        if (building.buildProgress < 1f) {
+            drawProgressBar(building.x, drawY - 18f, building.buildProgress, 48f)
+        } else if (building.hp < building.maxHp || building.selected) {
+            drawHpBar(building.x, drawY - 8f, building.hp.toFloat() / building.maxHp, 48f)
+        }
     }
 
     private fun drawResource(state: GameState, res: GameResource) {

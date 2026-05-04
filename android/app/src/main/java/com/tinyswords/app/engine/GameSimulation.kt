@@ -286,7 +286,7 @@ class GameSimulation(val state: GameState) {
         return sqrt(dx * dx + dy * dy)
     }
 
-    private fun buildingApproachPoint(b: GameBuilding, u: GameUnit, gap: Float = 22f): Pair<Float, Float> {
+    private fun buildingApproachPoint(b: GameBuilding, u: GameUnit, gap: Float = 12f): Pair<Float, Float> {
         val def = BUILDINGS[b.type] ?: return Pair(b.x, b.y)
         val left = b.x - def.placeW / 2f
         val right = b.x + def.placeW / 2f
@@ -515,7 +515,7 @@ class GameSimulation(val state: GameState) {
         }
 
         val d = buildingFootprintDistance(u, target)
-        if (d < 24f) {
+        if (d <= 36f) {
             // Build/repair
             u.gatherTimer += dt
             if (u.gatherTimer >= 0.5f) {
@@ -532,8 +532,8 @@ class GameSimulation(val state: GameState) {
             }
             u.face = if (target.x >= u.x) 1 else -1
         } else {
-            val approach = buildingApproachPoint(target, u, 22f)
-            moveToward(u, approach.first, approach.second, dt, 16f)
+            val approach = buildingApproachPoint(target, u, 12f)
+            moveToward(u, approach.first, approach.second, dt, 12f)
         }
     }
 
