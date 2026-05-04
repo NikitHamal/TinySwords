@@ -967,12 +967,169 @@ body:not(.in-game) #gameCanvas { filter: saturate(.92) brightness(.60) blur(1px)
   .world-browser, .create-world-layout { grid-template-columns: 1fr !important; }
 }
 @media (max-width: 620px) {
-  #topbar { left: 8px !important; right: auto !important; top: 8px !important; }
+  #topbar { left: 50% !important; right: auto !important; top: 8px !important; transform: translateX(-50%) !important; }
   #miniWrap { top: 8px !important; right: 8px !important; }
-  #selectionPanel { left: 8px !important; bottom: 8px !important; width: min(260px, calc(100vw - 190px)) !important; }
-  #actionDock { top: 106px !important; right: 8px !important; width: 154px !important; }
-  #buildMenu { top: 274px !important; right: 8px !important; width: 154px !important; }
+  #selectionPanel { left: 8px !important; bottom: 58px !important; width: min(260px, calc(100vw - 190px)) !important; }
+  #actionDock { left: 8px !important; right: 8px !important; bottom: 8px !important; top: auto !important; width: auto !important; }
+  #buildMenu { left: 8px !important; right: 8px !important; bottom: 56px !important; top: auto !important; transform: none !important; width: auto !important; }
   .command, .build-card { height: 40px !important; padding: 4px 5px !important; }
   .command img, .build-card img { width: 23px !important; height: 23px !important; }
-  .worker-roles { left: 8px !important; right: 8px !important; top: 94px !important; width: auto !important; }
+  .worker-roles { display: none !important; }
 }
+
+/* === Pass 5: Minimal mobile-first HUD overhaul === */
+#topbar {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  right: auto !important;
+  min-height: 0;
+  max-width: none;
+  padding: 5px 8px;
+  z-index: 20;
+}
+.resource-strip {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: nowrap;
+}
+.res-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  height: 30px;
+  padding: 2px 7px;
+  background: linear-gradient(180deg, rgba(21,43,46,.92), rgba(9,17,22,.95));
+  border: 2px solid rgba(6,14,18,.86);
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgba(246,225,143,.18), 0 2px 0 rgba(0,0,0,.40);
+}
+.res-pill img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  flex: 0 0 auto;
+}
+img[src*="Gold_Resource.png"] {
+  transform: none !important;
+}
+.res-pill span { display: grid; gap: 0; line-height: 1; }
+.res-pill b { color: #fff0a6; font-size: 12px; line-height: 1; }
+.res-pill small { display: none; }
+
+#selectionPanel {
+  position: absolute;
+  left: 10px;
+  bottom: 58px;
+  width: auto;
+  min-width: 120px;
+  max-width: 220px;
+  min-height: 0;
+  padding: 6px 8px;
+  z-index: 22;
+}
+#selectionHeader { min-height: 0; gap: 6px; }
+.selection-icon-wrap { width: 24px; height: 24px; }
+#selectionHeader b { font-size: 11px; }
+#selectionBody { font-size: 10px; margin-top: 4px; }
+.selection-row { padding: 3px 0; }
+#selectionPanel .hpbar { height: 6px; }
+
+#actionDock {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 8px;
+  top: auto !important;
+  width: auto !important;
+  min-height: 0;
+  padding: 6px 8px;
+  z-index: 23;
+}
+#actionTitle { display: none; }
+#actionBar {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+#actionBar::-webkit-scrollbar { display: none; }
+
+#actionBar .command {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  justify-content: center;
+  align-items: center;
+}
+#actionBar .command img {
+  width: 26px;
+  height: 26px;
+}
+#actionBar .command .txt { display: none; }
+
+#buildMenu {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 58px;
+  top: auto !important;
+  transform: none !important;
+  width: auto !important;
+  max-width: none;
+  min-height: 0;
+  padding: 6px 8px;
+  z-index: 24;
+}
+#buildMenu .menu-title { display: none; }
+#buildButtons {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+#buildButtons::-webkit-scrollbar { display: none; }
+#buildButtons .build-card {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  justify-content: center;
+  align-items: center;
+}
+#buildButtons .build-card img {
+  width: 26px;
+  height: 26px;
+}
+#buildButtons .build-card .txt { display: none; }
+
+.formation-tag { display: none !important; }
+
+#miniWrap {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  bottom: auto !important;
+  width: 140px;
+  padding: 6px;
+  z-index: 21;
+}
+#miniMap { width: 124px; height: 84px; }
+#miniWrap.expanded { width: 280px; }
+#miniWrap.expanded #miniMap { width: 264px; height: 180px; }
+
+.worker-roles { display: none !important; }
+
+.state-readout { display: none !important; }
+
+#hud .economy-panel { display: none !important; }

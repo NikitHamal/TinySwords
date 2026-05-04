@@ -80,14 +80,14 @@ Game.prototype.bindEvents = function() {
       this.dragBuilding = null;
     });
     canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); this.updatePointer(e); this.contextOrder(this.pointer.wx, this.pointer.wy); });
-    canvas.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const before = screenToWorld(this, this.pointer.x, this.pointer.y);
-      this.camera.targetZoom = clamp(this.camera.targetZoom * (e.deltaY < 0 ? 1.09 : 0.92), 0.72, 1.32);
-      this.camera.zoom = this.camera.targetZoom;
-      this.camera.x = clamp(before.x - this.pointer.x / this.camera.zoom, 0, WORLD_W - VIEW_W / this.camera.zoom);
-      this.camera.y = clamp(before.y - this.pointer.y / this.camera.zoom, 0, WORLD_H - VIEW_H / this.camera.zoom);
-    }, { passive: false });
+  canvas.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const before = screenToWorld(this, this.pointer.x, this.pointer.y);
+    this.camera.targetZoom = clamp(this.camera.targetZoom * (e.deltaY < 0 ? 1.09 : 0.92), 0.72, 1.32);
+    const after = screenToWorld(this, this.pointer.x, this.pointer.y);
+    this.camera.x = clamp(this.camera.x + before.x - after.x, 0, WORLD_W - VIEW_W / this.camera.zoom);
+    this.camera.y = clamp(this.camera.y + before.y - after.y, 0, WORLD_H - VIEW_H / this.camera.zoom);
+  }, { passive: false });
 
     // Touch events for mobile
     let touchStartTime = 0;
@@ -161,7 +161,6 @@ Game.prototype.bindEvents = function() {
         if (pinchStartDist > 0) {
           const scale = dist / pinchStartDist;
           this.camera.targetZoom = clamp(pinchStartZoom * scale, 0.72, 1.32);
-          this.camera.zoom = this.camera.targetZoom;
         }
         return;
       }
@@ -369,8 +368,8 @@ Game.prototype.buildStaticMenus = function() {
     HUD.buildButtons.innerHTML = '';
     for (const [type, def] of Object.entries(BUILDINGS)) {
       if (type === 'castle') continue;
-      const btn = this.makeButton({
-        className: 'build-card', icon: def.icon, title: `${def.key}: ${def.label}`, sub: fmtCost(def.cost),
+      const btn = this.makeIconButton({
+        className: 'build-card', icon: def.icon, title: def.label,
         onClick: () => { this.startPlacing(type); }
       });
       btn.dataset.type = type;
@@ -387,7 +386,18 @@ Game.prototype.makeButton = function({ className = 'command', icon, title, sub, 
     b.innerHTML = `<img src="${IMAGE_PATHS[icon] || IMAGE_PATHS.iconMove}" class="${isSprite ? 'sprite-icon' : ''}" alt=""><span class="txt"><b>${title}</b><span>${sub || ''}</span></span>`;
     b.addEventListener('click', () => { if (b.classList.contains('disabled')) { this.sfx.deny(); return; } this.sfx.click(); onClick && onClick(); });
     return b;
-};
+  };
+
+Game.prototype.makeIconButton = function({ className = 'build-card', icon, title, onClick, disabled = false }) {
+    const b = document.createElement('button');
+    b.className = className + (disabled ? ' disabled' : '');
+    b.type = 'button';
+    b.title = title;
+    const isSprite = icon && (icon.startsWith('res') || ['iconWorker', 'iconWarrior', 'iconArcher', 'iconLancer', 'iconMonk'].includes(icon));
+    b.innerHTML = `<img src="${IMAGE_PATHS[icon] || IMAGE_PATHS.iconMove}" class="${isSprite ? 'sprite-icon' : ''}" alt="${title}">`;
+    b.addEventListener('click', () => { if (b.classList.contains('disabled')) { this.sfx.deny(); return; } this.sfx.click(); onClick && onClick(); });
+    return b;
+  };
 
 Game.prototype.makeAction = function(hotkey, title, sub, icon, onClick, disabled = false) {
     const b = document.createElement('button');
@@ -647,10 +657,7 @@ Game.prototype.bindEvents = function() {
     if (/^[1-9]$/.test(e.key)) { e.preventDefault(); this.recallControlGroup(e.key) || this.activateHotkey(e.key); return; }
     if (e.key === '0') { this.selectUnits(this.units.filter(u => u.faction === 0 && !u.dead)); return; }
     const modeKey = e.key.toLowerCase();
-    if (modeKey === 'z') this.setFormationMode('line');
-    if (modeKey === 'x') this.setFormationMode('box');
-    if (modeKey === 'c') this.setFormationMode('wedge');
-    if (modeKey === 'v') this.setFormationMode('split');
+
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());
@@ -900,9 +907,9 @@ Game.prototype.bindEvents = function() {
     e.preventDefault();
     const before = screenToWorld(this, this.pointer.x, this.pointer.y);
     this.camera.targetZoom = clamp(this.camera.targetZoom * (e.deltaY < 0 ? 1.09 : 0.92), 0.72, 1.32);
-    this.camera.zoom = this.camera.targetZoom;
-    this.camera.x = clamp(before.x - this.pointer.x / this.camera.zoom, 0, WORLD_W - VIEW_W / this.camera.zoom);
-    this.camera.y = clamp(before.y - this.pointer.y / this.camera.zoom, 0, WORLD_H - VIEW_H / this.camera.zoom);
+    const after = screenToWorld(this, this.pointer.x, this.pointer.y);
+    this.camera.x = clamp(this.camera.x + before.x - after.x, 0, WORLD_W - VIEW_W / this.camera.zoom);
+    this.camera.y = clamp(this.camera.y + before.y - after.y, 0, WORLD_H - VIEW_H / this.camera.zoom);
   }, { passive: false });
 
   mini.addEventListener('click', (e) => {
@@ -1056,9 +1063,9 @@ Game.prototype.bindEvents = function() {
     this.updatePointer(e);
     const before = screenToWorld(this, this.pointer.x, this.pointer.y);
     this.camera.targetZoom = clamp(this.camera.targetZoom * (e.deltaY < 0 ? 1.09 : 0.92), 0.72, 1.32);
-    this.camera.zoom = this.camera.targetZoom;
-    this.camera.x = clamp(before.x - this.pointer.x / this.camera.zoom, 0, WORLD_W - VIEW_W / this.camera.zoom);
-    this.camera.y = clamp(before.y - this.pointer.y / this.camera.zoom, 0, WORLD_H - VIEW_H / this.camera.zoom);
+    const after = screenToWorld(this, this.pointer.x, this.pointer.y);
+    this.camera.x = clamp(this.camera.x + before.x - after.x, 0, WORLD_W - VIEW_W / this.camera.zoom);
+    this.camera.y = clamp(this.camera.y + before.y - after.y, 0, WORLD_H - VIEW_H / this.camera.zoom);
   }, { passive: false });
 
   mini.addEventListener('click', (e) => {

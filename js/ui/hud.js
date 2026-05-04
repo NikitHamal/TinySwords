@@ -8,18 +8,9 @@ Game.prototype.renderUI = function() {
   const pop = this.population(0);
   const resHtml = Object.keys(RESOURCES).map(k => {
     const r = RESOURCES[k];
-    return `<div class="res-pill"><img src="${IMAGE_PATHS[r.icon]}" class="sprite-icon" alt="${r.label}"><span><b>${Math.floor(f.res[k])}</b><small>${r.label}</small></span></div>`;
-  }).join('') + `<div class="res-pill pop-pill"><img src="${IMAGE_PATHS.iconHouse}" alt="Population"><span><b>${pop.used}/${pop.cap}</b><small>Pop</small></span></div>`;
+    return `<div class="res-pill"><img src="${IMAGE_PATHS[r.icon]}" class="sprite-icon" alt="${r.label}"><span><b>${Math.floor(f.res[k])}</b></span></div>`;
+  }).join('') + `<div class="res-pill pop-pill"><img src="${IMAGE_PATHS.iconHouse}" alt="Population"><span><b>${pop.used}/${pop.cap}</b></span></div>`;
   this.setHudHtml(HUD.resources, resHtml);
-
-  const enemiesAlive = this.factions.filter(x => x.id !== 0 && x.ai && x.alive).length;
-  const worldName = this.worldRecord?.name || 'World';
-  const stateHtml = `<span class="status-dot ${this.paused ? 'paused' : 'live'}"></span><span class="state-main">${this.paused ? 'Paused' : 'Live'}</span><span class="state-world">${worldName}</span><span class="state-rivals">${enemiesAlive} rivals</span><button class="mini-action" id="hudSaveBtn" title="Save world (Ctrl+S)">Save</button><button class="mini-action" id="hudExitBtn" title="Save and return to menu">Menu</button>`;
-  this.setHudHtml(HUD.state, stateHtml);
-  const saveBtn = document.getElementById('hudSaveBtn');
-  const exitBtn = document.getElementById('hudExitBtn');
-  if (saveBtn) saveBtn.onclick = () => this.saveToWorldRecord && this.saveToWorldRecord('manual');
-  if (exitBtn) exitBtn.onclick = () => window.tinySwordsApp && window.tinySwordsApp.returnToMenu();
 
   this.renderSelectionPanel();
   this.renderActions();
@@ -231,6 +222,40 @@ Game.prototype.renderSelectionPanel = function() {
   if (s.length > 1) {
     const groups = {};
     for (const e of s) groups[e.type] = (groups[e.type] || 0) + 1;
+    this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""></div><span><b>${s.length} selected</b></span>`);
+    this.setHudHtml(HUD.selectionBody, Object.entries(groups).slice(0, 4).map(([t, n]) => `<div class="selection-row"><span>${UNITS[t]?.label || BUILDINGS[t]?.label || t}</span><b>${n}</b></div>`).join(''));
+    return;
+  }
+
+  if (first.entity === 'resource') {
+    const depleted = first.depleted;
+    const title = depleted ? 'Stump' : first.type === 'tree' ? 'Wood' : first.type === 'gold' ? 'Gold' : first.animal ? getAnimalLabel(first) : 'Food';
+    this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="sprite-icon" alt=""></div><span><b>${title}</b></span>`);
+    const remaining = depleted ? '' : `<div class="selection-row"><span>Left</span><b>${Math.max(0, Math.floor(first.amount))}</b></div>`;
+    this.setHudHtml(HUD.selectionBody, `${remaining}`);
+    return;
+  }
+
+  if (first.entity === 'decor' || (!first.entity && first.kind)) {
+    const decorLabels = { bush1: 'Bush', bush2: 'Bush', bush3: 'Bush', bush4: 'Bush', rock1: 'Rock', rock2: 'Rock', rock3: 'Rock', rock4: 'Rock' };
+    const label = decorLabels[first.kind] || first.kind;
+    this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${IMAGE_PATHS.iconMove}" alt=""></div><span><b>${label}</b></span>`);
+    this.setHudHtml(HUD.selectionBody, '');
+    return;
+  }
+
+  const def = first.entity === 'unit' ? UNITS[first.type] : BUILDINGS[first.type];
+  const owner = faction(first.faction);
+  const hpPct = clamp(first.hp / first.maxHp * 100, 0, 100);
+  const build = first.entity === 'building' && first.build < 1 ? `<div class="selection-row"><span>Build</span><b>${Math.floor(first.build * 100)}%</b></div>` : '';
+  this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""></div><span><small>${owner.name}</small><b>${def.label}</b></span>`);
+  this.setHudHtml(HUD.selectionBody, `<div class="selection-row"><div class="hpbar"><span style="width:${hpPct}%"></span></div><b>${Math.ceil(first.hp)}/${first.maxHp}</b></div>${build}`);
+};
+  const isSpriteIcon = (e) => e && (e.entity === 'resource' || e.entity === 'unit');
+
+  if (s.length > 1) {
+    const groups = {};
+    for (const e of s) groups[e.type] = (groups[e.type] || 0) + 1;
     const formation = s.some(e => e.entity === 'unit') ? `<span class="formation-tag">${FORMATION_MODES[this.formationMode || 'box'].label}</span>` : '';
     this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""></div><span><small>Group</small><b>${s.length} selected ${formation}</b></span>`);
     this.setHudHtml(HUD.selectionBody, Object.entries(groups).map(([t, n]) => `<div class="selection-row"><span>${UNITS[t]?.label || BUILDINGS[t]?.label || t}</span><b>${n}</b></div>`).join(''));
@@ -270,31 +295,26 @@ Game.prototype.renderSelectionPanel = function() {
 
 Game.prototype.renderActions = function() {
   const dock = document.getElementById('actionDock');
-  if (!HUD.actionBar || !HUD.actionTitle) return;
+  if (!HUD.actionBar) return;
   HUD.actionBar.innerHTML = '';
   const own = this.selected.filter(e => e.faction === 0 && isAlive(e));
   if (!own.length) {
     if (dock) dock.classList.add('hidden');
-    HUD.actionTitle.textContent = '';
     return;
   }
   if (dock) dock.classList.remove('hidden');
 
   const units = own.filter(e => e.entity === 'unit');
   const buildings = own.filter(e => e.entity === 'building');
-  HUD.actionTitle.textContent = units.length ? `Unit Commands · ${FORMATION_MODES[this.formationMode || 'box'].label}` : 'Building Commands';
 
   if (units.length) {
     const workers = units.filter(u => u.type === 'worker');
-    HUD.actionBar.appendChild(this.makeAction('', 'Build', 'Open build menu', 'iconBuild', () => this.toggleBuildMenu(), !workers.length));
-    if (workers.length) HUD.actionBar.appendChild(this.makeAction('E', 'Worker Roles', 'Economy jobs', 'iconWorker', () => this.toggleWorkerRoles(true)));
-    HUD.actionBar.appendChild(this.makeAction('', 'Attack Move', 'Fight along path', 'iconAttack', () => { this.orderMoveFormation(units, this.pointer.wx, this.pointer.wy, true); }));
-    HUD.actionBar.appendChild(this.makeAction('', 'Stop', 'Cancel orders', 'iconStop', () => this.stopSelected()));
-    HUD.actionBar.appendChild(this.makeAction('', 'Hold', 'Defensive stance', 'iconRally', () => this.holdSelected()));
-    HUD.actionBar.appendChild(this.makeAction('Z', 'Line', 'Wide front', 'iconRally', () => this.setFormationMode('line')));
-    HUD.actionBar.appendChild(this.makeAction('X', 'Box', 'Compact', 'iconRally', () => this.setFormationMode('box')));
-    HUD.actionBar.appendChild(this.makeAction('C', 'Wedge', 'Charge', 'iconRally', () => this.setFormationMode('wedge')));
-    HUD.actionBar.appendChild(this.makeAction('V', 'Split', 'Archers back', 'iconRally', () => this.setFormationMode('split')));
+    if (workers.length) {
+      HUD.actionBar.appendChild(this.makeIconAction('iconBuild', () => this.toggleBuildMenu(), 'Build'));
+    }
+    HUD.actionBar.appendChild(this.makeIconAction('iconAttack', () => { this.orderMoveFormation(units, this.pointer.wx, this.pointer.wy, true); }, 'Attack'));
+    HUD.actionBar.appendChild(this.makeIconAction('iconStop', () => this.stopSelected(), 'Stop'));
+    HUD.actionBar.appendChild(this.makeIconAction('iconRally', () => this.holdSelected(), 'Hold'));
   }
 
   if (buildings.length) {
@@ -302,27 +322,23 @@ Game.prototype.renderActions = function() {
     for (const b of buildings) if (b.build >= 1) BUILDINGS[b.type].trains.forEach(t => trainSet.add(t));
     let n = 1;
     for (const t of trainSet) {
-      const d = UNITS[t];
-      const pop = this.population(0);
-      const disabled = !canAfford(this.factions[0], d.cost) || pop.used + d.pop > pop.cap;
-      HUD.actionBar.appendChild(this.makeAction(String(n), `Train ${d.label}`, fmtCost(d.cost), d.icon, () => this.queueTrain(t), disabled));
-      n++;
+      const d = UNITS[t]; const pop = this.population(0); const disabled = !canAfford(this.factions[0], d.cost) || pop.used + d.pop > pop.cap;
+      HUD.actionBar.appendChild(this.makeIconAction(d.icon, () => this.queueTrain(t), d.label, disabled)); n++;
     }
-    if (trainSet.size > 0) HUD.actionBar.appendChild(this.makeAction('', 'Rally Flag', 'Right click map', 'iconRally', () => this.toast('Right click the map to set rally flags.', 1.4)));
-    HUD.actionBar.appendChild(this.makeAction('', 'Assign Workers', 'Build / repair', 'iconRepair', () => this.repairSelected()));
+    if (trainSet.size > 0) HUD.actionBar.appendChild(this.makeIconAction('iconRally', () => this.toast('Right click the map to set rally flags.', 1.4), 'Rally'));
+    HUD.actionBar.appendChild(this.makeIconAction('iconRepair', () => this.repairSelected(), 'Repair'));
   }
+};
 
-  const resources = own.length === 0 ? this.selected.filter(e => e.entity === 'resource') : [];
-  if (resources.length) {
-    if (dock) dock.classList.remove('hidden');
-    HUD.actionTitle.textContent = 'Resource Commands';
-    for (const res of resources) {
-      if (res.type === 'tree') HUD.actionBar.appendChild(this.makeAction('', 'Chop', 'Send worker', 'resWood', () => this.assignWorkerToResource(res)));
-      if (res.type === 'gold') HUD.actionBar.appendChild(this.makeAction('', 'Mine', 'Send worker', 'resGold', () => this.assignWorkerToResource(res)));
-      if (res.type === 'food') HUD.actionBar.appendChild(this.makeAction('', res.animal ? 'Hunt' : 'Gather', 'Send worker', 'resFood', () => this.assignWorkerToResource(res)));
-      break;
-    }
-  }
+Game.prototype.makeIconAction = function(icon, onClick, title, disabled = false) {
+  const b = document.createElement('button');
+  b.className = 'command' + (disabled ? ' disabled' : '');
+  b.type = 'button';
+  b.title = title;
+  const isSprite = icon && (icon.startsWith('res') || ['iconWorker', 'iconWarrior', 'iconArcher', 'iconLancer', 'iconMonk'].includes(icon));
+  b.innerHTML = `<img src="${IMAGE_PATHS[icon] || IMAGE_PATHS.iconMove}" class="${isSprite ? 'sprite-icon' : ''}" alt="${title}">`;
+  b.addEventListener('click', () => { if (b.classList.contains('disabled')) { this.sfx.deny(); return; } this.sfx.click(); onClick && onClick(); });
+  return b;
 };
 
 Game.prototype.renderWorkerRolePanel = function() {

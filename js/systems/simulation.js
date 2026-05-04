@@ -1710,7 +1710,7 @@ Game.prototype.isBlocked = function(x, y, u) {
   const buildingCandidates = this.nearbyBuildings ? this.nearbyBuildings(x, y, 260) : this.buildings;
   for (let i = 0; i < buildingCandidates.length; i++) {
     const b = buildingCandidates[i];
-    if (b.dead || b.build < 0.1 || b === ignoreBuilding) continue;
+    if (b.dead || b.build < 1 || b === ignoreBuilding) continue;
     const brect = getBuildingFootprintRect(b, undefined, undefined, 4);
     if (rectsOverlap(rect, brect)) return true;
   }
@@ -2019,5 +2019,5 @@ Game.prototype.update = function(dt) {
     this._shouldRebuildSpatial = false;
   }
   this.uiTimer -= dt;
-  if (this.uiDirty || this.uiTimer <= 0) { this.renderUI(); this.uiTimer = 0.25; this.uiDirty = false; }
+  if (this.uiDirty || this.uiTimer <= 0) { this.renderUI(); this.uiTimer = 0.40; this.uiDirty = false; }
 };

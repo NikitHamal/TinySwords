@@ -228,10 +228,11 @@ class GameView @JvmOverloads constructor(
                 val midX = (event.getX(0) + event.getX(1)) * 0.5f
                 val midY = (event.getY(0) + event.getY(1)) * 0.5f
                 val cam = state.camera
-                cam.zoom = newZoom
+                val oldZoom = cam.zoom
                 cam.targetZoom = newZoom
-                cam.x = pinchFocusWorldX - (midX - viewW / 2f) / newZoom
-                cam.y = pinchFocusWorldY - (midY - viewH / 2f) / newZoom
+                // Adjust camera so the pinch focus point stays stable under the midpoint
+                cam.x = pinchFocusWorldX - (midX - viewW / 2f) / oldZoom + (midX - viewW / 2f) / oldZoom - (midX - viewW / 2f) / newZoom
+                cam.y = pinchFocusWorldY - (midY - viewH / 2f) / oldZoom + (midY - viewH / 2f) / oldZoom - (midY - viewH / 2f) / newZoom
                 clampCamera(viewW, viewH)
             }
             return

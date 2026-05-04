@@ -555,8 +555,7 @@ Game.prototype.drawBuilding = function (b) {
   if (img) { ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1; ctx.drawImage(img, Math.round(b.x - metrics.w / 2), Math.round(metrics.drawY), Math.round(metrics.w), Math.round(metrics.h)); ctx.globalAlpha = 1; }
   else { ctx.fillStyle = faction(b.faction).color; ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
   if (b.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${b.flash * .25})`; ctx.fillRect(b.x - b.w / 2, b.y - b.h, b.w, b.h); }
-  if (b.build < 1) this.drawProgress(b.x, metrics.barY + 5, b.build, '#e8c965');
-  else if (b.hp < b.maxHp) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
+  if (b.build >= 1 && b.hp < b.maxHp) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
   if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
   if (b.rally && b.faction === 0 && this.selected.includes(b)) this.drawRallyFlag(b.rally.x, b.rally.y, faction(b.faction).color);
   if (b.type === 'tower' && b.build >= 1) {
@@ -859,7 +858,7 @@ Game.prototype.buildMinimapTerrainCache = function () {
 
 Game.prototype.getMinimapEntityLayer = function (w, h) {
   const key = `${w}x${h}:${this.resources.length}:${this.buildings.length}:${this.units.length}:${this.attackPings ? this.attackPings.length : 0}`;
-  if (this._minimapEntityCanvas && this._minimapEntityKey === key && this.time - this._minimapEntityTime < .16) return this._minimapEntityCanvas;
+  if (this._minimapEntityCanvas && this._minimapEntityKey === key && this.time - this._minimapEntityTime < .35) return this._minimapEntityCanvas;
   const c = this._minimapEntityCanvas || (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : document.createElement('canvas'));
   if (c.width !== w) c.width = w;
   if (c.height !== h) c.height = h;
@@ -987,8 +986,7 @@ Game.prototype.drawBuildingPerf = function (b) {
   const img = metrics.img;
   if (img) { ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1; ctx.drawImage(img, Math.round(b.x - metrics.w / 2), Math.round(metrics.drawY), Math.round(metrics.w), Math.round(metrics.h)); ctx.globalAlpha = 1; }
   else { ctx.fillStyle = faction(b.faction).color; ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
-  if (b.build < 1) this.drawProgress(b.x, metrics.barY + 5, b.build, '#e8c965');
-  else if (b.hp < b.maxHp) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
+  if (b.build >= 1 && b.hp < b.maxHp) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
   if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
   if (b.type === 'tower' && b.build >= 1) {
     const fKey = faction(b.faction).key;

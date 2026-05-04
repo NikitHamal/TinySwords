@@ -298,17 +298,35 @@ class GameSimulation(val state: GameState) {
             Pair(right - def.placeW * 0.25f, bottom + gap),
             Pair(b.x, top - gap),
             Pair(left - gap, b.y),
-            Pair(right + gap, b.y)
+            Pair(right + gap, b.y),
+            Pair(left - gap, top - gap),
+            Pair(right + gap, top - gap),
+            Pair(left - gap, bottom + gap),
+            Pair(right + gap, bottom + gap)
         )
         var best = candidates[0]
         var bestScore = Float.MAX_VALUE
+        var anySafe = false
         for (p in candidates) {
             if (!state.isSafeLand(p.first, p.second, 10f)) continue
+            anySafe = true
             val frontBias = if (p.second > b.y) -900f else 0f
             val score = dist2(u.x, u.y, p.first, p.second) + frontBias
             if (score < bestScore) {
                 bestScore = score
                 best = p
+            }
+        }
+        if (!anySafe) {
+            // Spiral search for a safe point near the building
+            for (ring in 1..8) {
+                val r = gap + ring * 16f
+                for (i in 0 until 12) {
+                    val a = i * 2f * PI.toFloat() / 12f
+                    val px = b.x + kotlin.math.cos(a) * r
+                    val py = b.y + kotlin.math.sin(a) * r
+                    if (state.isSafeLand(px, py, 10f)) return Pair(px, py)
+                }
             }
         }
         return best
@@ -515,7 +533,7 @@ class GameSimulation(val state: GameState) {
         }
 
         val d = buildingFootprintDistance(u, target)
-        if (d < 24f) {
+        if (d < 34f) {
             // Build/repair
             u.gatherTimer += dt
             if (u.gatherTimer >= 0.5f) {

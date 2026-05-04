@@ -49,35 +49,34 @@ fun AssetIcon(assetPath: String, fallbackColor: Color, modifier: Modifier = Modi
 fun ResourcePill(value: String, color: Color, assetPath: String, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier
-            .widthIn(min = 70.dp)
             .background(GameColors.Panel.copy(alpha = 0.88f), RoundedCornerShape(5.dp))
             .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(5.dp))
-            .padding(horizontal = 5.dp, vertical = 3.dp),
+            .padding(horizontal = 6.dp, vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         AssetIcon(
             assetPath = assetPath,
             fallbackColor = color,
-            modifier = Modifier.size(17.dp)
+            modifier = Modifier.size(18.dp)
         )
         Text(
             text = value,
-            style = GameTypography.Body.copy(fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp),
+            style = GameTypography.Body.copy(fontWeight = FontWeight.Bold, color = Color.White, fontSize = 12.sp),
         )
     }
 }
 
-// ── Top-right Resource Stack ──
+// ── Top-center Resource Bar ──
 @Composable
 fun ResourceBar(
     wood: Int, gold: Int, food: Int, popUsed: Int, popCap: Int,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Row(
         modifier = modifier.padding(6.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        horizontalAlignment = Alignment.End
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         ResourcePill(wood.toString(), GameColors.WoodColor, "Tiny Swords (Free Pack)/Terrain/Resources/Wood/Wood Resource/Wood Resource.png")
         ResourcePill(gold.toString(), GameColors.GoldColor, "Tiny Swords (Free Pack)/Terrain/Resources/Gold/Gold Resource/Gold_Resource.png")
@@ -86,44 +85,31 @@ fun ResourceBar(
     }
 }
 
+// ── Icon-only command chip ──
 @Composable
-fun IconCommandButton(
-    text: String,
-    iconPath: String?,
+fun IconCommandChip(
+    iconPath: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    subtitle: String? = null,
-    enabled: Boolean = true,
-    isActive: Boolean = false
+    enabled: Boolean = true
 ) {
-    val bg = when {
-        !enabled -> GameColors.ButtonDisabled
-        isActive -> GameColors.ButtonPressed
-        else -> GameColors.ButtonNormal
-    }
-    Row(
+    val bg = if (enabled) GameColors.ButtonNormal else GameColors.ButtonDisabled
+    Box(
         modifier = modifier
-            .height(44.dp)
+            .size(42.dp)
             .background(bg.copy(alpha = 0.94f), RoundedCornerShape(5.dp))
-            .border(1.dp, if (isActive) GameColors.TextGold else GameColors.ButtonBorder, RoundedCornerShape(5.dp))
+            .border(1.dp, GameColors.ButtonBorder, RoundedCornerShape(5.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 6.dp, vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(4.dp),
+        contentAlignment = Alignment.Center
     ) {
-        if (iconPath != null) {
-            AssetIcon(iconPath, GameColors.TextGold, Modifier.size(30.dp))
-        }
-        Column(modifier = Modifier.weight(1f, fill = true)) {
-            Text(text, style = GameTypography.Button.copy(fontSize = 10.sp))
-            if (subtitle != null) Text(subtitle, style = GameTypography.Small.copy(fontSize = 8.sp, color = GameColors.TextSecondary))
-        }
+        AssetIcon(iconPath, GameColors.TextGold, Modifier.size(26.dp))
     }
 }
 
-// ── Right-side RTS Control Stack ──
+// ── Quick bottom control bar ──
 @Composable
-fun QuickControlPanel(
+fun QuickControlBar(
     onWorkers: () -> Unit,
     onArmy: () -> Unit,
     onAll: () -> Unit,
@@ -131,21 +117,21 @@ fun QuickControlPanel(
     onCancel: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Row(
         modifier = modifier
-            .width(174.dp)
-            .heightIn(max = 300.dp)
-            .verticalScroll(rememberScrollState())
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
             .background(GameColors.Panel.copy(alpha = 0.78f), RoundedCornerShape(7.dp))
             .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(7.dp))
             .padding(5.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        IconCommandButton("Workers", "Tiny Swords (Free Pack)/Units/Blue Units/Pawn/Pawn_Idle.png", onWorkers, subtitle = "select economy")
-        IconCommandButton("Army", "Tiny Swords (Free Pack)/Units/Blue Units/Warrior/Warrior_Idle.png", onArmy, subtitle = "select fighters")
-        IconCommandButton("All Units", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_01.png", onAll)
-        IconCommandButton("Base", "Tiny Swords (Free Pack)/Buildings/Blue Buildings/Castle.png", onHome)
-        IconCommandButton("Clear", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Buttons/TinyRoundRedButton.png", onCancel)
+        IconCommandChip("Tiny Swords (Free Pack)/Units/Blue Units/Pawn/Pawn_Idle.png", onWorkers)
+        IconCommandChip("Tiny Swords (Free Pack)/Units/Blue Units/Warrior/Warrior_Idle.png", onArmy)
+        IconCommandChip("Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_01.png", onAll)
+        IconCommandChip("Tiny Swords (Free Pack)/Buildings/Blue Buildings/Castle.png", onHome)
+        IconCommandChip("Tiny Swords (Free Pack)/UI Elements/UI Elements/Buttons/TinyRoundRedButton.png", onCancel)
     }
 }
 
@@ -162,7 +148,7 @@ fun HpBar(current: Int, max: Int, width: Int = 80, modifier: Modifier = Modifier
     Box(
         modifier = modifier
             .width(width.dp)
-            .height(8.dp)
+            .height(6.dp)
             .background(Color(0xFF1a1a1a), RoundedCornerShape(2.dp))
     ) {
         Box(
@@ -174,7 +160,7 @@ fun HpBar(current: Int, max: Int, width: Int = 80, modifier: Modifier = Modifier
     }
 }
 
-// ── Selection Panel ──
+// ── Minimal Selection Panel ──
 @Composable
 fun SelectionPanel(
     selected: List<GameEntity>,
@@ -184,117 +170,58 @@ fun SelectionPanel(
 
     Column(
         modifier = modifier
-            .width(200.dp)
-            .background(GameColors.Panel, RoundedCornerShape(8.dp))
-            .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(8.dp))
-            .padding(8.dp)
+            .widthIn(min = 120.dp, max = 200.dp)
+            .background(GameColors.Panel, RoundedCornerShape(6.dp))
+            .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(6.dp))
+            .padding(6.dp)
     ) {
         val first = selected.first()
 
         when {
             selected.size > 1 -> {
-                // Multi-select
                 val units = selected.filterIsInstance<GameUnit>()
                 Text(
-                    text = "${units.size} Units Selected",
-                    style = GameTypography.Heading.copy(fontSize = 13.sp)
+                    text = "${units.size} selected",
+                    style = GameTypography.Heading.copy(fontSize = 11.sp)
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-
-                // Unit composition
-                val types = units.groupBy { it.type }
-                for ((type, group) in types) {
-                    val def = UNITS[type] ?: continue
-                    Text(
-                        text = "${group.size}x ${def.label}",
-                        style = GameTypography.Small
-                    )
-                }
             }
             first is GameUnit -> {
                 val def = UNITS[first.type] ?: return
                 Text(
                     text = def.label,
-                    style = GameTypography.Heading.copy(fontSize = 13.sp)
+                    style = GameTypography.Heading.copy(fontSize = 11.sp)
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                HpBar(first.hp, first.maxHp)
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "HP: ${first.hp}/${first.maxHp}",
-                    style = GameTypography.Small
-                )
-                if (first.type == "worker" && first.carrying != null) {
-                    Text(
-                        text = "Carrying: ${first.carrying} (${first.carryAmount.toInt()})",
-                        style = GameTypography.Small.copy(color = GameColors.TextGold)
-                    )
-                }
-                Text(
-                    text = "DMG: ${kotlin.math.abs(def.damage)} | RNG: ${def.range.toInt()} | SPD: ${def.speed.toInt()}",
-                    style = GameTypography.Small
-                )
+                HpBar(first.hp, first.maxHp, width = 60)
             }
             first is GameBuilding -> {
                 val def = BUILDINGS[first.type] ?: return
                 Text(
                     text = def.label,
-                    style = GameTypography.Heading.copy(fontSize = 13.sp)
+                    style = GameTypography.Heading.copy(fontSize = 11.sp)
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                HpBar(first.hp, first.maxHp)
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "HP: ${first.hp}/${first.maxHp}",
-                    style = GameTypography.Small
-                )
+                HpBar(first.hp, first.maxHp, width = 60)
                 if (first.buildProgress < 1f) {
                     Text(
-                        text = "Building: ${(first.buildProgress * 100).toInt()}%",
-                        style = GameTypography.Small.copy(color = GameColors.AccentBlue)
-                    )
-                }
-                if (first.queue.isNotEmpty()) {
-                    val slot = first.queue[0]
-                    Text(
-                        text = "Training: ${UNITS[slot.unitType]?.label ?: slot.unitType} (${(slot.progress * 100).toInt()}%)",
-                        style = GameTypography.Small.copy(color = GameColors.AccentGreen)
-                    )
-                    if (first.queue.size > 1) {
-                        Text(
-                            text = "+${first.queue.size - 1} in queue",
-                            style = GameTypography.Small
-                        )
-                    }
-                }
-                if (def.pop > 0) {
-                    Text(
-                        text = "Pop: +${def.pop}",
-                        style = GameTypography.Small.copy(color = GameColors.PopColor)
+                        text = "Build ${(first.buildProgress * 100).toInt()}%",
+                        style = GameTypography.Small.copy(color = GameColors.AccentBlue, fontSize = 9.sp)
                     )
                 }
             }
             first is GameResource -> {
                 val typeName = when (first.type) {
-                    ResourceType.TREE -> "Forest"
-                    ResourceType.GOLD -> "Gold Deposit"
+                    ResourceType.TREE -> "Wood"
+                    ResourceType.GOLD -> "Gold"
                     ResourceType.FOOD -> if (first.isAnimal) {
-                        when (first.animalKind) { "grouse" -> "Black Grouse" else -> first.animalKind.replaceFirstChar { it.uppercase() } }
+                        when (first.animalKind) { "grouse" -> "Grouse" else -> first.animalKind.replaceFirstChar { it.uppercase() } }
                     } else "Food"
                 }
                 Text(
                     text = typeName,
-                    style = GameTypography.Heading.copy(fontSize = 13.sp)
+                    style = GameTypography.Heading.copy(fontSize = 11.sp)
                 )
-                Spacer(modifier = Modifier.height(4.dp))
                 if (first.isAnimal && first.animalHp > 0) {
-                    HpBar(first.animalHp.toInt(), first.animalMaxHp.toInt())
-                    Spacer(modifier = Modifier.height(2.dp))
+                    HpBar(first.animalHp.toInt(), first.animalMaxHp.toInt(), width = 60)
                 }
-                Text(
-                    text = "Remaining: ${first.amount.toInt()}",
-                    style = GameTypography.Small
-                )
             }
         }
     }
@@ -335,16 +262,13 @@ fun CommandButton(
     }
 }
 
-// ── Action Dock ──
+// ── Bottom Action Bar ──
 @Composable
-fun ActionDock(
+fun ActionBar(
     selected: List<GameEntity>,
-    formationMode: String,
-    onMove: () -> Unit,
     onAttackMove: () -> Unit,
     onStop: () -> Unit,
     onHold: () -> Unit,
-    onFormation: (String) -> Unit,
     onBuildMenu: () -> Unit,
     onTrain: (String) -> Unit,
     modifier: Modifier = Modifier
@@ -353,98 +277,62 @@ fun ActionDock(
     val hasBuilding = selected.firstOrNull() is GameBuilding && (selected.first() as GameBuilding).faction == 0
     val hasWorkers = selected.any { it is GameUnit && it.type == "worker" && it.faction == 0 }
 
-    Column(
+    Row(
         modifier = modifier
-            .width(190.dp)
-            .heightIn(max = 360.dp)
-            .verticalScroll(rememberScrollState())
-            .background(GameColors.Panel.copy(alpha = 0.84f), RoundedCornerShape(8.dp))
-            .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(8.dp))
-            .padding(7.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .background(GameColors.Panel.copy(alpha = 0.84f), RoundedCornerShape(7.dp))
+            .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(7.dp))
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Text("COMMANDS", style = GameTypography.Heading.copy(fontSize = 11.sp, color = GameColors.TextGold))
         if (hasUnits) {
-            IconCommandButton("Attack Move", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Swords/Swords.png", onAttackMove, subtitle = "engage on path")
-            IconCommandButton("Stop", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Buttons/TinyRoundRedButton.png", onStop)
-            IconCommandButton("Hold", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_05.png", onHold)
-
-            val nextFormation = when (formationMode) {
-                "box" -> "line"
-                "line" -> "wedge"
-                "wedge" -> "split"
-                else -> "box"
-            }
-            IconCommandButton(
-                "Formation",
-                "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_01.png",
-                { onFormation(nextFormation) },
-                subtitle = formationMode.uppercase(),
-                isActive = true
-            )
-
             if (hasWorkers) {
-                IconCommandButton("Build", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_08.png", onBuildMenu, subtitle = "structures")
+                IconCommandChip("Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_08.png", onBuildMenu)
             }
+            IconCommandChip("Tiny Swords (Free Pack)/UI Elements/UI Elements/Swords/Swords.png", onAttackMove)
+            IconCommandChip("Tiny Swords (Free Pack)/UI Elements/UI Elements/Buttons/TinyRoundRedButton.png", onStop)
+            IconCommandChip("Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_05.png", onHold)
         }
 
         if (hasBuilding) {
             val building = selected.first() as GameBuilding
             val bdef = BUILDINGS[building.type]
             if (bdef != null && bdef.trains.isNotEmpty()) {
-                Text("TRAIN", style = GameTypography.Small.copy(color = GameColors.TextSecondary))
                 for (unitType in bdef.trains) {
                     val udef = UNITS[unitType] ?: continue
-                    IconCommandButton(
-                        text = udef.label,
-                        iconPath = unitIconPath(unitType),
-                        onClick = { onTrain(unitType) },
-                        subtitle = "${udef.costGold}G ${udef.costWood}W ${udef.costFood}F"
-                    )
+                    IconCommandChip(unitIconPath(unitType), { onTrain(unitType) })
                 }
             }
         }
     }
 }
 
-// ── Build Menu ──
+// ── Build Sub-Bar ──
 @Composable
-fun BuildMenu(
+fun BuildBar(
     faction: FactionState,
     onBuild: (String) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
+    Row(
         modifier = modifier
-            .width(190.dp)
-            .heightIn(max = 380.dp)
-            .verticalScroll(rememberScrollState())
-            .background(GameColors.Panel.copy(alpha = 0.90f), RoundedCornerShape(8.dp))
-            .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(8.dp))
-            .padding(7.dp),
-        verticalArrangement = Arrangement.spacedBy(5.dp)
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .background(GameColors.Panel.copy(alpha = 0.90f), RoundedCornerShape(7.dp))
+            .border(1.dp, GameColors.PanelBorder, RoundedCornerShape(7.dp))
+            .padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text("BUILD", style = GameTypography.Heading.copy(fontSize = 11.sp, color = GameColors.TextGold))
-            CommandButton("X", onClick = onClose)
-        }
-
         for ((type, bdef) in BUILDINGS) {
             if (type == "castle") continue
             val canAfford = faction.canAfford(bdef.costWood, bdef.costGold, bdef.costFood)
-            IconCommandButton(
-                text = bdef.label,
-                iconPath = buildingIconPath(type),
-                onClick = { onBuild(type) },
-                subtitle = "${bdef.costWood}W ${bdef.costGold}G",
-                enabled = canAfford
-            )
+            IconCommandChip(buildingIconPath(type), { onBuild(type) }, enabled = canAfford)
         }
+        IconCommandChip("Tiny Swords (Free Pack)/UI Elements/UI Elements/Buttons/TinyRoundRedButton.png", onClose)
     }
 }
 
