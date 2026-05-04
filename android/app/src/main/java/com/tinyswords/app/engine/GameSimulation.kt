@@ -9,7 +9,6 @@ import com.tinyswords.app.game.pathfinding.Pathfinder
 import com.tinyswords.app.game.world.WorldGenerator
 import com.tinyswords.app.util.dist
 import com.tinyswords.app.util.dist2
-import com.tinyswords.app.util.formationOffset
 import kotlin.math.*
 import java.util.ArrayDeque
 
@@ -515,16 +514,22 @@ class GameSimulation(val state: GameState) {
         }
 
         val d = buildingFootprintDistance(u, target)
-        if (d < 24f) {
-            // Build/repair
+        if (d < 36f) {
+            // Build/repair. Use a wider build threshold so the worker actually
+            // starts working once they reach the approach point (gap=18f) rather
+            // than stalling just outside the footprint.
             u.gatherTimer += dt
             if (u.gatherTimer >= 0.5f) {
                 u.gatherTimer = 0f
                 if (target.buildProgress < 1f) {
-                    target.buildProgress = min(1f, target.buildProgress + 0.02f)
+                    // Faster construction so a single worker can finish a small
+                    // building in roughly 8-10s instead of 25s+.
+                    target.buildProgress = min(1f, target.buildProgress + 0.06f)
                     if (target.buildProgress >= 1f) {
                         target.hp = target.maxHp
-                        state.navVersion++
+                        // The footprint is now permanently blocked: rebuild the
+                        // path grid so units route around the new obstacle.
+                        worldGenerator.rebuildPathGrid()
                     }
                 } else if (target.hp < target.maxHp) {
                     target.hp = min(target.maxHp, target.hp + 5)
@@ -532,8 +537,10 @@ class GameSimulation(val state: GameState) {
             }
             u.face = if (target.x >= u.x) 1 else -1
         } else {
-            val approach = buildingApproachPoint(target, u, 22f)
-            moveToward(u, approach.first, approach.second, dt, 16f)
+            val approach = buildingApproachPoint(target, u, 18f)
+            // Stop close to the approach point so we always end up inside the
+            // build threshold above.
+            moveToward(u, approach.first, approach.second, dt, 4f)
         }
     }
 
@@ -763,10 +770,20 @@ class GameSimulation(val state: GameState) {
     // ── Player Commands ──
 
     fun orderMove(units: List<GameUnit>, targetX: Float, targetY: Float, attackMove: Boolean = false) {
-        val spacing = FORMATION_MODES[state.formationMode]?.spacing ?: 42f
+        val spacing = 42f
+        val count = units.size
+        val cols = ceil(sqrt(count.toFloat())).toInt().coerceAtLeast(1)
         for ((i, u) in units.withIndex()) {
             if (u.dead || u.garrisoned) continue
-            val (ox, oy) = formationOffset(i, units.size, spacing, state.formationMode)
+            // Simple grid offsets keep units from stacking at a single point but
+            // do not enforce strict formations.
+            val row = i / cols
+            val col = i % cols
+            val rowCount = if (row < count / cols) cols else count % cols
+            val halfCol = (rowCount - 1) / 2f
+            val halfRow = (ceil(count.toFloat() / cols) - 1) / 2f
+            val ox = (col - halfCol) * spacing
+            val oy = (row - halfRow) * spacing
             u.order = if (attackMove) UnitOrder.ATTACK_MOVE else UnitOrder.MOVE
             u.goalX = targetX + ox
             u.goalY = targetY + oy
@@ -838,9 +855,4 @@ class GameSimulation(val state: GameState) {
         }
     }
 
-    fun setFormation(mode: String) {
-        if (FORMATION_MODES.containsKey(mode)) {
-            state.formationMode = mode
-        }
-    }
 }

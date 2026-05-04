@@ -110,6 +110,7 @@ private fun ActiveGameScreen(
     val assetManager = bundle.assetManager
 
     var gameView by remember { mutableStateOf<GameView?>(null) }
+    var firstFrameReady by remember { mutableStateOf(false) }
     var selectionVersion by remember { mutableStateOf(0) }
     var uiTick by remember { mutableStateOf(0) }
     var isPaused by remember { mutableStateOf(false) }
@@ -172,12 +173,35 @@ private fun ActiveGameScreen(
                     onGameOver = { winner ->
                         gameOverWinner = winner
                         isGameOver = true
-                    }
+                    },
+                    onFirstFrame = { firstFrameReady = true }
                 ).also { gameView = it }
             }
         )
 
-        if (!isGameOver) {
+        // Cover the GLSurfaceView with the loading background until the first GL
+        // frame has actually been drawn. Without this guard there is a brief
+        // flash of black between the loading screen and the rendered world.
+        if (!firstFrameReady) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(Color(0xFF07111B), Color(0xFF123327), Color(0xFF1F210B))
+                        )
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Opening battlefield…",
+                    style = GameTypography.Body.copy(color = GameColors.TextSecondary),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        if (!isGameOver && firstFrameReady) {
             val (wood, gold, food, popUsed, popCap) = remember(uiTick) {
                 synchronized(gameState) {
                     val faction = gameState.factions[0]
@@ -187,6 +211,7 @@ private fun ActiveGameScreen(
             }
             val faction = gameState.factions[0]
 
+            // Top-center compact resource strip
             ResourceBar(
                 wood = wood,
                 gold = gold,
@@ -194,81 +219,11 @@ private fun ActiveGameScreen(
                 popUsed = popUsed,
                 popCap = popCap,
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 4.dp, end = 236.dp)
+                    .align(Alignment.TopCenter)
+                    .padding(top = 6.dp)
             )
 
-            val currentSelection = remember(selectionVersion, uiTick) {
-                synchronized(gameState) { gameState.selected.toList() }
-            }
-            SelectionPanel(
-                selected = currentSelection,
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 8.dp)
-            )
-
-            if (currentSelection.isNotEmpty()) {
-                val formationMode = remember(uiTick) { synchronized(gameState) { gameState.formationMode } }
-                ActionDock(
-                    selected = currentSelection,
-                    formationMode = formationMode,
-                    onMove = { },
-                    onAttackMove = { gameView?.armAttackMove() },
-                    onStop = {
-                        gameView?.runCommand {
-                            val units = gameState.selected.filterIsInstance<GameUnit>().filter { it.faction == 0 }
-                            simulation.orderStop(units)
-                        }
-                    },
-                    onHold = {
-                        gameView?.runCommand {
-                            val units = gameState.selected.filterIsInstance<GameUnit>().filter { it.faction == 0 }
-                            simulation.orderHold(units)
-                        }
-                    },
-                    onFormation = { mode -> gameView?.runCommand { simulation.setFormation(mode) } },
-                    onBuildMenu = { showBuildMenu = !showBuildMenu },
-                    onTrain = { unitType ->
-                        gameView?.runCommand {
-                            val building = gameState.selected.firstOrNull() as? GameBuilding
-                            if (building != null) simulation.economy.trainUnit(building, unitType)
-                        }
-                    },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 134.dp, end = 8.dp)
-                )
-            } else {
-                QuickControlPanel(
-                    onWorkers = { gameView?.selectAllWorkers() },
-                    onArmy = { gameView?.selectAllMilitary() },
-                    onAll = { gameView?.selectAllUnits() },
-                    onHome = { gameView?.focusPlayerBase() },
-                    onCancel = {
-                        showBuildMenu = false
-                        gameView?.cancelPlacement()
-                    },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 134.dp, end = 8.dp)
-                )
-            }
-
-            if (showBuildMenu) {
-                BuildMenu(
-                    faction = faction,
-                    onBuild = { type ->
-                        gameView?.runCommand { gameState.placingBuilding = type }
-                        showBuildMenu = false
-                    },
-                    onClose = { showBuildMenu = false },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 320.dp, end = 8.dp)
-                )
-            }
-
+            // Top-left pause button
             CommandButton(
                 text = "II",
                 onClick = {
@@ -279,6 +234,63 @@ private fun ActiveGameScreen(
                     .align(Alignment.TopStart)
                     .padding(8.dp)
             )
+
+            val currentSelection = remember(selectionVersion, uiTick) {
+                synchronized(gameState) { gameState.selected.toList() }
+            }
+
+            // Bottom-left minimal selection card
+            SelectionPanel(
+                selected = currentSelection,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 8.dp, bottom = 8.dp)
+            )
+
+            // Bottom-center action dock + optional build menu above
+            if (currentSelection.isNotEmpty()) {
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (showBuildMenu) {
+                        BuildMenu(
+                            faction = faction,
+                            onBuild = { type ->
+                                gameView?.runCommand { gameState.placingBuilding = type }
+                                showBuildMenu = false
+                            },
+                            onClose = { showBuildMenu = false }
+                        )
+                    }
+                    ActionDock(
+                        selected = currentSelection,
+                        onAttackMove = { gameView?.armAttackMove() },
+                        onStop = {
+                            gameView?.runCommand {
+                                val units = gameState.selected.filterIsInstance<GameUnit>().filter { it.faction == 0 }
+                                simulation.orderStop(units)
+                            }
+                        },
+                        onHold = {
+                            gameView?.runCommand {
+                                val units = gameState.selected.filterIsInstance<GameUnit>().filter { it.faction == 0 }
+                                simulation.orderHold(units)
+                            }
+                        },
+                        onBuildMenu = { showBuildMenu = !showBuildMenu },
+                        onTrain = { unitType ->
+                            gameView?.runCommand {
+                                val building = gameState.selected.firstOrNull() as? GameBuilding
+                                if (building != null) simulation.economy.trainUnit(building, unitType)
+                            }
+                        }
+                    )
+                }
+            }
         }
 
         if (isPaused) {

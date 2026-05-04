@@ -127,7 +127,9 @@ class SaveSystem(context: Context) {
         val units: List<UnitSave>,
         val buildings: List<BuildingSave>,
         val resources: List<ResourceSave>,
-        val formationMode: String,
+        // Retained as nullable for backwards compatibility with old saves; no
+        // longer written or applied.
+        val formationMode: String? = null,
         val settings: WorldSettings? = null,
         val savedAt: Long = 0L
     )
@@ -200,7 +202,6 @@ class SaveSystem(context: Context) {
                 ResourceSave(r.id, r.type.name, r.x, r.y, r.amount, r.maxAmount,
                     r.depleted, r.variant, r.isAnimal, r.animalKind, r.animalHp, r.animalMaxHp, r.animalDir)
             },
-            formationMode = state.formationMode,
             settings = state.settings,
             savedAt = System.currentTimeMillis()
         )
@@ -244,7 +245,6 @@ class SaveSystem(context: Context) {
         state.camera.y = payload.cameraY
         state.camera.zoom = payload.cameraZoom
         state.camera.targetZoom = payload.cameraZoom
-        state.formationMode = payload.formationMode
 
         // Graphics mode is already set from WorldSettings passed at construction.
         // Gson may leave payload.settings.graphics null for old saves; safeGraphics()

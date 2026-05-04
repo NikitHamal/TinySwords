@@ -52,6 +52,13 @@ class GameGlRenderer(private val assets: AssetManager) {
     private var minimapTerrainH = 0
     private var minimapEntityStamp = -999f
 
+    // Per-frame caches populated at the start of render() to avoid repeated
+    // HashMap/string lookups inside the hot tile loop.
+    private var perfMode = false
+    private val biomeTileCache = arrayOfNulls<GlTexture>(5)
+    private var waterTileCache: GlTexture? = null
+    private var foamTileCache: GlTexture? = null
+
     data class EdgeSource(val sx: Int, val sy: Int, val edge: Boolean)
 
     class DrawableEntity {
@@ -94,6 +101,13 @@ class GameGlRenderer(private val assets: AssetManager) {
         camRight = cam.x + (viewW / 2f) / zoom
         camBottom = cam.y + (viewH / 2f) / zoom
 
+        // Refresh per-frame texture/setting caches once instead of N times
+        // per tile inside drawTerrain.
+        perfMode = state.settings.safeGraphics() == "performance"
+        for (i in 0 until 5) biomeTileCache[i] = textures.get(biomeTileKeys[i])
+        waterTileCache = textures.get("water")
+        foamTileCache = textures.get("waterFoam")
+
         drawTerrain(state)
 
         val drawables = drawablesBuffer
@@ -101,7 +115,7 @@ class GameGlRenderer(private val assets: AssetManager) {
         collectDrawables(state, drawables, camLeft - 180f, camTop - 180f, camRight + 180f, camBottom + 180f)
         drawables.sortWith(drawableComparator)
 
-        val perf = state.settings.safeGraphics() == "performance"
+        val perf = perfMode
         if (!perf) {
             for (d in drawables) if (!d.isSky) drawShadow(d)
         }
@@ -132,16 +146,19 @@ class GameGlRenderer(private val assets: AssetManager) {
         val endCol = ceil(camRight / TILE).toInt() + 1
         val startRow = floor(camTop / TILE).toInt() - 1
         val endRow = ceil(camBottom / TILE).toInt() + 1
-        val perf = state.settings.safeGraphics() == "performance"
+        val perf = perfMode
+        val landCols = state.landCols
+        val biomeMap = state.biomeMap
+        val biomeMapSize = biomeMap.size
 
         for (row in startRow..endRow) {
             for (col in startCol..endCol) {
                 val x = col * TILE
                 val y = row * TILE
                 if (landAtTile(state, col, row)) {
-                    val idx = row * state.landCols + col
-                    val biome = state.biomeMap.getOrElse(idx) { 0 }.coerceIn(0, 4)
-                    drawGrassTile(state, col, row, x, y, biomeTileKeys[biome])
+                    val idx = row * landCols + col
+                    val biome = if (idx in 0 until biomeMapSize) biomeMap[idx].coerceIn(0, 4) else 0
+                    drawGrassTile(state, col, row, x, y, biome)
                 } else {
                     drawWaterTile(state, col, row, x, y, perf)
                 }
@@ -150,14 +167,14 @@ class GameGlRenderer(private val assets: AssetManager) {
     }
 
     private fun drawWaterTile(state: GameState, col: Int, row: Int, x: Float, y: Float, perf: Boolean) {
-        val water = textures.get("water")
+        val water = waterTileCache
         if (water != null) {
             drawTextureWorld(water, 0, 0, min(64, water.width), min(64, water.height), x, y, x + TILE, y + TILE, 255)
         } else {
             drawWorldRect(x, y, x + TILE, y + TILE, 72, 170, 168, 255)
         }
         if (perf) return
-        val foam = textures.get("waterFoam") ?: return
+        val foam = foamTileCache ?: return
         val landN = landAtTile(state, col, row - 1)
         val landS = landAtTile(state, col, row + 1)
         val landW = landAtTile(state, col - 1, row)
@@ -180,17 +197,17 @@ class GameGlRenderer(private val assets: AssetManager) {
         }
     }
 
-    private fun drawGrassTile(state: GameState, col: Int, row: Int, x: Float, y: Float, biomeKey: String) {
-        val tile = textures.get(biomeKey)
+    private fun drawGrassTile(state: GameState, col: Int, row: Int, x: Float, y: Float, biome: Int) {
+        val tile = biomeTileCache[biome]
         val edge = edgeSource(state, col, row)
         if (tile != null) {
             drawTextureWorld(tile, edge.sx, edge.sy, 64, 64, x, y, x + TILE, y + TILE, 255)
         } else {
-            when (biomeKey) {
-                "tileWarm" -> drawWorldRect(x, y, x + TILE, y + TILE, 194, 186, 114, 255)
-                "tileAlt" -> drawWorldRect(x, y, x + TILE, y + TILE, 168, 194, 85, 255)
-                "tileMoss" -> drawWorldRect(x, y, x + TILE, y + TILE, 106, 144, 96, 255)
-                "tileDeep" -> drawWorldRect(x, y, x + TILE, y + TILE, 90, 144, 80, 255)
+            when (biome) {
+                1 -> drawWorldRect(x, y, x + TILE, y + TILE, 194, 186, 114, 255)
+                2 -> drawWorldRect(x, y, x + TILE, y + TILE, 168, 194, 85, 255)
+                3 -> drawWorldRect(x, y, x + TILE, y + TILE, 106, 144, 96, 255)
+                4 -> drawWorldRect(x, y, x + TILE, y + TILE, 90, 144, 80, 255)
                 else -> drawWorldRect(x, y, x + TILE, y + TILE, 130, 187, 106, 255)
             }
         }
@@ -324,8 +341,11 @@ class GameGlRenderer(private val assets: AssetManager) {
                 drawCircleOutlineWorld(building.x, building.y, def.towerRange, 2f, 255, 130, 130, 70)
             }
         }
-        if (building.hp < building.maxHp || building.selected) drawHpBar(building.x, drawY - 8f, building.hp.toFloat() / building.maxHp, 48f)
-        if (building.buildProgress < 1f) drawProgressBar(building.x, drawY - 18f, building.buildProgress, 48f)
+        if (building.buildProgress < 1f) {
+            drawProgressBar(building.x, drawY - 8f, building.buildProgress, 48f)
+        } else if (building.hp < building.maxHp || building.selected) {
+            drawHpBar(building.x, drawY - 8f, building.hp.toFloat() / building.maxHp, 48f)
+        }
     }
 
     private fun drawResource(state: GameState, res: GameResource) {
@@ -557,9 +577,6 @@ class GameGlRenderer(private val assets: AssetManager) {
     }
 
     private fun drawMinimapEntities(state: GameState, x: Float, y: Float, w: Float, h: Float) {
-        if (state.time - minimapEntityStamp < 0.12f) {
-            // The terrain texture is cached; entity points are cheap enough to redraw while throttled by time stamp.
-        }
         minimapEntityStamp = state.time
         val sx = w / state.worldW
         val sy = h / state.worldH
@@ -573,20 +590,28 @@ class GameGlRenderer(private val assets: AssetManager) {
                 ResourceType.FOOD -> batch.drawRect(rx - 1f, ry - 1f, rx + 1f, ry + 1f, 204, 102, 51, 255)
             }
         }
-        for (f in 0..4) {
-            val c = FACTIONS.getOrNull(f)?.color ?: Color.BLUE
-            val cr = Color.red(c); val cg = Color.green(c); val cb = Color.blue(c)
-            for (b in state.buildings) {
-                if (b.dead || b.faction != f) continue
-                val s = if (b.type == "castle") 4.8f else 3f
-                val bx = x + b.x * sx; val by = y + b.y * sy
-                batch.drawRect(bx - s, by - s, bx + s, by + s, cr, cg, cb, 255)
-            }
-            for (u in state.units) {
-                if (u.dead || u.garrisoned || u.faction != f) continue
-                val ux = x + u.x * sx; val uy = y + u.y * sy
-                batch.drawRect(ux - 1.5f, uy - 1.5f, ux + 1.5f, uy + 1.5f, cr, cg, cb, 255)
-            }
+        // Single pass over buildings/units; lookup faction colors once.
+        val factionR = IntArray(5)
+        val factionG = IntArray(5)
+        val factionB = IntArray(5)
+        for (i in 0 until 5) {
+            val c = FACTIONS.getOrNull(i)?.color ?: Color.BLUE
+            factionR[i] = Color.red(c); factionG[i] = Color.green(c); factionB[i] = Color.blue(c)
+        }
+        for (b in state.buildings) {
+            if (b.dead) continue
+            val f = b.faction
+            if (f < 0 || f >= 5) continue
+            val s = if (b.type == "castle") 4.8f else 3f
+            val bx = x + b.x * sx; val by = y + b.y * sy
+            batch.drawRect(bx - s, by - s, bx + s, by + s, factionR[f], factionG[f], factionB[f], 255)
+        }
+        for (u in state.units) {
+            if (u.dead || u.garrisoned) continue
+            val f = u.faction
+            if (f < 0 || f >= 5) continue
+            val ux = x + u.x * sx; val uy = y + u.y * sy
+            batch.drawRect(ux - 1.5f, uy - 1.5f, ux + 1.5f, uy + 1.5f, factionR[f], factionG[f], factionB[f], 255)
         }
     }
 

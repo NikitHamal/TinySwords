@@ -54,7 +54,6 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
 
     // Selection state
     val selected = mutableListOf<GameEntity>()
-    var formationMode: String = "box"
 
     // Last known pointer position in world coordinates, used by native placement ghosts.
     var pointerWorldX: Float = 0f
