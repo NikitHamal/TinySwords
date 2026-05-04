@@ -32,8 +32,11 @@ class GameView @JvmOverloads constructor(
     private val renderer: GameGlRenderer,
     private val onSelectionChanged: () -> Unit,
     private val onGameOver: (winner: Int) -> Unit,
+    private val onFirstFrame: () -> Unit = {},
     attrs: AttributeSet? = null
 ) : GLSurfaceView(context, attrs) {
+
+    private var firstFrameNotified = false
 
     private val commandQueue = ConcurrentLinkedQueue<() -> Unit>()
     private val glRenderer = LoopRenderer()
@@ -132,6 +135,10 @@ class GameView @JvmOverloads constructor(
                     clampCamera(surfaceW, surfaceH)
                     renderer.render(state, minimapExpanded)
                 }
+                if (!firstFrameNotified) {
+                    firstFrameNotified = true
+                    post { onFirstFrame() }
+                }
             } catch (t: Throwable) {
                 Log.e("TinySwords", "OpenGL game loop error", t)
             }
@@ -161,6 +168,24 @@ class GameView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val viewW = width.toFloat()
         val viewH = height.toFloat()
+
+        // Fast lock-free path for active pinch zoom and pure-camera pan.
+        // The render thread holds synchronized(state) for an entire
+        // simulation+render cycle (10-30ms on phones); blocking touch events
+        // there causes very visible zoom/pan lag. Pinch & pan only mutate
+        // camera floats — concurrent reads with the simulation lerp are
+        // harmless (worst case is one frame of torn data).
+        if (event.actionMasked == MotionEvent.ACTION_MOVE) {
+            if (pinchActive && event.pointerCount >= 2) {
+                handlePinchMoveLockFree(event, viewW, viewH)
+                return true
+            }
+            if (isDragging && !minimapTouching && draggingBuilding == null && dragCandidateBuilding == null) {
+                handlePanMoveLockFree(event, viewW, viewH)
+                return true
+            }
+        }
+
         synchronized(state) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> handleTouchDown(event, viewW, viewH)
@@ -171,6 +196,32 @@ class GameView @JvmOverloads constructor(
             }
         }
         return true
+    }
+
+    private fun handlePinchMoveLockFree(event: MotionEvent, viewW: Float, viewH: Float) {
+        val newDist = getPinchDistance(event)
+        if (pinchStartDist <= 0f) return
+        val scale = newDist / pinchStartDist
+        val newZoom = (pinchStartZoom * scale).coerceIn(CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM)
+        val midX = (event.getX(0) + event.getX(1)) * 0.5f
+        val midY = (event.getY(0) + event.getY(1)) * 0.5f
+        val cam = state.camera
+        cam.zoom = newZoom
+        cam.targetZoom = newZoom
+        cam.x = pinchFocusWorldX - (midX - viewW / 2f) / newZoom
+        cam.y = pinchFocusWorldY - (midY - viewH / 2f) / newZoom
+        clampCamera(viewW, viewH)
+    }
+
+    private fun handlePanMoveLockFree(event: MotionEvent, viewW: Float, viewH: Float) {
+        val dx = event.x - touchStartX
+        val dy = event.y - touchStartY
+        val cam = state.camera
+        cam.x -= dx / cam.zoom
+        cam.y -= dy / cam.zoom
+        clampCamera(viewW, viewH)
+        touchStartX = event.x
+        touchStartY = event.y
     }
 
     private fun handleTouchDown(event: MotionEvent, viewW: Float, viewH: Float) {
@@ -319,6 +370,10 @@ class GameView @JvmOverloads constructor(
             val building = simulation.economy.placeBuilding(type, 0, wx, wy, asFoundation = true)
             if (building != null) {
                 state.placingBuilding = null
+                // Foundations need to be reflected in the pathGrid so workers
+                // approaching the new site path correctly around (and into) it.
+                simulation.worldGenerator.rebuildPathGrid()
+                state.rebuildSpatialIndices()
                 if (selectedWorkers.isNotEmpty()) {
                     simulation.orderRepair(selectedWorkers, building)
                 }
