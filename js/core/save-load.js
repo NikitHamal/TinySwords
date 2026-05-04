@@ -139,7 +139,6 @@ Game.prototype.createSavePayload = function() {
     resources: this.resources.map(stripRuntimeEntity),
     decor: this.decor.map(stripRuntimeEntity),
     selectedRefs,
-    formationMode: this.formationMode || 'box',
     controlGroups: Object.fromEntries(Object.entries(this.controlGroups || {}).map(([k, ids]) => [k, Array.isArray(ids) ? ids.slice() : []]))
   };
 };
@@ -182,7 +181,6 @@ Game.prototype.applySavePayload = function(payload) {
   if (Array.isArray(payload.units)) resolveTargets(this.units, payload.units);
   if (Array.isArray(payload.buildings)) resolveTargets(this.buildings, payload.buildings);
   if (Array.isArray(payload.resources)) resolveTargets(this.resources, payload.resources);
-  this.formationMode = FORMATION_MODES[payload.formationMode] ? payload.formationMode : (this.formationMode || 'box');
   this.controlGroups = {};
   if (payload.controlGroups && typeof payload.controlGroups === 'object') {
     for (const [key, ids] of Object.entries(payload.controlGroups)) {

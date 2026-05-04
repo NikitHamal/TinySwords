@@ -70,16 +70,6 @@ val RESOURCE_DENSITY_PRESETS = mapOf(
     "abundant" to 1.55f
 )
 
-// ── Formation Modes ──
-data class FormationMode(val label: String, val spacing: Float)
-
-val FORMATION_MODES = mapOf(
-    "line" to FormationMode("Line", 44f),
-    "box" to FormationMode("Box", 42f),
-    "wedge" to FormationMode("Wedge", 42f),
-    "split" to FormationMode("Split", 44f)
-)
-
 // ── Units ──
 data class UnitDef(
     val label: String,

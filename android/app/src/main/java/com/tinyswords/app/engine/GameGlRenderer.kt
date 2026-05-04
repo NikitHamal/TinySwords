@@ -52,7 +52,7 @@ class GameGlRenderer(private val assets: AssetManager) {
     private var minimapTerrainH = 0
     private var minimapEntityStamp = -999f
 
-    data class EdgeSource(val sx: Int, val sy: Int, val edge: Boolean)
+    private var waterFrame = 0
 
     class DrawableEntity {
         var entity: GameEntity? = null
@@ -87,6 +87,7 @@ class GameGlRenderer(private val assets: AssetManager) {
 
         val cam = state.camera
         zoom = cam.zoom.coerceIn(CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM)
+        waterFrame = ((state.time * 5.4f).toInt()) and 15
         camX = cam.x
         camY = cam.y
         camLeft = cam.x - (viewW / 2f) / zoom
@@ -173,7 +174,7 @@ class GameGlRenderer(private val assets: AssetManager) {
         else if (landN && landE) { fsx = 0; fsy = 128 }
         else if (landS && landW) { fsx = 128; fsy = 0 }
         else if (landS && landE) { fsx = 0; fsy = 0 }
-        val frame = ((System.nanoTime() / 185_000_000L).toInt() + ((col * 31 + row * 17) and 15)) and 15
+        val frame = (waterFrame + ((col * 31 + row * 17) and 15)) and 15
         val sx = frame * 192 + fsx
         if (sx + 64 <= foam.width && fsy + 64 <= foam.height) {
             drawTextureWorld(foam, sx, fsy, 64, 64, x, y, x + TILE, y + TILE, 198)
@@ -182,9 +183,12 @@ class GameGlRenderer(private val assets: AssetManager) {
 
     private fun drawGrassTile(state: GameState, col: Int, row: Int, x: Float, y: Float, biomeKey: String) {
         val tile = textures.get(biomeKey)
-        val edge = edgeSource(state, col, row)
+        val edge = edgeSourceCode(state, col, row)
+        val edgeSx = (edge ushr 16) and 255
+        val edgeSy = (edge ushr 1) and 255
+        val hasEdge = (edge and 1) == 1
         if (tile != null) {
-            drawTextureWorld(tile, edge.sx, edge.sy, 64, 64, x, y, x + TILE, y + TILE, 255)
+            drawTextureWorld(tile, edgeSx, edgeSy, 64, 64, x, y, x + TILE, y + TILE, 255)
         } else {
             when (biomeKey) {
                 "tileWarm" -> drawWorldRect(x, y, x + TILE, y + TILE, 194, 186, 114, 255)
@@ -195,7 +199,7 @@ class GameGlRenderer(private val assets: AssetManager) {
             }
         }
         val variant = (col * 7 + row * 13 + 131) and 255
-        if (!edge.edge && (variant > 214 || variant % 24 > 18)) {
+        if (!hasEdge && (variant > 214 || variant % 24 > 18)) {
             drawWorldRect(x + 8f + (variant % 11), y + 14f, x + 38f + (variant % 11), y + 17f, 244, 239, 141, 19)
         }
     }
@@ -324,8 +328,11 @@ class GameGlRenderer(private val assets: AssetManager) {
                 drawCircleOutlineWorld(building.x, building.y, def.towerRange, 2f, 255, 130, 130, 70)
             }
         }
-        if (building.hp < building.maxHp || building.selected) drawHpBar(building.x, drawY - 8f, building.hp.toFloat() / building.maxHp, 48f)
-        if (building.buildProgress < 1f) drawProgressBar(building.x, drawY - 18f, building.buildProgress, 48f)
+        if (building.buildProgress < 1f) {
+            drawProgressBar(building.x, drawY - 10f, building.buildProgress, 48f)
+        } else if (building.hp < building.maxHp || building.selected) {
+            drawHpBar(building.x, drawY - 8f, building.hp.toFloat() / building.maxHp, 48f)
+        }
     }
 
     private fun drawResource(state: GameState, res: GameResource) {
@@ -563,15 +570,25 @@ class GameGlRenderer(private val assets: AssetManager) {
         minimapEntityStamp = state.time
         val sx = w / state.worldW
         val sy = h / state.worldH
-        for (r in state.resources) {
-            if (r.dead || r.depleted) continue
-            val rx = x + r.x * sx
-            val ry = y + r.y * sy
-            when (r.type) {
-                ResourceType.TREE -> batch.drawRect(rx - 1f, ry - 1f, rx + 1f, ry + 1f, 26, 90, 0, 255)
-                ResourceType.GOLD -> batch.drawRect(rx - 1.5f, ry - 1.5f, rx + 1.5f, ry + 1.5f, 212, 160, 23, 255)
-                ResourceType.FOOD -> batch.drawRect(rx - 1f, ry - 1f, rx + 1f, ry + 1f, 204, 102, 51, 255)
+        val resourceStride = when {
+            state.resources.size > 1800 -> 5
+            state.resources.size > 1000 -> 3
+            state.resources.size > 550 -> 2
+            else -> 1
+        }
+        var ri = 0
+        while (ri < state.resources.size) {
+            val r = state.resources[ri]
+            if (!r.dead && !r.depleted) {
+                val rx = x + r.x * sx
+                val ry = y + r.y * sy
+                when (r.type) {
+                    ResourceType.TREE -> batch.drawRect(rx - 1f, ry - 1f, rx + 1f, ry + 1f, 26, 90, 0, 255)
+                    ResourceType.GOLD -> batch.drawRect(rx - 1.5f, ry - 1.5f, rx + 1.5f, ry + 1.5f, 212, 160, 23, 255)
+                    ResourceType.FOOD -> batch.drawRect(rx - 1f, ry - 1f, rx + 1f, ry + 1f, 204, 102, 51, 255)
+                }
             }
+            ri += resourceStride
         }
         for (f in 0..4) {
             val c = FACTIONS.getOrNull(f)?.color ?: Color.BLUE
@@ -717,23 +734,25 @@ class GameGlRenderer(private val assets: AssetManager) {
 
     data class DecorSpec(val fw: Int, val fh: Int, val baseline: Float, val scale: Float, val fps: Float)
 
-    private fun edgeSource(state: GameState, col: Int, row: Int): EdgeSource {
+    private fun edgeSourceCode(state: GameState, col: Int, row: Int): Int {
         val n = !landAtTile(state, col, row - 1)
         val s = !landAtTile(state, col, row + 1)
         val w = !landAtTile(state, col - 1, row)
         val e = !landAtTile(state, col + 1, row)
         return when {
-            n && w -> EdgeSource(0, 0, true)
-            n && e -> EdgeSource(128, 0, true)
-            s && w -> EdgeSource(0, 128, true)
-            s && e -> EdgeSource(128, 128, true)
-            n -> EdgeSource(64, 0, true)
-            s -> EdgeSource(64, 128, true)
-            w -> EdgeSource(0, 64, true)
-            e -> EdgeSource(128, 64, true)
-            else -> EdgeSource(64, 64, false)
+            n && w -> packEdge(0, 0, true)
+            n && e -> packEdge(128, 0, true)
+            s && w -> packEdge(0, 128, true)
+            s && e -> packEdge(128, 128, true)
+            n -> packEdge(64, 0, true)
+            s -> packEdge(64, 128, true)
+            w -> packEdge(0, 64, true)
+            e -> packEdge(128, 64, true)
+            else -> packEdge(64, 64, false)
         }
     }
+
+    private fun packEdge(sx: Int, sy: Int, edge: Boolean): Int = (sx shl 16) or (sy shl 1) or if (edge) 1 else 0
 
     private fun landAtTile(state: GameState, col: Int, row: Int): Boolean {
         if (col < 0 || row < 0 || col >= state.landCols || row >= state.landRows) return false
@@ -744,12 +763,15 @@ class GameGlRenderer(private val assets: AssetManager) {
     private fun canPlaceGhost(state: GameState, type: String, x: Float, y: Float): Boolean {
         val def = BUILDINGS[type] ?: return false
         if (!state.isSafeLand(x, y, def.placeW / 2f)) return false
-        for (b in state.buildings) {
+        val pad = def.placeW.coerceAtLeast(def.placeH) + 96f
+        state.buildingIndex.queryRect(x - pad, y - pad, x + pad, y + pad, buildingQueryBuffer)
+        for (b in buildingQueryBuffer) {
             if (b.dead) continue
             val bd = BUILDINGS[b.type] ?: continue
             if (rectsOverlapCentered(x, y, def.placeW, def.placeH, b.x, b.y, bd.placeW, bd.placeH)) return false
         }
-        for (r in state.resources) {
+        state.resourceIndex.queryRect(x - pad, y - pad, x + pad, y + pad, resourceQueryBuffer)
+        for (r in resourceQueryBuffer) {
             if (!r.dead && !r.depleted && hypot(x - r.x, y - r.y) < def.placeW / 2f + 24f) return false
         }
         return true

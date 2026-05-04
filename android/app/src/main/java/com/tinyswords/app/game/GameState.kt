@@ -11,7 +11,7 @@ data class WorldSettings(
     val rivals: Int = 4,
     val autosave: Boolean = true,
     val seed: String = System.currentTimeMillis().toString(),
-    val graphics: String = "balanced"
+    val graphics: String = "performance"
 ) {
     fun safeGraphics(): String = graphics ?: "balanced"
 }
@@ -54,8 +54,6 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
 
     // Selection state
     val selected = mutableListOf<GameEntity>()
-    var formationMode: String = "box"
-
     // Last known pointer position in world coordinates, used by native placement ghosts.
     var pointerWorldX: Float = 0f
     var pointerWorldY: Float = 0f

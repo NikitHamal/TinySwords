@@ -62,7 +62,7 @@ class TinySwordsApp {
       const data = new FormData(settingsForm);
       this.globalSettings = {
         autosave: data.get('autosave') === 'on',
-        graphics: data.get('graphics') || 'balanced',
+        graphics: data.get('graphics') || DEFAULT_WORLD_SETTINGS.graphics,
         edgePan: data.get('edgePan') === 'on',
         volume: Number(data.get('volume') || .8)
       };
@@ -108,7 +108,7 @@ class TinySwordsApp {
     this.setScreen('settingsScreen');
     const form = this.$('globalSettingsForm');
     if (form) {
-      form.elements.graphics.value = this.globalSettings.graphics || 'balanced';
+      form.elements.graphics.value = this.globalSettings.graphics || DEFAULT_WORLD_SETTINGS.graphics;
       form.elements.volume.value = this.globalSettings.volume ?? .8;
       form.elements.autosave.checked = this.globalSettings.autosave !== false;
       form.elements.edgePan.checked = this.globalSettings.edgePan !== false;
@@ -127,7 +127,7 @@ class TinySwordsApp {
       form.elements.autosave.checked = this.globalSettings.autosave !== false;
       form.dataset.initialized = '1';
     }
-    form.elements.graphics.value = this.globalSettings.graphics || 'balanced';
+    form.elements.graphics.value = this.globalSettings.graphics || DEFAULT_WORLD_SETTINGS.graphics;
     if (!form.elements.seed.value) form.elements.seed.placeholder = 'Leave empty for random seed';
     this.updateRivalsReadout();
   }

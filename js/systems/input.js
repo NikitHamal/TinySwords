@@ -630,7 +630,7 @@ Game.prototype.toast = function(text, time = 2) {
 
 
 
-// Pass 2: control groups, formation controls, worker-built placement, no garrison orders.
+// Pass 2: control groups, worker-built placement, no garrison orders.
 Game.prototype.bindEvents = function() {
   window.addEventListener('keydown', (e) => {
     const tag = document.activeElement && document.activeElement.tagName;
@@ -646,11 +646,6 @@ Game.prototype.bindEvents = function() {
     if (e.ctrlKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); this.assignControlGroup(e.key); return; }
     if (/^[1-9]$/.test(e.key)) { e.preventDefault(); this.recallControlGroup(e.key) || this.activateHotkey(e.key); return; }
     if (e.key === '0') { this.selectUnits(this.units.filter(u => u.faction === 0 && !u.dead)); return; }
-    const modeKey = e.key.toLowerCase();
-    if (modeKey === 'z') this.setFormationMode('line');
-    if (modeKey === 'x') this.setFormationMode('box');
-    if (modeKey === 'c') this.setFormationMode('wedge');
-    if (modeKey === 'v') this.setFormationMode('split');
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());
@@ -740,12 +735,6 @@ Game.prototype.recallControlGroup = function(key) {
   return true;
 };
 
-Game.prototype.setFormationMode = function(mode) {
-  if (!FORMATION_MODES[mode]) return;
-  this.formationMode = mode;
-  this.toast(`Formation: ${FORMATION_MODES[mode].label}.`, 1.1);
-  this.uiDirty = true;
-};
 
 Game.prototype.tryPlace = function(type, x, y) {
   const f = this.factions[0];
@@ -843,11 +832,6 @@ Game.prototype.bindEvents = function() {
     if (e.ctrlKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); this.assignControlGroup(e.key); return; }
     if (/^[1-9]$/.test(e.key)) { e.preventDefault(); this.recallControlGroup(e.key) || this.activateHotkey(e.key); return; }
     if (e.key === '0') { this.selectUnits(this.units.filter(u => u.faction === 0 && !u.dead)); return; }
-
-    if (k === 'z') this.setFormationMode('line');
-    if (k === 'x') this.setFormationMode('box');
-    if (k === 'c') this.setFormationMode('wedge');
-    if (k === 'v') this.setFormationMode('split');
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());
@@ -995,11 +979,6 @@ Game.prototype.bindEvents = function() {
     if (e.ctrlKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); this.assignControlGroup(e.key); return; }
     if (/^[1-9]$/.test(e.key)) { e.preventDefault(); this.recallControlGroup(e.key) || this.activateHotkey(e.key); return; }
     if (e.key === '0') { this.selectUnits(this.units.filter(u => u.faction === 0 && !u.dead)); return; }
-
-    if (k === 'z') this.setFormationMode('line');
-    if (k === 'x') this.setFormationMode('box');
-    if (k === 'c') this.setFormationMode('wedge');
-    if (k === 'v') this.setFormationMode('split');
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());

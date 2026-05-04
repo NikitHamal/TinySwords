@@ -92,12 +92,6 @@ const MAP_PRESETS = Object.freeze({
   }
 });
 
-const FORMATION_MODES = Object.freeze({
-  line: { label: 'Line', spacing: 44 },
-  box: { label: 'Box', spacing: 42 },
-  wedge: { label: 'Wedge', spacing: 42 },
-  split: { label: 'Split', spacing: 44 }
-});
 
 const DEFAULT_WORLD_SETTINGS = Object.freeze({
   size: 'standard',
@@ -107,7 +101,7 @@ const DEFAULT_WORLD_SETTINGS = Object.freeze({
   rivals: 4,
   seed: '',
   autosave: true,
-  graphics: 'balanced'
+  graphics: 'performance'
 });
 
 const DIFFICULTY_PRESETS = {
@@ -129,7 +123,7 @@ function normalizedWorldSettings(settings = {}) {
   out.rivals = clamp(Number.isFinite(rivalsNumber) ? rivalsNumber : DEFAULT_WORLD_SETTINGS.rivals, 0, 4);
   out.seed = String(out.seed || '').trim();
   out.autosave = out.autosave !== false;
-  out.graphics = ['performance', 'balanced', 'high'].includes(out.graphics) ? out.graphics : 'balanced';
+  out.graphics = ['performance', 'balanced', 'high'].includes(out.graphics) ? out.graphics : DEFAULT_WORLD_SETTINGS.graphics;
   return out;
 }
 
@@ -260,7 +254,7 @@ const FACTIONS = [
 
 const RESOURCES = {
   wood: { label: 'Wood', icon: 'resWood', tint: '#9ccb77' },
-  gold: { label: 'Gold', icon: 'resGold', tint: '#f7dc62' },
+  gold: { label: 'Gold', icon: 'gold1', tint: '#f7dc62' },
   food: { label: 'Food', icon: 'resFood', tint: '#f6a167' }
 };
 
@@ -496,16 +490,6 @@ function addRes(f, type, amount) { f.res[type] = Math.min(9999, f.res[type] + am
 function screenToWorld(game, x, y) { return { x: game.camera.x + x / game.camera.zoom, y: game.camera.y + y / game.camera.zoom }; }
 function worldToScreen(game, x, y) { return { x: (x - game.camera.x) * game.camera.zoom, y: (y - game.camera.y) * game.camera.zoom }; }
 
-function formationOffset(index, count, spacing = 44) {
-  if (count <= 1) return { x: 0, y: 0 };
-  const cols = Math.ceil(Math.sqrt(count));
-  const rows = Math.ceil(count / cols);
-  return {
-    x: ((index % cols) - (cols - 1) / 2) * spacing,
-    y: (Math.floor(index / cols) - (rows - 1) / 2) * spacing
-  };
-}
-
 function entityBaseY(e) {
   if (!e) return 0;
   if (e.entity === 'building') return e.y;
@@ -565,4 +549,3 @@ function loadImages(paths) {
     img.src = src;
   })));
 }
-

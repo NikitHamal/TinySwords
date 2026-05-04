@@ -87,16 +87,13 @@ Game.prototype.renderActions = function() {
   if (!own.length) { HUD.actionDock && HUD.actionDock.classList.add('hidden'); return; }
   const units = own.filter(e => e.entity === 'unit');
   const buildings = own.filter(e => e.entity === 'building');
-  HUD.actionTitle.textContent = units.length ? `Unit Commands · ${FORMATION_MODES[this.formationMode || 'box'].label}` : 'Building Commands';
+  HUD.actionTitle.textContent = '';
   if (units.length) {
-    HUD.actionBar.appendChild(this.makeAction('', 'Build', 'Workers construct', 'iconBuild', () => this.toggleBuildMenu(), !units.some(u => u.type === 'worker')));
-    HUD.actionBar.appendChild(this.makeAction('', 'Attack Move', 'Move toward pointer', 'iconAttack', () => { this.orderMoveFormation(units, this.pointer.wx, this.pointer.wy, true); }));
+    const workers = units.filter(u => u.type === 'worker');
+    if (workers.length) HUD.actionBar.appendChild(this.makeAction('', 'Build', 'Open build menu', 'iconBuild', () => this.toggleBuildMenu()));
+    HUD.actionBar.appendChild(this.makeAction('', 'Attack Move', 'Fight along path', 'iconAttack', () => { this.orderMoveFormation(units, this.pointer.wx, this.pointer.wy, true); }));
     HUD.actionBar.appendChild(this.makeAction('', 'Stop', 'Cancel orders', 'iconStop', () => this.stopSelected()));
     HUD.actionBar.appendChild(this.makeAction('', 'Hold', 'Defensive stance', 'iconRally', () => this.holdSelected()));
-    HUD.actionBar.appendChild(this.makeAction('Z', 'Line', 'Wide front', 'iconRally', () => this.setFormationMode('line')));
-    HUD.actionBar.appendChild(this.makeAction('X', 'Box', 'Compact', 'iconRally', () => this.setFormationMode('box')));
-    HUD.actionBar.appendChild(this.makeAction('C', 'Wedge', 'Charge', 'iconRally', () => this.setFormationMode('wedge')));
-    HUD.actionBar.appendChild(this.makeAction('V', 'Split', 'Archers back', 'iconRally', () => this.setFormationMode('split')));
   }
   if (buildings.length) {
     const trainSet = new Set();
@@ -106,11 +103,8 @@ Game.prototype.renderActions = function() {
       const d = UNITS[t]; const pop = this.population(0); const disabled = !canAfford(this.factions[0], d.cost) || pop.used + d.pop > pop.cap;
       HUD.actionBar.appendChild(this.makeAction(String(n), `Train ${d.label}`, fmtCost(d.cost), d.icon, () => this.queueTrain(t), disabled)); n++;
     }
-    if (trainSet.size > 0) HUD.actionBar.appendChild(this.makeAction('', 'Rally Flag', 'Right click map', 'iconRally', () => this.toast('Right click the map to set rally flags.', 1.4)));
-    HUD.actionBar.appendChild(this.makeAction('', 'Assign Workers', 'Build / repair', 'iconRepair', () => this.repairSelected()));
   }
 };
-
 Game.prototype.nearestOwnTower = function() { return null; };
 
 
@@ -177,14 +171,6 @@ Game.prototype.renderUI = function() {
   if (this.workerRolesOpen) this.renderWorkerRolePanel();
 };
 
-const tinySwordsPass3RenderActions = Game.prototype.renderActions;
-Game.prototype.renderActions = function() {
-  tinySwordsPass3RenderActions.call(this);
-  const ownWorkers = this.selected.some(e => e.entity === 'unit' && e.faction === 0 && e.type === 'worker' && !e.dead);
-  if (ownWorkers) {
-    HUD.actionBar.appendChild(this.makeAction('E', 'Worker Roles', 'Assign economy jobs', 'iconWorker', () => this.toggleWorkerRoles(true)));
-  }
-};
 
 
 // Pass 4: minimal in-game HUD, hidden empty panels, compact worker roles, and pause overlay.
@@ -231,8 +217,7 @@ Game.prototype.renderSelectionPanel = function() {
   if (s.length > 1) {
     const groups = {};
     for (const e of s) groups[e.type] = (groups[e.type] || 0) + 1;
-    const formation = s.some(e => e.entity === 'unit') ? `<span class="formation-tag">${FORMATION_MODES[this.formationMode || 'box'].label}</span>` : '';
-    this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""></div><span><small>Group</small><b>${s.length} selected ${formation}</b></span>`);
+    this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""></div><span><small>Group</small><b>${s.length} selected</b></span>`);
     this.setHudHtml(HUD.selectionBody, Object.entries(groups).map(([t, n]) => `<div class="selection-row"><span>${UNITS[t]?.label || BUILDINGS[t]?.label || t}</span><b>${n}</b></div>`).join(''));
     return;
   }
@@ -258,14 +243,13 @@ Game.prototype.renderSelectionPanel = function() {
   const def = first.entity === 'unit' ? UNITS[first.type] : BUILDINGS[first.type];
   const owner = faction(first.faction);
   const hpPct = clamp(first.hp / first.maxHp * 100, 0, 100);
-  const unitRange = first.entity === 'unit' ? `<div class="selection-row"><span>Range</span><b>${Math.round(UNITS[first.type].range)}</b></div>` : '';
-  const tower = first.entity === 'building' && first.type === 'tower' ? `<div class="selection-row"><span>Built-in archer</span><b>1 / 1</b></div><div class="selection-row"><span>Tower range</span><b>${BUILDINGS.tower.range}</b></div>` : '';
-  const build = first.entity === 'building' && first.build < 1 ? `<div class="selection-row"><span>Construction</span><b>${Math.floor(first.build * 100)}%</b></div><div class="selection-row"><span>Builder</span><b>${this.hasActiveBuilder && this.hasActiveBuilder(first) ? 'Working' : 'Needs worker'}</b></div>` : '';
-  const queue = first.entity === 'building' && first.queue.length ? `<div class="selection-row"><span>Queue</span><b>${first.queue.map(q => UNITS[q.type].label).join(', ')}</b></div>` : '';
-  const dragHint = first.entity === 'building' && first.faction === 0 ? `<div class="selection-row hint-row"><span>Move building</span><b>Drag</b></div>` : '';
   const role = first.entity === 'unit' && first.type === 'worker' ? `<div class="selection-row"><span>Role</span><b>${first.workerRole || 'auto'}</b></div>` : '';
   this.setHudHtml(HUD.selectionHeader, `<div class="selection-icon-wrap"><img src="${iconFor(first)}" class="${isSpriteIcon(first) ? 'sprite-icon' : ''}" alt=""></div><span><small>${owner.name}</small><b>${def.label}</b></span>`);
-  this.setHudHtml(HUD.selectionBody, `<div class="selection-row"><span>HP</span><div class="hpbar"><span style="width:${hpPct}%"></span></div><b>${Math.ceil(first.hp)}/${first.maxHp}</b></div>${build}${role}${unitRange}${tower}${queue}${dragHint}`);
+  const primaryBar = first.entity === 'building' && first.build < 1
+    ? `<div class="selection-row"><span>Build</span><div class="hpbar progress"><span style="width:${Math.floor(first.build * 100)}%"></span></div><b>${Math.floor(first.build * 100)}%</b></div>`
+    : `<div class="selection-row"><span>HP</span><div class="hpbar"><span style="width:${hpPct}%"></span></div><b>${Math.ceil(first.hp)}/${first.maxHp}</b></div>`;
+  const queue = first.entity === 'building' && first.queue.length ? `<div class="selection-row"><span>Queue</span><b>${first.queue.length}</b></div>` : '';
+  this.setHudHtml(HUD.selectionBody, `${primaryBar}${role}${queue}`);
 };
 
 Game.prototype.renderActions = function() {
@@ -282,19 +266,15 @@ Game.prototype.renderActions = function() {
 
   const units = own.filter(e => e.entity === 'unit');
   const buildings = own.filter(e => e.entity === 'building');
-  HUD.actionTitle.textContent = units.length ? `Unit Commands · ${FORMATION_MODES[this.formationMode || 'box'].label}` : 'Building Commands';
+  HUD.actionTitle.textContent = '';
 
   if (units.length) {
     const workers = units.filter(u => u.type === 'worker');
-    HUD.actionBar.appendChild(this.makeAction('', 'Build', 'Open build menu', 'iconBuild', () => this.toggleBuildMenu(), !workers.length));
-    if (workers.length) HUD.actionBar.appendChild(this.makeAction('E', 'Worker Roles', 'Economy jobs', 'iconWorker', () => this.toggleWorkerRoles(true)));
-    HUD.actionBar.appendChild(this.makeAction('', 'Attack Move', 'Fight along path', 'iconAttack', () => { this.orderMoveFormation(units, this.pointer.wx, this.pointer.wy, true); }));
-    HUD.actionBar.appendChild(this.makeAction('', 'Stop', 'Cancel orders', 'iconStop', () => this.stopSelected()));
-    HUD.actionBar.appendChild(this.makeAction('', 'Hold', 'Defensive stance', 'iconRally', () => this.holdSelected()));
-    HUD.actionBar.appendChild(this.makeAction('Z', 'Line', 'Wide front', 'iconRally', () => this.setFormationMode('line')));
-    HUD.actionBar.appendChild(this.makeAction('X', 'Box', 'Compact', 'iconRally', () => this.setFormationMode('box')));
-    HUD.actionBar.appendChild(this.makeAction('C', 'Wedge', 'Charge', 'iconRally', () => this.setFormationMode('wedge')));
-    HUD.actionBar.appendChild(this.makeAction('V', 'Split', 'Archers back', 'iconRally', () => this.setFormationMode('split')));
+    if (workers.length) HUD.actionBar.appendChild(this.makeAction('', '', '', 'iconBuild', () => this.toggleBuildMenu(), false));
+    if (workers.length) HUD.actionBar.appendChild(this.makeAction('', '', '', 'iconWorker', () => this.toggleWorkerRoles(true)));
+    HUD.actionBar.appendChild(this.makeAction('', '', '', 'iconAttack', () => { this.orderMoveFormation(units, this.pointer.wx, this.pointer.wy, true); }));
+    HUD.actionBar.appendChild(this.makeAction('', '', '', 'iconStop', () => this.stopSelected()));
+    HUD.actionBar.appendChild(this.makeAction('', '', '', 'iconRally', () => this.holdSelected()));
   }
 
   if (buildings.length) {
@@ -305,21 +285,21 @@ Game.prototype.renderActions = function() {
       const d = UNITS[t];
       const pop = this.population(0);
       const disabled = !canAfford(this.factions[0], d.cost) || pop.used + d.pop > pop.cap;
-      HUD.actionBar.appendChild(this.makeAction(String(n), `Train ${d.label}`, fmtCost(d.cost), d.icon, () => this.queueTrain(t), disabled));
+      HUD.actionBar.appendChild(this.makeAction(String(n), '', '', d.icon, () => this.queueTrain(t), disabled));
       n++;
     }
-    if (trainSet.size > 0) HUD.actionBar.appendChild(this.makeAction('', 'Rally Flag', 'Right click map', 'iconRally', () => this.toast('Right click the map to set rally flags.', 1.4)));
-    HUD.actionBar.appendChild(this.makeAction('', 'Assign Workers', 'Build / repair', 'iconRepair', () => this.repairSelected()));
+    if (trainSet.size > 0) HUD.actionBar.appendChild(this.makeAction('', '', '', 'iconRally', () => this.toast('Right click the map to set rally flags.', 1.4)));
+    HUD.actionBar.appendChild(this.makeAction('', '', '', 'iconRepair', () => this.repairSelected()));
   }
 
   const resources = own.length === 0 ? this.selected.filter(e => e.entity === 'resource') : [];
   if (resources.length) {
     if (dock) dock.classList.remove('hidden');
-    HUD.actionTitle.textContent = 'Resource Commands';
+    HUD.actionTitle.textContent = '';
     for (const res of resources) {
-      if (res.type === 'tree') HUD.actionBar.appendChild(this.makeAction('', 'Chop', 'Send worker', 'resWood', () => this.assignWorkerToResource(res)));
-      if (res.type === 'gold') HUD.actionBar.appendChild(this.makeAction('', 'Mine', 'Send worker', 'resGold', () => this.assignWorkerToResource(res)));
-      if (res.type === 'food') HUD.actionBar.appendChild(this.makeAction('', res.animal ? 'Hunt' : 'Gather', 'Send worker', 'resFood', () => this.assignWorkerToResource(res)));
+      if (res.type === 'tree') HUD.actionBar.appendChild(this.makeAction('', '', '', 'resWood', () => this.assignWorkerToResource(res)));
+      if (res.type === 'gold') HUD.actionBar.appendChild(this.makeAction('', '', '', 'resGold', () => this.assignWorkerToResource(res)));
+      if (res.type === 'food') HUD.actionBar.appendChild(this.makeAction('', '', '', 'resFood', () => this.assignWorkerToResource(res)));
       break;
     }
   }
@@ -358,3 +338,17 @@ Game.prototype.renderWorkerRolePanel = function() {
 };
 
 Game.prototype.renderEconomyPanel = function() {};
+
+// Final compact icon-only command buttons.
+Game.prototype.makeAction = function(hotkey, title, sub, icon, onClick, disabled = false) {
+  const b = document.createElement('button');
+  b.className = 'command icon-only' + (disabled ? ' disabled' : '');
+  b.type = 'button';
+  if (hotkey) b.dataset.hotkey = hotkey.toLowerCase();
+  const isSprite = icon && (icon.startsWith('res') || ['iconWorker', 'iconWarrior', 'iconArcher', 'iconLancer', 'iconMonk'].includes(icon));
+  const label = title || sub || icon || 'command';
+  b.title = label;
+  b.innerHTML = `<img src="${IMAGE_PATHS[icon] || IMAGE_PATHS.iconMove}" class="${isSprite ? 'sprite-icon' : ''}" alt="${label}">`;
+  b.addEventListener('click', () => { if (b.classList.contains('disabled')) { this.sfx.deny(); return; } this.sfx.click(); onClick && onClick(); });
+  return b;
+};

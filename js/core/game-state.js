@@ -17,7 +17,6 @@ class Game {
     this.autosaveTimer = 30;
     this.lastSavedGameTime = 0;
     this.selected = [];
-    this.formationMode = 'box';
     this.controlGroups = {};
     this.lastControlGroupTap = {};
 this.attackPings = [];

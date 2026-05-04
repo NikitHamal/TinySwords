@@ -117,6 +117,7 @@ private fun ActiveGameScreen(
     var gameOverWinner by remember { mutableStateOf(-1) }
     var isGameOver by remember { mutableStateOf(false) }
     var volume by remember { mutableStateOf(saveSystem.loadGlobalSettings().volume) }
+    var glReady by remember { mutableStateOf(false) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(lifecycleOwner) {
@@ -168,6 +169,7 @@ private fun ActiveGameScreen(
                     context = ctx,
                     simulation = simulation,
                     renderer = renderer,
+                    onFirstFrame = { glReady = true },
                     onSelectionChanged = { selectionVersion++ },
                     onGameOver = { winner ->
                         gameOverWinner = winner
@@ -176,6 +178,11 @@ private fun ActiveGameScreen(
                 ).also { gameView = it }
             }
         )
+
+        if (!glReady) {
+            RealmLoadingScreen(stage = "Opening battlefield", progress = 0.98f, onCancel = onExit)
+            return@Box
+        }
 
         if (!isGameOver) {
             val (wood, gold, food, popUsed, popCap) = remember(uiTick) {
@@ -194,8 +201,8 @@ private fun ActiveGameScreen(
                 popUsed = popUsed,
                 popCap = popCap,
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 4.dp, end = 236.dp)
+                    .align(Alignment.TopCenter)
+                    .padding(top = 4.dp)
             )
 
             val currentSelection = remember(selectionVersion, uiTick) {
@@ -204,16 +211,13 @@ private fun ActiveGameScreen(
             SelectionPanel(
                 selected = currentSelection,
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 8.dp)
+                    .align(Alignment.BottomStart)
+                    .padding(start = 8.dp, bottom = 12.dp)
             )
 
             if (currentSelection.isNotEmpty()) {
-                val formationMode = remember(uiTick) { synchronized(gameState) { gameState.formationMode } }
                 ActionDock(
                     selected = currentSelection,
-                    formationMode = formationMode,
-                    onMove = { },
                     onAttackMove = { gameView?.armAttackMove() },
                     onStop = {
                         gameView?.runCommand {
@@ -227,7 +231,6 @@ private fun ActiveGameScreen(
                             simulation.orderHold(units)
                         }
                     },
-                    onFormation = { mode -> gameView?.runCommand { simulation.setFormation(mode) } },
                     onBuildMenu = { showBuildMenu = !showBuildMenu },
                     onTrain = { unitType ->
                         gameView?.runCommand {
@@ -236,22 +239,8 @@ private fun ActiveGameScreen(
                         }
                     },
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 134.dp, end = 8.dp)
-                )
-            } else {
-                QuickControlPanel(
-                    onWorkers = { gameView?.selectAllWorkers() },
-                    onArmy = { gameView?.selectAllMilitary() },
-                    onAll = { gameView?.selectAllUnits() },
-                    onHome = { gameView?.focusPlayerBase() },
-                    onCancel = {
-                        showBuildMenu = false
-                        gameView?.cancelPlacement()
-                    },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 134.dp, end = 8.dp)
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 8.dp)
                 )
             }
 
@@ -264,8 +253,8 @@ private fun ActiveGameScreen(
                     },
                     onClose = { showBuildMenu = false },
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 320.dp, end = 8.dp)
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 68.dp)
                 )
             }
 

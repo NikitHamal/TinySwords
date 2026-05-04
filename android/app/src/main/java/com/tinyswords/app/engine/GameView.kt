@@ -30,6 +30,7 @@ class GameView @JvmOverloads constructor(
     context: Context,
     private val simulation: GameSimulation,
     private val renderer: GameGlRenderer,
+    private val onFirstFrame: () -> Unit,
     private val onSelectionChanged: () -> Unit,
     private val onGameOver: (winner: Int) -> Unit,
     attrs: AttributeSet? = null
@@ -42,6 +43,7 @@ class GameView @JvmOverloads constructor(
     private var gameOverFired = false
     private var surfaceW = 1f
     private var surfaceH = 1f
+    private var firstFramePosted = false
 
     private var primaryPointerId = -1
     private var touchStartX = 0f
@@ -131,6 +133,10 @@ class GameView @JvmOverloads constructor(
                     }
                     clampCamera(surfaceW, surfaceH)
                     renderer.render(state, minimapExpanded)
+                    if (!firstFramePosted) {
+                        firstFramePosted = true
+                        post { onFirstFrame() }
+                    }
                 }
             } catch (t: Throwable) {
                 Log.e("TinySwords", "OpenGL game loop error", t)

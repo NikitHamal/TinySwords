@@ -9,7 +9,6 @@ import com.tinyswords.app.game.pathfinding.Pathfinder
 import com.tinyswords.app.game.world.WorldGenerator
 import com.tinyswords.app.util.dist
 import com.tinyswords.app.util.dist2
-import com.tinyswords.app.util.formationOffset
 import kotlin.math.*
 import java.util.ArrayDeque
 
@@ -514,26 +513,29 @@ class GameSimulation(val state: GameState) {
             return
         }
 
+        val approach = buildingApproachPoint(target, u, 42f)
         val d = buildingFootprintDistance(u, target)
-        if (d < 24f) {
-            // Build/repair
-            u.gatherTimer += dt
-            if (u.gatherTimer >= 0.5f) {
-                u.gatherTimer = 0f
-                if (target.buildProgress < 1f) {
-                    target.buildProgress = min(1f, target.buildProgress + 0.02f)
-                    if (target.buildProgress >= 1f) {
-                        target.hp = target.maxHp
-                        state.navVersion++
-                    }
-                } else if (target.hp < target.maxHp) {
-                    target.hp = min(target.maxHp, target.hp + 5)
+        val atWorkSpot = d <= 52f || dist2(u.x, u.y, approach.first, approach.second) <= 38f * 38f
+        if (atWorkSpot) {
+            if (target.buildProgress < 1f) {
+                val before = target.buildProgress
+                target.buildProgress = min(1f, target.buildProgress + dt / target.buildTime.coerceAtLeast(4f))
+                target.hp = max(1, (target.maxHp * target.buildProgress).roundToInt())
+                if (before < 1f && target.buildProgress >= 1f) {
+                    target.hp = target.maxHp
+                    worldGenerator.rebuildPathGrid()
+                    state.rebuildSpatialIndices()
+                }
+            } else if (target.hp < target.maxHp) {
+                u.gatherTimer += dt
+                if (u.gatherTimer >= 0.18f) {
+                    u.gatherTimer = 0f
+                    target.hp = min(target.maxHp, target.hp + 6)
                 }
             }
             u.face = if (target.x >= u.x) 1 else -1
         } else {
-            val approach = buildingApproachPoint(target, u, 22f)
-            moveToward(u, approach.first, approach.second, dt, 16f)
+            moveToward(u, approach.first, approach.second, dt, 28f)
         }
     }
 
@@ -710,7 +712,7 @@ class GameSimulation(val state: GameState) {
 
         // Soft collision. The first Android pass used hard blocking, which made
         // groups jam and feel unresponsive. A small separation impulse preserves
-        // readable formations without freezing the command queue.
+        // readable spacing without freezing the command queue.
         var avoidX = 0f
         var avoidY = 0f
         for (other in state.unitIndex.query(unit.x, unit.y)) {
@@ -763,10 +765,14 @@ class GameSimulation(val state: GameState) {
     // ── Player Commands ──
 
     fun orderMove(units: List<GameUnit>, targetX: Float, targetY: Float, attackMove: Boolean = false) {
-        val spacing = FORMATION_MODES[state.formationMode]?.spacing ?: 42f
         for ((i, u) in units.withIndex()) {
             if (u.dead || u.garrisoned) continue
-            val (ox, oy) = formationOffset(i, units.size, spacing, state.formationMode)
+            val columns = ceil(sqrt(units.size.toFloat())).toInt().coerceAtLeast(1)
+            val row = i / columns
+            val col = i % columns
+            val rows = ceil(units.size.toFloat() / columns).toInt().coerceAtLeast(1)
+            val ox = (col - (columns - 1) * 0.5f) * 28f
+            val oy = (row - (rows - 1) * 0.5f) * 24f
             u.order = if (attackMove) UnitOrder.ATTACK_MOVE else UnitOrder.MOVE
             u.goalX = targetX + ox
             u.goalY = targetY + oy
@@ -816,6 +822,7 @@ class GameSimulation(val state: GameState) {
             u.targetId = building.id
             u.gatherTimer = 0f
             u.hasGoal = false
+            if (building.buildProgress < 1f) u.workerRole = WorkerRole.BUILD
             clearUnitPath(u)
         }
     }
@@ -838,9 +845,4 @@ class GameSimulation(val state: GameState) {
         }
     }
 
-    fun setFormation(mode: String) {
-        if (FORMATION_MODES.containsKey(mode)) {
-            state.formationMode = mode
-        }
-    }
 }

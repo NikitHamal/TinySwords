@@ -788,7 +788,7 @@ Game.prototype.run = function(ts) {
 
 
 
-// Pass 2: worker-built construction, built-in tower archers, stronger path movement, formations, attack pings, smarter AI.
+// Pass 2: worker-built construction, built-in tower archers, stronger path movement, attack pings, smarter AI.
 Game.prototype.normalizeTowerStats = function(b) {
   if (!b || b.type !== 'tower') return;
   const hp = UNITS.archer.hp;
@@ -963,46 +963,23 @@ Game.prototype.separate = function(u, dt) {
   }
 };
 
-Game.prototype.formationOrderedUnits = function(units, mode) {
-  const rank = (u) => mode === 'split' ? (u.type === 'warrior' || u.type === 'lancer' ? 0 : u.type === 'archer' ? 1 : u.type === 'monk' ? 2 : 3) : 0;
+Game.prototype.orderedCombatUnits = function(units) {
+  const rank = (u) => (u.type === 'warrior' || u.type === 'lancer') ? 0 : u.type === 'archer' ? 1 : u.type === 'monk' ? 2 : 3;
   return units.slice().sort((a, b) => rank(a) - rank(b) || a.id - b.id);
 };
 
-Game.prototype.formationLocalOffset = function(index, count, unit, mode, spacing) {
-  if (count <= 1) return { x: 0, y: 0 };
-  if (mode === 'line') return { x: (index - (count - 1) / 2) * spacing, y: 0 };
-  if (mode === 'wedge') {
-    if (index === 0) return { x: 0, y: -spacing * .7 };
-    const row = Math.ceil((Math.sqrt(8 * index + 1) - 1) / 2);
-    const prev = row * (row - 1) / 2;
-    const pos = index - prev;
-    return { x: (pos - (row - 1) / 2) * spacing, y: row * spacing * .72 };
-  }
-  if (mode === 'split') {
-    const roleY = (unit.type === 'warrior' || unit.type === 'lancer') ? -spacing * .65 : unit.type === 'archer' ? spacing * .35 : unit.type === 'monk' ? spacing * 1.2 : spacing * 1.65;
-    return { x: (index - (count - 1) / 2) * spacing * .75, y: roleY };
-  }
-  const cols = Math.ceil(Math.sqrt(count));
-  const rows = Math.ceil(count / cols);
-  return { x: ((index % cols) - (cols - 1) / 2) * spacing, y: (Math.floor(index / cols) - (rows - 1) / 2) * spacing };
-};
 
 Game.prototype.orderMoveFormation = function(units, x, y, attackMove) {
   const movable = units.filter(u => u && u.entity === 'unit' && !u.dead);
   if (!movable.length) return;
   const land = this.nearestLandPoint(x, y, 360) || { x, y };
-  const cx = movable.reduce((s, u) => s + u.x, 0) / movable.length;
-  const cy = movable.reduce((s, u) => s + u.y, 0) / movable.length;
-  const angle = Math.atan2(land.y - cy, land.x - cx);
-  const fx = Math.cos(angle), fy = Math.sin(angle);
-  const rx = -fy, ry = fx;
-  const mode = FORMATION_MODES[this.formationMode] ? this.formationMode : 'box';
-  const ordered = this.formationOrderedUnits(movable, mode);
-  const spacing = FORMATION_MODES[mode].spacing;
-  ordered.forEach((u, i) => {
-    const o = this.formationLocalOffset(i, ordered.length, u, mode, spacing + (u.r || 12) * .35);
-    const gx = clamp(land.x + rx * o.x + fx * o.y, 30, WORLD_W - 30);
-    const gy = clamp(land.y + ry * o.x + fy * o.y, 30, WORLD_H - 30);
+  const cols = Math.max(1, Math.ceil(Math.sqrt(movable.length)));
+  const rows = Math.ceil(movable.length / cols);
+  movable.forEach((u, i) => {
+    const ox = ((i % cols) - (cols - 1) / 2) * 30;
+    const oy = (Math.floor(i / cols) - (rows - 1) / 2) * 26;
+    const gx = clamp(land.x + ox, 30, WORLD_W - 30);
+    const gy = clamp(land.y + oy, 30, WORLD_H - 30);
     const p = this.nearestLandPoint(gx, gy, 180) || land;
     this.clearUnitPath && this.clearUnitPath(u);
     u.goal = { x: p.x, y: p.y };
@@ -1190,7 +1167,7 @@ Game.prototype.aiTactics = function(f) {
   if (!target) return;
   f.aiState.lastTargetId = target.id;
   const squadLimit = Math.min(idleArmy.length, Math.max(diff.aiSquadMin, 8 + Math.floor(armyPower / 2)));
-  const squad = this.formationOrderedUnits(idleArmy, 'split').slice(0, squadLimit);
+  const squad = this.orderedCombatUnits(idleArmy).slice(0, squadLimit);
   for (const u of squad) this.orderAttack(u, target, true);
 };
 
@@ -1968,7 +1945,7 @@ Game.prototype.aiTactics = function(f, overview = this.buildFactionOverview(f.id
   if (!target) return;
   f.aiState.lastTargetId = target.id;
   const squadLimit = Math.min(idleArmy.length, Math.max(diff.aiSquadMin, 8 + Math.floor(armyPower / 2)));
-  const squad = this.formationOrderedUnits(idleArmy, 'split').slice(0, squadLimit);
+  const squad = this.orderedCombatUnits(idleArmy).slice(0, squadLimit);
   for (let i = 0; i < squad.length; i++) this.orderAttack(squad[i], target, true);
 };
 
