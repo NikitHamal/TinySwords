@@ -50,7 +50,7 @@ fun TitleScreen(
                 verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.ic_launcher_foreground),
+                    painter = painterResource(id = R.drawable.tiny_swords_logo_full),
                     contentDescription = null,
                     modifier = Modifier.size(if (compact) 64.dp else 92.dp)
                 )

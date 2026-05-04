@@ -48,7 +48,7 @@ class GameSimulation(val state: GameState) {
         state.spatialRebuildTimer -= clampedDt
         if (state.spatialRebuildTimer <= 0f) {
             state.rebuildSpatialIndices()
-            state.spatialRebuildTimer = if (state.settings.safeGraphics() == "performance") 0.20f else 0.12f
+            state.spatialRebuildTimer = spatialRebuildInterval()
         }
 
         // Update all systems
@@ -61,6 +61,19 @@ class GameSimulation(val state: GameState) {
         ai.update(clampedDt)
         updateEffects(clampedDt)
         cleanupDead()
+    }
+
+    private fun spatialRebuildInterval(): Float {
+        val pressure = state.units.size + state.buildings.size * 2 + (state.resources.size * 0.35f) + state.projectiles.size * 1.5f
+        val perf = state.settings.safeGraphics() == "performance"
+        return when {
+            perf && pressure > 1800f -> 0.30f
+            perf && pressure > 1200f -> 0.25f
+            perf -> 0.20f
+            pressure > 1800f -> 0.18f
+            pressure > 1200f -> 0.14f
+            else -> 0.10f
+        }
     }
 
     private fun updateResources(dt: Float) {
@@ -561,10 +574,11 @@ class GameSimulation(val state: GameState) {
     }
 
     private fun cleanupDead() {
-        state.units.removeAll { it.dead }
-        state.buildings.removeAll { it.dead }
-        state.resources.removeAll { it.dead && it.depleted && !it.isAnimal }
-        state.rebuildEntityIndex()
+        var removed = false
+        removed = state.units.removeAll { it.dead } || removed
+        removed = state.buildings.removeAll { it.dead } || removed
+        removed = state.resources.removeAll { it.dead && it.depleted && !it.isAnimal } || removed
+        if (removed) state.rebuildEntityIndex()
     }
 
     private fun processPathRequests() {

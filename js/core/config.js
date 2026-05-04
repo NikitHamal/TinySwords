@@ -100,10 +100,10 @@ const FORMATION_MODES = Object.freeze({
 });
 
 const DEFAULT_WORLD_SETTINGS = Object.freeze({
-  size: 'large',
+  size: 'standard',
   mapStyle: 'crossroads',
   difficulty: 'normal',
-  resourceDensity: 'rich',
+  resourceDensity: 'normal',
   rivals: 4,
   seed: '',
   autosave: true,

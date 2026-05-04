@@ -40,7 +40,7 @@ class EconomySystem(private val state: GameState) {
         if (!faction.canAfford(udef.costWood, udef.costGold, udef.costFood)) return false
 
         val (used, cap) = state.population(building.faction)
-        if (used + udef.pop > cap) return false
+        if (used + queuedPopulation(building.faction) + udef.pop > cap) return false
 
         faction.pay(udef.costWood, udef.costGold, udef.costFood)
         building.queue.add(TrainSlot(unitType, 0f, udef.trainTime))
@@ -70,6 +70,15 @@ class EconomySystem(private val state: GameState) {
         }
 
         state.units.add(unit)
+    }
+
+    private fun queuedPopulation(factionId: Int): Int {
+        var queued = 0
+        for (b in state.buildings) {
+            if (b.dead || b.faction != factionId || b.queue.isEmpty()) continue
+            for (slot in b.queue) queued += UNITS[slot.unitType]?.pop ?: 0
+        }
+        return queued
     }
 
     fun placeBuilding(type: String, factionId: Int, x: Float, y: Float, asFoundation: Boolean = false): GameBuilding? {
