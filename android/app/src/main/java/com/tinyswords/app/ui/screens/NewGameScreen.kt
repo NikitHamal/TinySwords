@@ -22,10 +22,10 @@ fun NewGameScreen(
     onStart: (WorldSettings) -> Unit,
     onBack: () -> Unit
 ) {
-    var worldSize by remember { mutableStateOf("large") }
+    var worldSize by remember { mutableStateOf("standard") }
     var difficulty by remember { mutableStateOf("normal") }
     var mapStyle by remember { mutableStateOf("crossroads") }
-    var density by remember { mutableStateOf("rich") }
+    var density by remember { mutableStateOf("normal") }
     var rivals by remember { mutableStateOf(4) }
     var autosave by remember { mutableStateOf(true) }
 

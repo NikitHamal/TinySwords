@@ -253,7 +253,7 @@ class WorldGenerator(private val state: GameState) {
     private fun spawnResources() {
         val bases = getFactionBases()
         val activeFactions = (1 + state.settings.rivals).coerceAtMost(5)
-        val density = state.resourceDensity
+        val density = state.resourceDensity * if (state.settings.safeGraphics() == "performance") 0.82f else 1f
 
         // Per-base resources
         for (i in 0 until activeFactions) {
@@ -321,7 +321,7 @@ class WorldGenerator(private val state: GameState) {
     }
 
     private fun spawnDecor() {
-        val areaScale = WORLD_PRESETS[state.settings.size]?.areaScale ?: 1f
+        val areaScale = (WORLD_PRESETS[state.settings.size]?.areaScale ?: 1f) * if (state.settings.safeGraphics() == "performance") 0.58f else 1f
 
         // Bushes (passable)
         repeat((60 * areaScale).toInt()) {

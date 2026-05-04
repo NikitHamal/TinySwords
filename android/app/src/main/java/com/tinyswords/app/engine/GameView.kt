@@ -69,6 +69,9 @@ class GameView @JvmOverloads constructor(
     private var originalBuildingY = 0f
     private val buildingDragQueryBuffer = ArrayList<GameBuilding>(32)
     private val resourceDragQueryBuffer = ArrayList<GameResource>(64)
+    private val unitHitQueryBuffer = ArrayList<GameUnit>(48)
+    private val buildingHitQueryBuffer = ArrayList<GameBuilding>(24)
+    private val resourceHitQueryBuffer = ArrayList<GameResource>(48)
 
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
@@ -293,7 +296,7 @@ class GameView @JvmOverloads constructor(
                 b.x = originalBuildingX
                 b.y = originalBuildingY
             }
-            simulation.worldGenerator.rebuildPathGrid()
+            state.pathGridDirty = true
             state.rebuildSpatialIndices()
             state.effects.add(GameEffect("moveMark", b.x, b.y, maxTime = 0.42f, scale = 1.25f))
             haptic(18)
@@ -409,7 +412,8 @@ class GameView @JvmOverloads constructor(
     private fun findEntityAt(wx: Float, wy: Float): GameEntity? {
         var bestUnit: GameUnit? = null
         var bestUnitDist = 34f * 34f
-        for (u in state.units) {
+        state.unitIndex.queryRect(wx - 42f, wy - 42f, wx + 42f, wy + 42f, unitHitQueryBuffer)
+        for (u in unitHitQueryBuffer) {
             if (u.dead || u.garrisoned) continue
             val d = dist2(wx, wy, u.x, u.y)
             if (d < bestUnitDist) {
@@ -419,19 +423,27 @@ class GameView @JvmOverloads constructor(
         }
         if (bestUnit != null) return bestUnit
 
-        for (b in state.buildings.asReversed()) {
+        var bestBuilding: GameBuilding? = null
+        var bestBuildingY = -Float.MAX_VALUE
+        state.buildingIndex.queryRect(wx - 190f, wy - 170f, wx + 190f, wy + 80f, buildingHitQueryBuffer)
+        for (b in buildingHitQueryBuffer) {
             if (b.dead) continue
             val def = BUILDINGS[b.type] ?: continue
             val left = b.x - def.w / 2f - 10f
             val right = b.x + def.w / 2f + 10f
             val top = b.y - def.h + def.placeYOffset - 8f
             val bottom = b.y + def.placeYOffset + 12f
-            if (wx in left..right && wy in top..bottom) return b
+            if (wx in left..right && wy in top..bottom && b.y > bestBuildingY) {
+                bestBuildingY = b.y
+                bestBuilding = b
+            }
         }
+        if (bestBuilding != null) return bestBuilding
 
         var bestRes: GameResource? = null
         var bestResDist = 48f * 48f
-        for (r in state.resources) {
+        state.resourceIndex.queryRect(wx - 76f, wy - 96f, wx + 76f, wy + 76f, resourceHitQueryBuffer)
+        for (r in resourceHitQueryBuffer) {
             if (r.dead || r.depleted) continue
             val ix = resourceInteractionX(r)
             val iy = resourceInteractionY(r)

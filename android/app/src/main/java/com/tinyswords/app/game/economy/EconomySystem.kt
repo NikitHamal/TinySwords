@@ -95,8 +95,11 @@ class EconomySystem(private val state: GameState) {
         val building = GameBuilding.create(type, factionId, x, y, state::nextId, built = !asFoundation)
         state.buildings.add(building)
 
-        // Invalidate nav
-        state.navVersion++
+        // Queue navigation/index refresh for the simulation thread. Doing the
+        // full path-grid rebuild during the UI tap causes noticeable Android jank.
+        state.pathGridDirty = true
+        state.spatialRebuildTimer = 0f
+        state.rebuildEntityIndex()
 
         return building
     }

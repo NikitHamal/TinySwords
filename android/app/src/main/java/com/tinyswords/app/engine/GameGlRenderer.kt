@@ -28,6 +28,8 @@ class GameGlRenderer(private val assets: AssetManager) {
     private val textures = GlTextureCache(assets)
 
     private val biomeTileKeys = arrayOf("tileGrass", "tileWarm", "tileAlt", "tileMoss", "tileDeep")
+    private var terrainCacheKey = ""
+    private var terrainSources = IntArray(0)
     private val drawablesBuffer = ArrayList<DrawableEntity>(1536)
     private val drawablePool = ArrayList<DrawableEntity>(1536)
     private val drawableComparator = Comparator<DrawableEntity> { a, b -> a.sortY.compareTo(b.sortY) }
@@ -110,7 +112,7 @@ class GameGlRenderer(private val assets: AssetManager) {
         drawEffects(state, camLeft - 180f, camTop - 180f, camRight + 180f, camBottom + 180f)
         drawSelectionLinks(state)
         drawPlacementGhost(state)
-        for (d in drawables) if (d.isSky) drawEntity(state, d)
+        if (!perf) for (d in drawables) if (d.isSky) drawEntity(state, d)
         drawMinimap(state, minimapExpanded)
 
         batch.end()
@@ -127,6 +129,7 @@ class GameGlRenderer(private val assets: AssetManager) {
 
     private fun drawTerrain(state: GameState) {
         batch.drawRect(0f, 0f, viewW, viewH, 72, 170, 168, 255)
+        ensureTerrainSourceCache(state)
 
         val startCol = floor(camLeft / TILE).toInt() - 1
         val endCol = ceil(camRight / TILE).toInt() + 1
@@ -141,10 +144,26 @@ class GameGlRenderer(private val assets: AssetManager) {
                 if (landAtTile(state, col, row)) {
                     val idx = row * state.landCols + col
                     val biome = state.biomeMap.getOrElse(idx) { 0 }.coerceIn(0, 4)
-                    drawGrassTile(state, col, row, x, y, biomeTileKeys[biome])
+                    drawGrassTile(state, col, row, x, y, biomeTileKeys[biome], perf)
                 } else {
                     drawWaterTile(state, col, row, x, y, perf)
                 }
+            }
+        }
+    }
+
+    private fun ensureTerrainSourceCache(state: GameState) {
+        val key = "${state.landCols}:${state.landRows}:${state.landMap.size}:${state.settings.seed}"
+        val total = state.landCols * state.landRows
+        if (terrainCacheKey == key && terrainSources.size == total) return
+        terrainCacheKey = key
+        terrainSources = IntArray(total)
+        for (row in 0 until state.landRows) {
+            for (col in 0 until state.landCols) {
+                val idx = row * state.landCols + col
+                if (state.landMap.getOrElse(idx) { 0 }.toInt() == 0) continue
+                val edge = edgeSource(state, col, row)
+                terrainSources[idx] = (edge.sx and 255) or ((edge.sy and 255) shl 8) or (if (edge.edge) 1 shl 16 else 0)
             }
         }
     }
@@ -180,11 +199,14 @@ class GameGlRenderer(private val assets: AssetManager) {
         }
     }
 
-    private fun drawGrassTile(state: GameState, col: Int, row: Int, x: Float, y: Float, biomeKey: String) {
+    private fun drawGrassTile(state: GameState, col: Int, row: Int, x: Float, y: Float, biomeKey: String, perf: Boolean) {
         val tile = textures.get(biomeKey)
-        val edge = edgeSource(state, col, row)
+        val packed = if (col in 0 until state.landCols && row in 0 until state.landRows) terrainSources.getOrElse(row * state.landCols + col) { 0 } else 0
+        val sx = packed and 255
+        val sy = (packed ushr 8) and 255
+        val isEdge = (packed and (1 shl 16)) != 0
         if (tile != null) {
-            drawTextureWorld(tile, edge.sx, edge.sy, 64, 64, x, y, x + TILE, y + TILE, 255)
+            drawTextureWorld(tile, sx, sy, 64, 64, x, y, x + TILE, y + TILE, 255)
         } else {
             when (biomeKey) {
                 "tileWarm" -> drawWorldRect(x, y, x + TILE, y + TILE, 194, 186, 114, 255)
@@ -194,8 +216,9 @@ class GameGlRenderer(private val assets: AssetManager) {
                 else -> drawWorldRect(x, y, x + TILE, y + TILE, 130, 187, 106, 255)
             }
         }
+        if (perf) return
         val variant = (col * 7 + row * 13 + 131) and 255
-        if (!edge.edge && (variant > 214 || variant % 24 > 18)) {
+        if (!isEdge && (variant > 214 || variant % 24 > 18)) {
             drawWorldRect(x + 8f + (variant % 11), y + 14f, x + 38f + (variant % 11), y + 17f, 244, 239, 141, 19)
         }
     }
@@ -324,8 +347,11 @@ class GameGlRenderer(private val assets: AssetManager) {
                 drawCircleOutlineWorld(building.x, building.y, def.towerRange, 2f, 255, 130, 130, 70)
             }
         }
-        if (building.hp < building.maxHp || building.selected) drawHpBar(building.x, drawY - 8f, building.hp.toFloat() / building.maxHp, 48f)
-        if (building.buildProgress < 1f) drawProgressBar(building.x, drawY - 18f, building.buildProgress, 48f)
+        if (building.buildProgress < 1f) {
+            drawProgressBar(building.x, drawY - 10f, building.buildProgress, 52f)
+        } else if (building.hp < building.maxHp || building.selected) {
+            drawHpBar(building.x, drawY - 8f, building.hp.toFloat() / building.maxHp, 48f)
+        }
     }
 
     private fun drawResource(state: GameState, res: GameResource) {
@@ -922,6 +948,7 @@ class GameGlRenderer(private val assets: AssetManager) {
                     existing.keys.add(key)
                 } else {
                     val bounds = assets.textureBounds(key) ?: continue
+                    if (!shouldAtlas(key, bounds.first, bounds.second)) continue
                     sourceByPath[path] = AtlasSource(path, bounds.first, bounds.second, ArrayList<String>(2).also { it.add(key) })
                 }
             }
@@ -954,6 +981,27 @@ class GameGlRenderer(private val assets: AssetManager) {
             for (src in oversize) uploadStandaloneSource(src)
             assets.releaseDecodedBitmaps()
             atlasesReady = true
+        }
+
+        private fun shouldAtlas(key: String, width: Int, height: Int): Boolean {
+            if (width > 512 || height > 512) return false
+            return key.startsWith("tile") ||
+                key == "water" ||
+                key == "waterFoam" ||
+                key == "shadow" ||
+                key.startsWith("res") ||
+                key.startsWith("gold") ||
+                key == "meat" ||
+                key.startsWith("stump") ||
+                key.startsWith("rock") ||
+                key.startsWith("bush") ||
+                key.startsWith("waterRock") ||
+                key.startsWith("icon") ||
+                key.startsWith("cursor") ||
+                key == "dust" ||
+                key == "explosion" ||
+                key == "fire" ||
+                key == "waterSplash"
         }
 
         fun get(key: String): GlTexture? {

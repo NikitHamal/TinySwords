@@ -12,9 +12,9 @@ const val MAX_DT = 1f / 24f
 const val PATH_CELL = 32f
 
 // ── Camera ──
-const val CAMERA_MIN_ZOOM = 0.72f
-const val CAMERA_MAX_ZOOM = 1.32f
-const val CAMERA_ZOOM_SPEED = 8f
+const val CAMERA_MIN_ZOOM = 0.78f
+const val CAMERA_MAX_ZOOM = 1.24f
+const val CAMERA_ZOOM_SPEED = 10f
 const val CAMERA_PAN_SPEED = 520f
 
 // ── Combat ──
@@ -71,15 +71,6 @@ val RESOURCE_DENSITY_PRESETS = mapOf(
 )
 
 // ── Formation Modes ──
-data class FormationMode(val label: String, val spacing: Float)
-
-val FORMATION_MODES = mapOf(
-    "line" to FormationMode("Line", 44f),
-    "box" to FormationMode("Box", 42f),
-    "wedge" to FormationMode("Wedge", 42f),
-    "split" to FormationMode("Split", 44f)
-)
-
 // ── Units ──
 data class UnitDef(
     val label: String,

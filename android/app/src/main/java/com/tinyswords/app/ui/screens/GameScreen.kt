@@ -194,8 +194,8 @@ private fun ActiveGameScreen(
                 popUsed = popUsed,
                 popCap = popCap,
                 modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 4.dp, end = 236.dp)
+                    .align(Alignment.TopCenter)
+                    .padding(top = 5.dp)
             )
 
             val currentSelection = remember(selectionVersion, uiTick) {
@@ -204,16 +204,14 @@ private fun ActiveGameScreen(
             SelectionPanel(
                 selected = currentSelection,
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .padding(start = 8.dp)
+                    .align(Alignment.BottomStart)
+                    .padding(start = 8.dp, bottom = 58.dp)
             )
 
             if (currentSelection.isNotEmpty()) {
-                val formationMode = remember(uiTick) { synchronized(gameState) { gameState.formationMode } }
-                ActionDock(
+                SelectionActionBar(
                     selected = currentSelection,
-                    formationMode = formationMode,
-                    onMove = { },
+                    buildMenuOpen = showBuildMenu,
                     onAttackMove = { gameView?.armAttackMove() },
                     onStop = {
                         gameView?.runCommand {
@@ -221,13 +219,6 @@ private fun ActiveGameScreen(
                             simulation.orderStop(units)
                         }
                     },
-                    onHold = {
-                        gameView?.runCommand {
-                            val units = gameState.selected.filterIsInstance<GameUnit>().filter { it.faction == 0 }
-                            simulation.orderHold(units)
-                        }
-                    },
-                    onFormation = { mode -> gameView?.runCommand { simulation.setFormation(mode) } },
                     onBuildMenu = { showBuildMenu = !showBuildMenu },
                     onTrain = { unitType ->
                         gameView?.runCommand {
@@ -236,27 +227,13 @@ private fun ActiveGameScreen(
                         }
                     },
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 134.dp, end = 8.dp)
-                )
-            } else {
-                QuickControlPanel(
-                    onWorkers = { gameView?.selectAllWorkers() },
-                    onArmy = { gameView?.selectAllMilitary() },
-                    onAll = { gameView?.selectAllUnits() },
-                    onHome = { gameView?.focusPlayerBase() },
-                    onCancel = {
-                        showBuildMenu = false
-                        gameView?.cancelPlacement()
-                    },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 134.dp, end = 8.dp)
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 8.dp)
                 )
             }
 
             if (showBuildMenu) {
-                BuildMenu(
+                BuildStrip(
                     faction = faction,
                     onBuild = { type ->
                         gameView?.runCommand { gameState.placingBuilding = type }
@@ -264,8 +241,8 @@ private fun ActiveGameScreen(
                     },
                     onClose = { showBuildMenu = false },
                     modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 320.dp, end = 8.dp)
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 58.dp)
                 )
             }
 

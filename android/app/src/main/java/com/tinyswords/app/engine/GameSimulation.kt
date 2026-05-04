@@ -9,7 +9,6 @@ import com.tinyswords.app.game.pathfinding.Pathfinder
 import com.tinyswords.app.game.world.WorldGenerator
 import com.tinyswords.app.util.dist
 import com.tinyswords.app.util.dist2
-import com.tinyswords.app.util.formationOffset
 import kotlin.math.*
 import java.util.ArrayDeque
 
@@ -41,6 +40,12 @@ class GameSimulation(val state: GameState) {
         val clampedDt = dt.coerceAtMost(MAX_DT)
         state.time += clampedDt
         state.camera.zoom += (state.camera.targetZoom - state.camera.zoom) * kotlin.math.min(1f, clampedDt * CAMERA_ZOOM_SPEED)
+
+        if (state.pathGridDirty) {
+            worldGenerator.rebuildPathGrid()
+            state.pathGridDirty = false
+            state.spatialRebuildTimer = 0f
+        }
 
         // Rebuild spatial indices at a fixed cadence instead of every frame. The
         // world is large, but most indices tolerate 80-120ms of staleness and this
@@ -515,20 +520,20 @@ class GameSimulation(val state: GameState) {
         }
 
         val d = buildingFootprintDistance(u, target)
-        if (d < 24f) {
-            // Build/repair
+        if (d < 28f) {
             u.gatherTimer += dt
-            if (u.gatherTimer >= 0.5f) {
-                u.gatherTimer = 0f
-                if (target.buildProgress < 1f) {
-                    target.buildProgress = min(1f, target.buildProgress + 0.02f)
-                    if (target.buildProgress >= 1f) {
-                        target.hp = target.maxHp
-                        state.navVersion++
-                    }
-                } else if (target.hp < target.maxHp) {
-                    target.hp = min(target.maxHp, target.hp + 5)
+            if (target.buildProgress < 1f) {
+                val before = target.buildProgress
+                target.buildProgress = min(1f, target.buildProgress + dt / target.buildTime.coerceAtLeast(1f))
+                if (before < 1f && target.buildProgress >= 1f) {
+                    target.hp = target.maxHp
+                    state.pathGridDirty = true
+                    state.spatialRebuildTimer = 0f
                 }
+            } else if (u.gatherTimer >= 0.5f && target.hp < target.maxHp) {
+                u.gatherTimer = 0f
+                target.hp = min(target.maxHp, target.hp + 5)
+                state.spatialRebuildTimer = 0f
             }
             u.face = if (target.x >= u.x) 1 else -1
         } else {
@@ -709,8 +714,8 @@ class GameSimulation(val state: GameState) {
         var newY = unit.y + moveY * speed
 
         // Soft collision. The first Android pass used hard blocking, which made
-        // groups jam and feel unresponsive. A small separation impulse preserves
-        // readable formations without freezing the command queue.
+        // groups jam and feel unresponsive. A small separation impulse keeps
+        // compact groups readable without freezing the command queue.
         var avoidX = 0f
         var avoidY = 0f
         for (other in state.unitIndex.query(unit.x, unit.y)) {
@@ -763,10 +768,10 @@ class GameSimulation(val state: GameState) {
     // ── Player Commands ──
 
     fun orderMove(units: List<GameUnit>, targetX: Float, targetY: Float, attackMove: Boolean = false) {
-        val spacing = FORMATION_MODES[state.formationMode]?.spacing ?: 42f
+        val spacing = 38f
         for ((i, u) in units.withIndex()) {
             if (u.dead || u.garrisoned) continue
-            val (ox, oy) = formationOffset(i, units.size, spacing, state.formationMode)
+            val (ox, oy) = compactGroupOffset(i, units.size, spacing)
             u.order = if (attackMove) UnitOrder.ATTACK_MOVE else UnitOrder.MOVE
             u.goalX = targetX + ox
             u.goalY = targetY + oy
@@ -777,6 +782,18 @@ class GameSimulation(val state: GameState) {
             u.pathRetryTimer = (i % 12) * 0.035f
             u.stuck = 0f
         }
+    }
+
+    private fun compactGroupOffset(index: Int, count: Int, spacing: Float): Pair<Float, Float> {
+        if (count <= 1) return Pair(0f, 0f)
+        val cols = ceil(sqrt(count.toFloat())).toInt().coerceAtLeast(1)
+        val row = index / cols
+        val col = index % cols
+        val rows = ceil(count.toFloat() / cols).toInt().coerceAtLeast(1)
+        val rowCount = if (row == rows - 1) (count - row * cols).coerceAtLeast(1) else cols
+        val halfCol = (rowCount - 1) * 0.5f
+        val halfRow = (rows - 1) * 0.5f
+        return Pair((col - halfCol) * spacing, (row - halfRow) * spacing)
     }
 
     fun orderAttack(units: List<GameUnit>, target: GameEntity) {
@@ -816,6 +833,7 @@ class GameSimulation(val state: GameState) {
             u.targetId = building.id
             u.gatherTimer = 0f
             u.hasGoal = false
+            u.workerRole = WorkerRole.BUILD
             clearUnitPath(u)
         }
     }
@@ -838,9 +856,4 @@ class GameSimulation(val state: GameState) {
         }
     }
 
-    fun setFormation(mode: String) {
-        if (FORMATION_MODES.containsKey(mode)) {
-            state.formationMode = mode
-        }
-    }
 }

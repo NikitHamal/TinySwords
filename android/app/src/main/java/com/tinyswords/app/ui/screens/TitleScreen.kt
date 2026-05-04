@@ -1,11 +1,25 @@
 package com.tinyswords.app.ui.screens
 
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
@@ -15,7 +29,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tinyswords.app.R
-import com.tinyswords.app.ui.components.AssetIcon
 import com.tinyswords.app.ui.theme.GameColors
 import com.tinyswords.app.ui.theme.GameTypography
 
@@ -41,39 +54,26 @@ fun TitleScreen(
                 .background(GameColors.Panel.copy(alpha = 0.96f), RoundedCornerShape(14.dp))
                 .border(3.dp, GameColors.PanelBorder, RoundedCornerShape(14.dp))
                 .padding(if (compact) 14.dp else 22.dp),
-            horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 24.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(
-                modifier = Modifier.weight(1.08f),
+                modifier = Modifier.weight(1.05f),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)
             ) {
                 Image(
                     painter = painterResource(id = R.drawable.tiny_swords_logo_full),
                     contentDescription = null,
-                    modifier = Modifier.size(if (compact) 64.dp else 92.dp)
+                    modifier = Modifier.size(if (compact) 72.dp else 108.dp)
                 )
                 Text(
                     text = "TINY\nSWORDS",
-                    style = GameTypography.Title.copy(fontSize = if (compact) 32.sp else 46.sp, lineHeight = if (compact) 31.sp else 43.sp),
+                    style = GameTypography.Title.copy(
+                        fontSize = if (compact) 32.sp else 46.sp,
+                        lineHeight = if (compact) 31.sp else 43.sp
+                    ),
                     textAlign = TextAlign.Center
-                )
-                Text(
-                    text = "REALM WAR",
-                    style = GameTypography.Heading.copy(fontSize = if (compact) 14.sp else 18.sp, color = GameColors.TextSecondary, letterSpacing = 5.sp),
-                    textAlign = TextAlign.Center
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    AssetIcon("Tiny Swords (Free Pack)/Buildings/Blue Buildings/Castle.png", GameColors.AccentBlue, Modifier.size(if (compact) 52.dp else 74.dp))
-                    AssetIcon("Tiny Swords (Free Pack)/Units/Blue Units/Warrior/Warrior_Idle.png", GameColors.TextGold, Modifier.size(if (compact) 46.dp else 62.dp))
-                    AssetIcon("Tiny Swords (Free Pack)/Terrain/Resources/Wood/Wood Resource/Wood Resource.png", GameColors.WoodColor, Modifier.size(if (compact) 42.dp else 58.dp))
-                }
-                Text(
-                    text = "A persistent 2D RTS kingdom: gather, build, defend, and command armies across generated realms.",
-                    style = GameTypography.Small.copy(color = GameColors.TextSecondary, fontSize = if (compact) 9.sp else 11.sp),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(0.92f)
                 )
             }
 
@@ -81,20 +81,13 @@ fun TitleScreen(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 11.dp)
             ) {
-                RealmMenuButton("NEW REALM", "Generate terrain and start a save", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_08.png", onNewGame, compact, true)
-                RealmMenuButton("LOAD REALM", "Continue a saved war", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_01.png", onLoadGame, compact, false)
-                RealmMenuButton("SETTINGS", "Audio and performance defaults", "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_05.png", onSettings, compact, false)
-                Text(
-                    text = "Native Android Edition",
-                    style = GameTypography.Small.copy(color = GameColors.TextSecondary.copy(alpha = 0.70f)),
-                    textAlign = TextAlign.End,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                RealmMenuButton("NEW REALM", onNewGame, compact, true)
+                RealmMenuButton("LOAD REALM", onLoadGame, compact)
+                RealmMenuButton("SETTINGS", onSettings, compact)
             }
         }
     }
 }
-
 @Composable
 internal fun RealmMenuBackground(): Brush = Brush.verticalGradient(
     listOf(Color(0xFF06131B), Color(0xFF123323), Color(0xFF201A08))
@@ -103,8 +96,6 @@ internal fun RealmMenuBackground(): Brush = Brush.verticalGradient(
 @Composable
 internal fun RealmMenuButton(
     title: String,
-    subtitle: String,
-    iconPath: String,
     onClick: () -> Unit,
     compact: Boolean,
     primary: Boolean = false,
@@ -118,15 +109,18 @@ internal fun RealmMenuButton(
             .background(bg.copy(alpha = 0.96f), RoundedCornerShape(7.dp))
             .border(1.5.dp, if (primary) GameColors.TextGold else GameColors.ButtonBorder, RoundedCornerShape(7.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 9.dp),
+            .padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        AssetIcon(iconPath, GameColors.TextGold, Modifier.size(if (compact) 28.dp else 34.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = GameTypography.Button.copy(fontSize = if (compact) 11.sp else 13.sp, color = if (primary) GameColors.TextGold else GameColors.TextPrimary))
-            Text(subtitle, style = GameTypography.Small.copy(fontSize = if (compact) 7.sp else 8.sp, color = GameColors.TextSecondary), maxLines = 1)
-        }
-        Text("›", style = GameTypography.Heading.copy(color = GameColors.TextGold, fontSize = if (compact) 18.sp else 22.sp))
+        Text(
+            title,
+            style = GameTypography.Button.copy(
+                fontSize = if (compact) 12.sp else 14.sp,
+                color = if (primary) GameColors.TextGold else GameColors.TextPrimary
+            ),
+            modifier = Modifier.weight(1f)
+        )
+        Text(">", style = GameTypography.Heading.copy(color = GameColors.TextGold, fontSize = if (compact) 16.sp else 20.sp))
     }
 }
