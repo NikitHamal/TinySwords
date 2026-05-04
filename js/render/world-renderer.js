@@ -1,4 +1,5 @@
 // Canvas renderer: terrain, animated water, entities, FX, minimap.
+const MINIMAP_UNIT_COLORS = ['#61b7d9', '#db6060', '#e6ca59', '#b071df', '#aeb3bd'];
 Game.prototype.draw = function () {
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.fillStyle = '#143340';
@@ -353,7 +354,8 @@ Game.prototype.drawWorldEntities = function () {
   }
 
   drawables.sort((a, b) => a.y - b.y);
-  const perf = this.worldSettings?.graphics === 'performance';
+  // Pass 5 (perf): auto-degrade to perf draw paths when frame budget is busted.
+  const perf = this.worldSettings?.graphics === 'performance' || (this._frameAvg && this._frameAvg > 0.040);
   if (!perf) {
     for (let i = 0; i < drawables.length; i++) {
       const d = drawables[i];
@@ -732,7 +734,9 @@ Game.prototype.drawTowerRange = function (b) { this.drawRangeCircle(b.x, b.y, BU
 
 Game.prototype.drawHpBar = function (x, y, pct, fid, width = 58) {
   pct = clamp(pct, 0, 1);
-  if (assets.uiBarBase && assets.uiBarFill) {
+  // Pass 5 (perf): skip composited HP-bar render path when frame budget is busted.
+  const usePerfBar = this.worldSettings?.graphics === 'performance' || (this._frameAvg && this._frameAvg > 0.040);
+  if (!usePerfBar && assets.uiBarBase && assets.uiBarFill) {
     const w = width, h = 12;
     ctx.drawImage(assets.uiBarBase, x - w / 2, y, w, h);
 
@@ -859,7 +863,9 @@ Game.prototype.buildMinimapTerrainCache = function () {
 
 Game.prototype.getMinimapEntityLayer = function (w, h) {
   const key = `${w}x${h}:${this.resources.length}:${this.buildings.length}:${this.units.length}:${this.attackPings ? this.attackPings.length : 0}`;
-  if (this._minimapEntityCanvas && this._minimapEntityKey === key && this.time - this._minimapEntityTime < .16) return this._minimapEntityCanvas;
+  // Pass 5 (perf): refresh entity overlay less often (~3 Hz vs 6 Hz). Cuts a costly canvas paint in half.
+  const refreshInterval = (this._frameAvg && this._frameAvg > 0.040) ? 0.5 : 0.3;
+  if (this._minimapEntityCanvas && this._minimapEntityKey === key && this.time - this._minimapEntityTime < refreshInterval) return this._minimapEntityCanvas;
   const c = this._minimapEntityCanvas || (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : document.createElement('canvas'));
   if (c.width !== w) c.width = w;
   if (c.height !== h) c.height = h;
@@ -880,7 +886,7 @@ Game.prototype.getMinimapEntityLayer = function (w, h) {
     const bw = b.type === 'castle' ? 6 : 4;
     ec.fillRect(b.x * sx - 2, b.y * sy - 2, bw, bw);
   }
-  const unitColors = ['#61b7d9', '#db6060', '#e6ca59', '#b071df', '#aeb3bd'];
+  const unitColors = MINIMAP_UNIT_COLORS;
   for (let i = 0; i < this.units.length; i++) {
     const u = this.units[i];
     if (u.dead || u.garrisoned) continue;

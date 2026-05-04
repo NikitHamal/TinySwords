@@ -71,12 +71,7 @@ input, select { font: inherit; }
   object-fit: cover !important;
   object-position: left center !important;
 }
-img[src*="Gold_Resource.png"] {
-  transform: scale(3.8);
-}
-img[src*="Lancer_Idle.png"] {
-  transform: scale(1.66);
-}
+/* Resource icon sizing relies on .res-pill img dimensions; no transform hacks. */
 .res-pill span { display: grid; gap: 1px; line-height: 1; }
 .res-pill b { color: #fff0a6; font-size: 13px; line-height: 1; }
 .res-pill small { color: var(--muted); font-size: 8px; text-transform: uppercase; letter-spacing: .6px; }
@@ -216,8 +211,7 @@ img[src*="Lancer_Idle.png"] {
 .ready #loading { display: none; }
 
 .screen { position: absolute; inset: 0; z-index: 12; }
-body.in-game #gameCanvas { filter: none; }
-body:not(.in-game) #gameCanvas { filter: saturate(.92) brightness(.60) blur(1px); }
+#gameCanvas { filter: none; }
 .title-screen, .world-screen, .settings-screen, .generation-screen, .create-world-screen {
   display: grid;
   place-items: center;
@@ -975,4 +969,271 @@ body:not(.in-game) #gameCanvas { filter: saturate(.92) brightness(.60) blur(1px)
   .command, .build-card { height: 40px !important; padding: 4px 5px !important; }
   .command img, .build-card img { width: 23px !important; height: 23px !important; }
   .worker-roles { left: 8px !important; right: 8px !important; top: 94px !important; width: auto !important; }
+}
+
+/* =====================================================================
+   FINAL UI REVAMP (Pass 6)
+   - Title screen: transparent logo, no panel chrome around the logo,
+     no "›" decoration on buttons, no button subtitles
+   - In-game HUD:
+       * Resource strip pinned at TOP-CENTER, minimal/horizontal
+       * Selection panel pinned bottom-LEFT, minimal/compact icon card
+       * Action dock pinned bottom-CENTER as a horizontal icon-only bar
+       * Build menu opens as a horizontal scrollable bar ABOVE the dock
+       * Right-side command rail removed entirely
+       * Minimap stays at bottom-right
+   - Gold icon: crop to first sprite frame instead of squashing 4x4 grid
+   ===================================================================== */
+
+/* Title screen polish */
+.title-card .game-logo {
+  background: transparent !important;
+  filter: drop-shadow(0 6px 10px rgba(0,0,0,.35));
+}
+/* Strip the auto-injected ">" arrow on title/menu buttons */
+.title-actions .big-button::after,
+.title-actions .ghost::after {
+  content: '' !important;
+  margin: 0 !important;
+}
+/* Title-screen single-player & continue buttons: hide any subtitle <span> */
+.title-actions .big-button > span:not(:only-child),
+.title-actions .big-button > small {
+  display: none !important;
+}
+.title-actions .big-button {
+  justify-content: center !important;
+  text-align: center !important;
+  font-size: 16px;
+  letter-spacing: .05em;
+}
+.title-actions .big-button b {
+  font-size: 16px !important;
+  letter-spacing: .05em;
+}
+
+/* Gold icon: first-frame crop (sprite is a 4x4 grid in a square image). */
+img.sprite-icon[src*="Gold_Resource.png"] {
+  object-fit: none !important;
+  object-position: 0 0 !important;
+  /* Container has overflow:hidden so an oversized natural sprite is visually clipped to first frame. */
+}
+.res-pill { overflow: hidden; }
+.res-pill img { transform: none !important; }
+
+/* === In-game HUD layout === */
+#topbar {
+  position: absolute !important;
+  top: 8px !important;
+  left: 50% !important;
+  right: auto !important;
+  transform: translateX(-50%);
+  width: auto !important;
+  max-width: calc(100vw - 200px) !important;
+  padding: 4px 8px !important;
+  z-index: 22;
+  border-radius: 9px;
+}
+.resource-strip {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center;
+  gap: 6px !important;
+}
+.res-pill {
+  flex: 0 0 auto;
+  min-width: 0 !important;
+  height: 30px !important;
+  padding: 2px 8px 2px 4px !important;
+  border-width: 2px !important;
+  border-radius: 5px !important;
+  gap: 4px !important;
+}
+.res-pill img { width: 22px !important; height: 22px !important; }
+.res-pill b { font-size: 11.5px !important; line-height: 1 !important; }
+.res-pill small { font-size: 7px !important; line-height: 1 !important; letter-spacing: .35px !important; }
+
+/* Selection panel: minimal compact card pinned bottom-left */
+#selectionPanel {
+  position: absolute !important;
+  left: 10px !important;
+  bottom: 10px !important;
+  top: auto !important;
+  right: auto !important;
+  width: min(238px, 32vw) !important;
+  min-height: 0 !important;
+  padding: 7px 9px !important;
+  z-index: 23;
+  border-radius: 8px;
+}
+#selectionHeader { min-height: 26px !important; gap: 7px !important; }
+#selectionHeader b { font-size: 12px !important; }
+#selectionHeader small { font-size: 7.5px !important; }
+.selection-icon-wrap { width: 26px !important; height: 26px !important; padding: 1px !important; }
+#selectionBody { font-size: 9.5px !important; margin-top: 4px !important; line-height: 1.25 !important; }
+.selection-row { padding: 3px 0 !important; gap: 6px !important; }
+.selection-row b { font-size: 9.5px !important; }
+.hpbar { height: 6px !important; }
+
+/* Action dock: bottom-CENTER, horizontal, icon-only buttons */
+#actionDock {
+  position: absolute !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: 12px !important;
+  top: auto !important;
+  transform: translateX(-50%);
+  width: auto !important;
+  max-width: calc(100vw - 280px) !important;
+  min-height: 0 !important;
+  padding: 6px 8px !important;
+  z-index: 23;
+  border-radius: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+#actionTitle { display: none !important; }
+#actionBar {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  gap: 5px !important;
+  align-items: center;
+}
+.command, .build-card {
+  display: inline-flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 1px !important;
+  width: 52px !important;
+  min-width: 52px !important;
+  max-width: 52px !important;
+  height: 52px !important;
+  padding: 4px 3px !important;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+.command img, .build-card img {
+  width: 26px !important;
+  height: 26px !important;
+  margin: 0 !important;
+}
+.command .txt, .build-card .txt {
+  align-items: center !important;
+  text-align: center !important;
+  gap: 0 !important;
+  flex-direction: column !important;
+}
+.command .txt b, .build-card .txt b {
+  font-size: 8px !important;
+  line-height: 1 !important;
+  letter-spacing: 0 !important;
+}
+.command .txt span:last-child, .build-card .txt span:last-child {
+  display: none !important;
+}
+.command .keytag, .build-card .keytag {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  margin: 0 !important;
+  font-size: 7.5px !important;
+  min-width: 0 !important;
+  padding: 0 3px !important;
+  line-height: 1.2 !important;
+}
+
+/* Build menu: horizontal scrollable bar ABOVE the action dock, centered. */
+#buildMenu {
+  position: absolute !important;
+  left: 50% !important;
+  right: auto !important;
+  bottom: 76px !important;
+  top: auto !important;
+  transform: translateX(-50%) !important;
+  width: auto !important;
+  max-width: calc(100vw - 60px) !important;
+  padding: 7px 8px !important;
+  z-index: 26;
+  border-radius: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+.menu-title {
+  margin-bottom: 5px !important;
+  font-size: 9px !important;
+  letter-spacing: .6px !important;
+}
+.menu-title span { font-size: 8px !important; }
+#buildButtons {
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  grid-template-columns: none !important;
+  gap: 6px !important;
+  overflow-x: auto;
+}
+.build-card {
+  width: 60px !important;
+  min-width: 60px !important;
+  max-width: 60px !important;
+  height: 60px !important;
+}
+.build-card img { width: 30px !important; height: 30px !important; }
+
+/* Minimap: bottom-right corner, compact */
+#miniWrap {
+  position: absolute !important;
+  top: auto !important;
+  bottom: 12px !important;
+  right: 12px !important;
+  left: auto !important;
+  width: 132px !important;
+  padding: 6px !important;
+  z-index: 24;
+  border-radius: 8px;
+}
+#miniMap { width: 118px !important; height: 80px !important; }
+#miniWrap.expanded { width: 280px !important; }
+#miniWrap.expanded #miniMap { width: 264px !important; height: 178px !important; }
+
+/* Worker roles panel: floating panel above action bar, centered */
+.worker-roles {
+  position: absolute !important;
+  left: 50% !important;
+  right: auto !important;
+  top: auto !important;
+  bottom: 76px !important;
+  transform: translateX(-50%) !important;
+  width: min(320px, calc(100vw - 40px)) !important;
+  max-height: 60vh !important;
+  z-index: 27;
+}
+
+/* Resource Commands header (legacy) hidden because dock has no title */
+.formation-tag { display: none !important; }
+
+/* Mobile-friendly tweaks */
+@media (max-width: 760px) {
+  #topbar { max-width: calc(100vw - 16px) !important; padding: 3px 6px !important; }
+  .res-pill { height: 26px !important; padding: 1px 6px 1px 3px !important; }
+  .res-pill img { width: 18px !important; height: 18px !important; }
+  .res-pill b { font-size: 10px !important; }
+  .res-pill small { display: none !important; }
+  #selectionPanel { width: min(180px, 44vw) !important; padding: 5px 7px !important; }
+  #actionDock { bottom: 8px !important; padding: 4px 6px !important; max-width: calc(100vw - 8px) !important; }
+  .command, .build-card { width: 46px !important; min-width: 46px !important; max-width: 46px !important; height: 46px !important; }
+  .command img, .build-card img { width: 22px !important; height: 22px !important; }
+  .command .txt b, .build-card .txt b { font-size: 7.5px !important; }
+  #miniWrap { width: 104px !important; bottom: 8px !important; right: 8px !important; padding: 4px !important; }
+  #miniMap { width: 96px !important; height: 64px !important; }
+  #buildMenu { bottom: 64px !important; }
+}
+@media (max-width: 480px) {
+  .res-pill small { display: none !important; }
+  #selectionPanel { width: min(160px, 50vw) !important; }
+  .command, .build-card { width: 42px !important; min-width: 42px !important; max-width: 42px !important; height: 42px !important; }
+  .command img, .build-card img { width: 20px !important; height: 20px !important; }
 }

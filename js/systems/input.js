@@ -154,14 +154,13 @@ Game.prototype.bindEvents = function() {
       e.preventDefault();
       
       if (e.touches.length === 2) {
-        // Pinch zoom
+        // Pinch zoom — set target only and let the camera lerp toward it for buttery smoothness on Android.
         const t1 = e.touches[0];
         const t2 = e.touches[1];
         const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
         if (pinchStartDist > 0) {
           const scale = dist / pinchStartDist;
           this.camera.targetZoom = clamp(pinchStartZoom * scale, 0.72, 1.32);
-          this.camera.zoom = this.camera.targetZoom;
         }
         return;
       }
@@ -995,11 +994,6 @@ Game.prototype.bindEvents = function() {
     if (e.ctrlKey && /^[1-9]$/.test(e.key)) { e.preventDefault(); this.assignControlGroup(e.key); return; }
     if (/^[1-9]$/.test(e.key)) { e.preventDefault(); this.recallControlGroup(e.key) || this.activateHotkey(e.key); return; }
     if (e.key === '0') { this.selectUnits(this.units.filter(u => u.faction === 0 && !u.dead)); return; }
-
-    if (k === 'z') this.setFormationMode('line');
-    if (k === 'x') this.setFormationMode('box');
-    if (k === 'c') this.setFormationMode('wedge');
-    if (k === 'v') this.setFormationMode('split');
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
   window.addEventListener('blur', () => keys.clear());
@@ -1055,10 +1049,9 @@ Game.prototype.bindEvents = function() {
     e.preventDefault();
     this.updatePointer(e);
     const before = screenToWorld(this, this.pointer.x, this.pointer.y);
-    this.camera.targetZoom = clamp(this.camera.targetZoom * (e.deltaY < 0 ? 1.09 : 0.92), 0.72, 1.32);
-    this.camera.zoom = this.camera.targetZoom;
-    this.camera.x = clamp(before.x - this.pointer.x / this.camera.zoom, 0, WORLD_W - VIEW_W / this.camera.zoom);
-    this.camera.y = clamp(before.y - this.pointer.y / this.camera.zoom, 0, WORLD_H - VIEW_H / this.camera.zoom);
+    const factor = e.deltaY < 0 ? 1.08 : 0.93;
+    this.camera.targetZoom = clamp(this.camera.targetZoom * factor, 0.72, 1.32);
+    this.camera._zoomAnchor = { wx: before.x, wy: before.y, sx: this.pointer.x, sy: this.pointer.y };
   }, { passive: false });
 
   mini.addEventListener('click', (e) => {

@@ -26,8 +26,25 @@ Game.prototype.updateCamera = function(dt) {
     }
     this.camera.x = clamp(this.camera.x + dx, 0, WORLD_W - VIEW_W / this.camera.zoom);
     this.camera.y = clamp(this.camera.y + dy, 0, WORLD_H - VIEW_H / this.camera.zoom);
-    this.camera.zoom += (this.camera.targetZoom - this.camera.zoom) * Math.min(1, dt * 8);
-  
+    const prevZoom = this.camera.zoom;
+    const newZoom = prevZoom + (this.camera.targetZoom - prevZoom) * Math.min(1, dt * 12);
+    if (Math.abs(newZoom - prevZoom) > 1e-5) {
+      const anchor = this.camera._zoomAnchor;
+      if (anchor) {
+        // Zoom-anchored: keep the world point under the cursor stationary on screen.
+        this.camera.x = clamp(anchor.wx - anchor.sx / newZoom, 0, WORLD_W - VIEW_W / newZoom);
+        this.camera.y = clamp(anchor.wy - anchor.sy / newZoom, 0, WORLD_H - VIEW_H / newZoom);
+      } else {
+        // Pinch-zoom: keep view center stable.
+        const cx = this.camera.x + VIEW_W / prevZoom / 2;
+        const cy = this.camera.y + VIEW_H / prevZoom / 2;
+        this.camera.x = clamp(cx - VIEW_W / newZoom / 2, 0, WORLD_W - VIEW_W / newZoom);
+        this.camera.y = clamp(cy - VIEW_H / newZoom / 2, 0, WORLD_H - VIEW_H / newZoom);
+      }
+      this.camera.zoom = newZoom;
+      if (Math.abs(newZoom - this.camera.targetZoom) < 1e-3) this.camera._zoomAnchor = null;
+    }
+
 };
 
 
@@ -781,8 +798,20 @@ Game.prototype.run = function(ts) {
   if (!this.running) return;
   const rawDt = Math.min(0.10, (ts - this.lastFrame) / 1000 || 0);
   this.lastFrame = ts;
+  // Adaptive frame-rate tracking: maintain a moving avg frame time and use it
+  // to drop occasional draws when the device is genuinely behind. We never
+  // skip simulation updates -- only the GPU-heavy draw call.
+  const ftAvg = this._frameAvg = this._frameAvg ? this._frameAvg * 0.92 + rawDt * 0.08 : rawDt;
   this.update(Math.min(MAX_DT, rawDt) * (this.fast ? 1.7 : 1));
-  this.draw();
+  let skipDraw = false;
+  if (ftAvg > 0.050 /* ~20fps */) {
+    // Skip 1 of every 3 draws when really struggling.
+    this._drawSkipPhase = ((this._drawSkipPhase || 0) + 1) % 3;
+    skipDraw = this._drawSkipPhase === 0;
+  } else {
+    this._drawSkipPhase = 0;
+  }
+  if (!skipDraw) this.draw();
   requestAnimationFrame(t => this.run(t));
 };
 
@@ -1618,14 +1647,24 @@ Game.prototype.updateWorker = function(u, dt) {
     if (!b || b.dead || (b.build >= 1 && b.hp >= b.maxHp)) { u.order = 'idle'; u.target = null; u.gather = 0; this.resumeWorkerRole(u); return; }
     const p = this.buildingApproachPoint(b, u);
     const rect = getBuildingFootprintRect(b, undefined, undefined, 0);
-    const alreadyClose = this.rectDistanceToPoint(rect, u.x, u.y) <= Math.max(20, (u.r || 10) + 8);
+    const closeRadius = Math.max(28, (u.r || 10) + 16);
+    const alreadyClose = this.rectDistanceToPoint(rect, u.x, u.y) <= closeRadius;
     let working = alreadyClose;
     if (!working) {
       const old = u.interactionBuilding;
       u.interactionBuilding = b;
-      working = this.moveToward(u, p.x, p.y, dt, 10);
+      working = this.moveToward(u, p.x, p.y, dt, 12);
       u.interactionBuilding = old;
-      working = working || this.rectDistanceToPoint(rect, u.x, u.y) <= Math.max(22, (u.r || 10) + 10);
+      working = working || this.rectDistanceToPoint(rect, u.x, u.y) <= closeRadius;
+      // Anti-stuck: if worker has been stuck/jamming near the foundation, force-snap to the approach point.
+      if (!working && ((u.stuck || 0) > 0.55 || (u.trafficJam || 0) > 0.6)) {
+        const snap = this.nearestLandPoint(p.x, p.y, 60) || p;
+        if (snap && this.rectDistanceToPoint(rect, snap.x, snap.y) <= closeRadius + 6) {
+          u.x = snap.x; u.y = snap.y; u.stuck = 0; u.trafficJam = 0;
+          this.clearUnitPath && this.clearUnitPath(u);
+          working = true;
+        }
+      }
     }
     if (working) {
       this.clearUnitPath && this.clearUnitPath(u);

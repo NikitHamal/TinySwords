@@ -326,8 +326,12 @@ class TinySwordsApp {
         canvas.width = VIEW_W;
         canvas.height = VIEW_H;
         ctx.imageSmoothingEnabled = false;
+        // Pre-render the first frame BEFORE swapping screens to eliminate the black/dark flash
+        // (the title-screen filter darkens the canvas; if we swap with no frame drawn, that filtered
+        // pixel state lingers until the first paint of the new game).
+        try { this.game.update(0); this.game.draw(); } catch (e) { /* fail-safe; first run() will draw */ }
         this.setScreen('hud');
-        requestAnimationFrame((t) => this.game.run(t));
+        requestAnimationFrame((t) => { this.game.lastFrame = t; this.game.run(t); });
       });
     };
     tick();
