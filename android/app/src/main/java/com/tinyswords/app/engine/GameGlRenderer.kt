@@ -404,9 +404,9 @@ class GameGlRenderer(private val assets: AssetManager) {
         if (count <= 0) return emptyList()
         if (building.type == "castle") {
             val pattern = when (count.coerceAtMost(3)) {
-                1 -> listOf(0.00f to 0.215f)
-                2 -> listOf(-0.20f to 0.245f, 0.20f to 0.245f)
-                else -> listOf(-0.25f to 0.255f, 0.00f to 0.205f, 0.25f to 0.255f)
+                1 -> listOf(0.00f to 0.10f)
+                2 -> listOf(-0.20f to 0.12f, 0.20f to 0.12f)
+                else -> listOf(-0.25f to 0.12f, 0.00f to 0.08f, 0.25f to 0.12f)
             }
             return (0 until count).map { i ->
                 val slot = pattern[i.coerceAtMost(pattern.lastIndex)]
@@ -414,10 +414,10 @@ class GameGlRenderer(private val assets: AssetManager) {
                 BuildingArcherRenderSlot(building.x + visualW * slot.first + drift.first, drawY + visualH * slot.second + drift.second, i)
             }
         }
-        val pattern = if (count == 1) listOf(0.00f) else listOf(-0.075f, 0.075f)
+        val pattern = if (count == 1) listOf(0.00f) else listOf(-0.15f, 0.15f)
         return (0 until count).map { i ->
             val drift = defenderIdleDrift(building, i, 2.0f, 0.9f)
-            BuildingArcherRenderSlot(building.x + visualW * pattern[i.coerceAtMost(pattern.lastIndex)] + drift.first, drawY + visualH * 0.295f + drift.second, i)
+            BuildingArcherRenderSlot(building.x + visualW * pattern[i.coerceAtMost(pattern.lastIndex)] + drift.first, drawY + visualH * 0.12f + drift.second, i)
         }
     }
 
@@ -430,7 +430,7 @@ class GameGlRenderer(private val assets: AssetManager) {
         val drawY = building.y - visualH + buildingDef.placeYOffset
         val slots = buildingArcherRenderSlots(building, visualW, visualH, drawY)
         if (slots.isEmpty()) return
-        val scale = udef.scale * SPRITE_BOOST * MOBILE_WORLD_VISUAL_SCALE * if (building.type == "castle") 0.58f else 0.66f
+        val scale = udef.scale * SPRITE_BOOST * MOBILE_WORLD_VISUAL_SCALE
         val baseline = unitVisualBaseline("archer")
         for (slot in slots) {
             val shooting = slot.index < building.defenderShotUntil.size && frameTimeSec < building.defenderShotUntil[slot.index]

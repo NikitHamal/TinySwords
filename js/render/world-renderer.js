@@ -578,9 +578,9 @@ Game.prototype.getDefensiveArcherSlots = function (b, metrics) {
 
   if (b.type === 'castle') {
     const patterns = {
-      1: [{ x: 0.00, y: 0.215 }],
-      2: [{ x: -0.20, y: 0.245 }, { x: 0.20, y: 0.245 }],
-      3: [{ x: -0.25, y: 0.255 }, { x: 0.00, y: 0.205 }, { x: 0.25, y: 0.255 }]
+      1: [{ x: 0.00, y: 0.10 }],
+      2: [{ x: -0.20, y: 0.12 }, { x: 0.20, y: 0.12 }],
+      3: [{ x: -0.25, y: 0.12 }, { x: 0.00, y: 0.08 }, { x: 0.25, y: 0.12 }]
     };
     const pattern = patterns[Math.min(3, count)] || patterns[3];
     for (let i = 0; i < count; i++) {
@@ -596,14 +596,14 @@ Game.prototype.getDefensiveArcherSlots = function (b, metrics) {
     return slots;
   }
 
-  const towerPattern = count === 1 ? [0] : [-0.075, 0.075];
+  const towerPattern = count === 1 ? [0] : [-0.15, 0.15];
   for (let i = 0; i < count; i++) {
     const d = drift(i, 2.0, 0.9);
     slots.push({
       x: b.x + metrics.w * towerPattern[Math.min(i, towerPattern.length - 1)] + d.x,
-      y: metrics.drawY + metrics.h * 0.295 + d.y,
+      y: metrics.drawY + metrics.h * 0.12 + d.y,
       index: i,
-      clipBelow: metrics.drawY + metrics.h * 0.395
+      clipBelow: metrics.drawY + metrics.h * 0.22
     });
   }
   return slots;
@@ -615,7 +615,7 @@ Game.prototype.drawDefensiveArchers = function (b, metrics) {
   const shootImg = assets[`u_${fKey}_archer_attack`] || idleImg;
   if (!idleImg) return;
   const slots = this.getDefensiveArcherSlots(b, metrics || this.getBuildingDrawMetrics(b));
-  const scale = UNITS.archer.scale * SPRITE_BOOST * (b.type === 'castle' ? .58 : .66);
+  const scale = UNITS.archer.scale * SPRITE_BOOST;
   const fw = UNITS.archer.fw, fh = UNITS.archer.fh;
   const baseline = 136;
   for (const slot of slots) {
