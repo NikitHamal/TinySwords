@@ -62,6 +62,21 @@ class GameGlRenderer(private val assets: AssetManager) {
     private var waterTileCache: GlTexture? = null
     private var foamTileCache: GlTexture? = null
 
+    // Cached per-frame time to avoid System.nanoTime() syscall inside hot loops
+    private var frameTimeNano = 0L
+    private var frameTimeSec = 0f
+
+    // ── Terrain chunk cache ──
+    // Pre-renders 16×16-tile chunks into GL textures so terrain isn't redrawn per-tile every frame.
+    private val terrainChunkSize = 16
+    private val terrainChunkCache = LinkedHashMap<Long, TerrainChunk>(128, 0.75f, true)
+    private var terrainChunkSeed = ""
+    private var terrainChunkMaxCount = 96
+
+    private class TerrainChunk(val textureId: Int, val cx: Int, val cy: Int)
+
+    private fun terrainChunkKey(cx: Int, cy: Int): Long = (cx.toLong() shl 32) or (cy.toLong() and 0xFFFFFFFFL)
+
     private val EDGE_FLAG = 1 shl 16
 
     class DrawableEntity {
@@ -74,7 +89,11 @@ class GameGlRenderer(private val assets: AssetManager) {
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glDisable(GLES20.GL_CULL_FACE)
         GLES20.glEnable(GLES20.GL_BLEND)
-        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+        // Android's BitmapFactory + GLUtils.texImage2D produces premultiplied-alpha
+        // textures. Using GL_SRC_ALPHA would double-multiply the alpha on semi-
+        // transparent pixels, causing bright/white fringing on building sprites
+        // (the "whitish squares" bug). GL_ONE is correct for premultiplied data.
+        GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         GLES20.glClearColor(20f / 255f, 51f / 255f, 64f / 255f, 1f)
         batch.create()
         textures.clear()
@@ -94,6 +113,10 @@ class GameGlRenderer(private val assets: AssetManager) {
     fun render(state: GameState, minimapExpanded: Boolean) {
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
         batch.begin()
+
+        // Cache time once per frame — avoids System.nanoTime() syscall inside hot tile/entity loops
+        frameTimeNano = System.nanoTime()
+        frameTimeSec = state.time
 
         val cam = state.camera
         zoom = cam.zoom.coerceIn(CAMERA_MIN_ZOOM, CAMERA_MAX_ZOOM)
@@ -138,6 +161,14 @@ class GameGlRenderer(private val assets: AssetManager) {
         if (minimapTerrainTexture != 0) {
             GLES20.glDeleteTextures(1, intArrayOf(minimapTerrainTexture), 0)
             minimapTerrainTexture = 0
+        }
+        // Clean up terrain chunk cache
+        if (terrainChunkCache.isNotEmpty()) {
+            val ids = IntArray(terrainChunkCache.size)
+            var i = 0
+            for (chunk in terrainChunkCache.values) ids[i++] = chunk.textureId
+            GLES20.glDeleteTextures(ids.size, ids, 0)
+            terrainChunkCache.clear()
         }
         batch.destroy()
     }
@@ -193,7 +224,7 @@ class GameGlRenderer(private val assets: AssetManager) {
         else if (landN && landE) { fsx = 0; fsy = 128 }
         else if (landS && landW) { fsx = 128; fsy = 0 }
         else if (landS && landE) { fsx = 0; fsy = 0 }
-        val frame = ((System.nanoTime() / 185_000_000L).toInt() + ((col * 31 + row * 17) and 15)) and 15
+        val frame = ((frameTimeNano / 185_000_000L).toInt() + ((col * 31 + row * 17) and 15)) and 15
         val sx = frame * 192 + fsx
         if (sx + 64 <= foam.width && fsy + 64 <= foam.height) {
             drawTextureWorld(foam, sx, fsy, 64, 64, x, y, x + TILE, y + TILE, 198)
@@ -359,9 +390,10 @@ class GameGlRenderer(private val assets: AssetManager) {
         val udef = UNITS["archer"] ?: return
         val tex = textures.get("u_${fKey}_archer_idle") ?: return
         val frames = (tex.width / udef.fw).coerceAtLeast(1)
-        val frame = ((System.nanoTime() / 260_000_000L).toInt() + building.id) % frames
+        val frame = ((frameTimeNano / 260_000_000L).toInt() + building.id) % frames
         val scale = udef.scale * SPRITE_BOOST * 0.92f
-        val topY = building.y - towerDef.h + towerDef.placeYOffset + 18f
+        // Match the web renderer: archer sits at b.y - b.h + 18, without placeYOffset
+        val topY = building.y - towerDef.h + 18f
         val baseY = topY + unitVisualBaseline("archer") * scale
         drawAnchoredFrame(tex, frame * udef.fw, 0, udef.fw, udef.fh, building.x + 2f, baseY, scale, unitVisualBaseline("archer"), 1)
     }
@@ -872,7 +904,7 @@ class GameGlRenderer(private val assets: AssetManager) {
     }
 
     private fun drawEllipseWorld(cx: Float, cy: Float, rx: Float, ry: Float, r: Int, g: Int, b: Int, a: Int) {
-        val strips = 12
+        val strips = if (perfMode) 6 else 8
         for (i in -strips..strips) {
             val yn = i / strips.toFloat()
             val half = rx * sqrt((1f - yn * yn).coerceAtLeast(0f))
@@ -883,7 +915,7 @@ class GameGlRenderer(private val assets: AssetManager) {
     }
 
     private fun drawEllipseOutlineWorld(cx: Float, cy: Float, rx: Float, ry: Float, thickness: Float, r: Int, g: Int, b: Int, a: Int) {
-        val segs = 24
+        val segs = if (perfMode) 12 else 18
         var prevX = cx + rx
         var prevY = cy
         for (i in 1..segs) {
@@ -896,7 +928,7 @@ class GameGlRenderer(private val assets: AssetManager) {
     }
 
     private fun drawCircleOutlineWorld(cx: Float, cy: Float, radius: Float, thickness: Float, r: Int, g: Int, b: Int, a: Int) {
-        val segs = 52
+        val segs = if (perfMode) 24 else 36
         var prevX = cx + radius
         var prevY = cy
         for (i in 1..segs) {
@@ -1183,7 +1215,7 @@ class GameGlRenderer(private val assets: AssetManager) {
 
     private class SpriteBatch {
         private val strideFloats = 8
-        private val maxQuads = 4096
+        private val maxQuads = 8192
         private val data = FloatArray(maxQuads * 6 * strideFloats)
         private val buffer: FloatBuffer = ByteBuffer.allocateDirect(data.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
         private var vertexCount = 0
@@ -1218,7 +1250,12 @@ class GameGlRenderer(private val assets: AssetManager) {
                 varying vec2 vTexCoord;
                 varying vec4 vColor;
                 void main() {
-                    gl_FragColor = texture2D(uTexture, vTexCoord) * vColor;
+                    vec4 texel = texture2D(uTexture, vTexCoord);
+                    // Textures are premultiplied-alpha (Android default).
+                    // Vertex color tint + alpha must premultiply into the output
+                    // so GL_ONE / GL_ONE_MINUS_SRC_ALPHA blending is correct.
+                    gl_FragColor = vec4(texel.rgb * vColor.rgb * vColor.a,
+                                       texel.a * vColor.a);
                 }
             """.trimIndent()
             program = linkProgram(compileShader(GLES20.GL_VERTEX_SHADER, vertex), compileShader(GLES20.GL_FRAGMENT_SHADER, fragment))

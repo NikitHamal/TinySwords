@@ -269,24 +269,28 @@ fun ActionDock(
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         if (hasUnits) {
-            MinimalIconButton(
-                iconPath = "Tiny Swords (Free Pack)/UI Elements/UI Elements/Swords/Swords.png",
-                onClick = onAttackMove
-            )
-            MinimalIconButton(
-                iconPath = "Tiny Swords (Free Pack)/UI Elements/UI Elements/Buttons/TinyRoundRedButton.png",
-                onClick = onStop
-            )
-            MinimalIconButton(
-                iconPath = "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_05.png",
-                onClick = onHold
-            )
+            // Build (workers only) — hammer icon
             if (hasWorkers) {
                 MinimalIconButton(
                     iconPath = "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_08.png",
                     onClick = onBuildMenu
                 )
             }
+            // Attack Move — swords
+            MinimalIconButton(
+                iconPath = "Tiny Swords (Free Pack)/UI Elements/UI Elements/Swords/Swords.png",
+                onClick = onAttackMove
+            )
+            // Stop — red button
+            MinimalIconButton(
+                iconPath = "Tiny Swords (Free Pack)/UI Elements/UI Elements/Buttons/TinyRoundRedButton.png",
+                onClick = onStop
+            )
+            // Hold — ribbon/flag icon (matches web version's iconRally)
+            MinimalIconButton(
+                iconPath = "Tiny Swords (Free Pack)/UI Elements/UI Elements/Ribbons/SmallRibbons.png",
+                onClick = onHold
+            )
         }
 
         if (hasBuilding) {

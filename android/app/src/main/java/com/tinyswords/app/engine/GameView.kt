@@ -87,7 +87,7 @@ class GameView @JvmOverloads constructor(
 
     init {
         setEGLContextClientVersion(2)
-        setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+        setEGLConfigChooser(8, 8, 8, 8, 0, 0)
         setPreserveEGLContextOnPause(true)
         setRenderer(glRenderer)
         renderMode = RENDERMODE_CONTINUOUSLY

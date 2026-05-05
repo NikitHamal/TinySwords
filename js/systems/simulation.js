@@ -37,7 +37,9 @@ Game.prototype.passiveHeal = function(b, dt) {
     b.cd -= dt;
     if (b.cd > 0) return;
     let healed = false;
-    for (const u of this.units) {
+    const near = this.nearbyUnits(b.x, b.y, 240);
+    for (let i = 0; i < near.length; i++) {
+      const u = near[i];
       if (u.faction === b.faction && !u.dead && !u.garrisoned && u.hp < u.maxHp && dist2(u.x, u.y, b.x, b.y) < 240 * 240) {
         u.hp = Math.min(u.maxHp, u.hp + 10); healed = true;
       }
@@ -783,7 +785,7 @@ Game.prototype.run = function(ts) {
   this.lastFrame = ts;
   this.update(Math.min(MAX_DT, rawDt) * (this.fast ? 1.7 : 1));
   this.draw();
-  requestAnimationFrame(t => this.run(t));
+  requestAnimationFrame(this._boundRun || (this._boundRun = this.run.bind(this)));
 };
 
 
@@ -802,34 +804,57 @@ Game.prototype.normalizeTowerStats = function(b) {
 };
 
 Game.prototype.hasActiveBuilder = function(b) {
-  return this.units.some(u => !u.dead && u.faction === b.faction && u.type === 'worker' && u.order === 'repair' && u.target === b);
+  for (let i = 0; i < this.units.length; i++) {
+    const u = this.units[i];
+    if (!u.dead && u.faction === b.faction && u.type === 'worker' && u.order === 'repair' && u.target === b) return true;
+  }
+  return false;
 };
 
 Game.prototype.assignBuildersTo = function(b, fid, maxBuilders = 2, preferSelected = false) {
   if (!b || b.dead) return 0;
-  const selected = preferSelected ? this.selected.filter(u => u.entity === 'unit' && u.faction === fid && u.type === 'worker' && !u.dead) : [];
-  const existing = this.units.filter(u => u.faction === fid && u.type === 'worker' && !u.dead && u.order === 'repair' && u.target === b);
-  const chosenSet = new Set(existing);
-  const chosen = [...existing];
-  const addCandidate = (u) => {
-    if (!u || chosenSet.has(u) || u.dead || u.faction !== fid || u.type !== 'worker') return;
-    chosenSet.add(u);
-    chosen.push(u);
-  };
-  selected.forEach(addCandidate);
-  const pool = this.units
-    .filter(u => u.faction === fid && u.type === 'worker' && !u.dead && !chosenSet.has(u))
-    .sort((a, c) => {
+  const chosen = [];
+  const chosenSet = new Set();
+  // Collect existing builders
+  for (let i = 0; i < this.units.length; i++) {
+    const u = this.units[i];
+    if (u.faction === fid && u.type === 'worker' && !u.dead && u.order === 'repair' && u.target === b) {
+      chosenSet.add(u);
+      chosen.push(u);
+    }
+  }
+  // Add selected workers if preferSelected
+  if (preferSelected) {
+    for (let i = 0; i < this.selected.length; i++) {
+      const u = this.selected[i];
+      if (u && u.entity === 'unit' && u.faction === fid && u.type === 'worker' && !u.dead && !chosenSet.has(u)) {
+        chosenSet.add(u);
+        chosen.push(u);
+      }
+    }
+  }
+  // Find additional workers from pool, sorted by distance (idle first)
+  if (chosen.length < maxBuilders) {
+    const pool = [];
+    for (let i = 0; i < this.units.length; i++) {
+      const u = this.units[i];
+      if (u.faction === fid && u.type === 'worker' && !u.dead && !chosenSet.has(u)) {
+        pool.push(u);
+      }
+    }
+    pool.sort((a, c) => {
       const idleA = a.order === 'idle' ? -800000 : 0;
       const idleC = c.order === 'idle' ? -800000 : 0;
       return dist2(a.x, a.y, b.x, b.y) + idleA - (dist2(c.x, c.y, b.x, b.y) + idleC);
     });
-  for (const u of pool) {
-    if (chosen.length >= maxBuilders) break;
-    addCandidate(u);
+    for (let i = 0; i < pool.length && chosen.length < maxBuilders; i++) {
+      chosen.push(pool[i]);
+    }
   }
   let count = 0;
-  for (const u of chosen.slice(0, maxBuilders)) {
+  const limit = Math.min(chosen.length, maxBuilders);
+  for (let i = 0; i < limit; i++) {
+    const u = chosen[i];
     this.clearUnitPath && this.clearUnitPath(u);
     u.order = 'repair'; u.target = b; u.goal = null; u.carry = null; u.gather = 0; u.hold = false;
     count++;
@@ -1162,9 +1187,15 @@ Game.prototype.aiSecondBaseAnchor = function(f) {
 
 Game.prototype.aiTactics = function(f) {
   const diff = DIFFICULTY_PRESETS[this.worldSettings?.difficulty || 'normal'] || DIFFICULTY_PRESETS.normal;
-  const army = this.units.filter(u => u.faction === f.id && u.type !== 'worker' && !u.dead);
-  const idleArmy = army.filter(u => u.order === 'idle' || u.order === 'move' || u.order === 'attackMove');
-  const workers = this.units.filter(u => u.faction === f.id && u.type === 'worker' && !u.dead);
+  // Single pass over units to classify army/idle/workers — avoids 3× filter allocations
+  const army = [], idleArmy = [], workers = [];
+  for (let i = 0; i < this.units.length; i++) {
+    const u = this.units[i];
+    if (u.dead || u.faction !== f.id) continue;
+    if (u.type === 'worker') { workers.push(u); continue; }
+    army.push(u);
+    if (u.order === 'idle' || u.order === 'move' || u.order === 'attackMove') idleArmy.push(u);
+  }
   const threat = this.nearestThreatToBase(f.id, f.base.x, f.base.y, f.underAttack > 0 ? 1350 : 940);
   if (threat && idleArmy.length) {
     const tx = threat.x, ty = threat.y;
@@ -1180,8 +1211,15 @@ Game.prototype.aiTactics = function(f) {
   const frontline = this.aiFrontlinePosition(f);
   const stage = this.nearestLandPoint(frontline.x + Math.cos(f.aiState.rallyAngle) * (180 + f.aiState.expansion * 40), frontline.y + Math.sin(f.aiState.rallyAngle) * (180 + f.aiState.expansion * 40), 280) || frontline;
   if (idleArmy.length >= Math.max(3, diff.aiSquadMin - 2)) for (const u of idleArmy.slice(0, Math.min(idleArmy.length, 12))) if (dist2(u.x, u.y, f.base.x, f.base.y) < 760 * 760) this.orderMoveFormation([u], stage.x, stage.y, true);
-  const wounded = army.filter(u => u.hp / u.maxHp < .35 && u.order !== 'move');
-  for (const u of wounded.slice(0, 5)) this.orderMoveFormation([u], f.base.x + (Math.random() - .5) * 260, f.base.y + (Math.random() - .5) * 260, false);
+  // Single pass for wounded
+  let woundedCount = 0;
+  for (let i = 0; i < army.length && woundedCount < 5; i++) {
+    const u = army[i];
+    if (u.hp / u.maxHp < .35 && u.order !== 'move') {
+      this.orderMoveFormation([u], f.base.x + (Math.random() - .5) * 260, f.base.y + (Math.random() - .5) * 260, false);
+      woundedCount++;
+    }
+  }
   this.aiHarassEconomy(f, idleArmy, diff);
   if (f.aiState.attackTimer > 0 || armyPower < diff.aiSquadMin) return;
   f.aiState.attackTimer = diff.aiAttackDelay + 6 + Math.random() * 10;
