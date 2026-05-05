@@ -18,9 +18,11 @@ import com.tinyswords.app.ui.theme.GameTypography
 
 @Composable
 fun TitleScreen(
+    onQuickPlay: () -> Unit,
     onNewGame: () -> Unit,
     onLoadGame: () -> Unit,
-    onSettings: () -> Unit
+    onSettings: () -> Unit,
+    hasExistingWorlds: Boolean = false
 ) {
     BoxWithConstraints(
         modifier = Modifier
@@ -31,28 +33,41 @@ fun TitleScreen(
         val compact = maxHeight < 430.dp
         Column(
             modifier = Modifier
-                .fillMaxWidth(if (compact) 0.78f else 0.55f)
-                .widthIn(max = 460.dp)
+                .fillMaxWidth(if (compact) 0.82f else 0.58f)
+                .widthIn(max = 440.dp)
                 .heightIn(max = maxHeight * 0.92f)
                 .verticalScroll(rememberScrollState())
                 .padding(if (compact) 14.dp else 22.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(if (compact) 14.dp else 22.dp)
+            verticalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp)
         ) {
             Text(
                 text = "TINY\nSWORDS",
                 style = GameTypography.Title.copy(
-                    fontSize = if (compact) 44.sp else 60.sp,
-                    lineHeight = if (compact) 42.sp else 56.sp
+                    fontSize = if (compact) 42.sp else 56.sp,
+                    lineHeight = if (compact) 40.sp else 52.sp
+                ),
+                textAlign = TextAlign.Center
+            )
+
+            Text(
+                text = "Build, hunt, defend, and conquer.",
+                style = GameTypography.Body.copy(
+                    color = GameColors.TextSecondary,
+                    fontSize = if (compact) 11.sp else 12.sp
                 ),
                 textAlign = TextAlign.Center
             )
 
             Column(
                 modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 14.dp)
+                verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)
             ) {
-                RealmMenuButton("NEW REALM", onNewGame, compact, true)
+                RealmMenuButton("QUICK PLAY", onQuickPlay, compact, true)
+                if (hasExistingWorlds) {
+                    RealmMenuButton("CONTINUE", onLoadGame, compact, false)
+                }
+                RealmMenuButton("NEW REALM", onNewGame, compact, false)
                 RealmMenuButton("LOAD REALM", onLoadGame, compact, false)
                 RealmMenuButton("SETTINGS", onSettings, compact, false)
             }
@@ -77,7 +92,7 @@ internal fun RealmMenuButton(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(if (compact) 50.dp else 62.dp)
+            .height(if (compact) 48.dp else 58.dp)
             .background(bg.copy(alpha = 0.96f), RoundedCornerShape(8.dp))
             .border(1.5.dp, if (primary) GameColors.TextGold else GameColors.ButtonBorder, RoundedCornerShape(8.dp))
             .clickable(onClick = onClick),
@@ -86,7 +101,7 @@ internal fun RealmMenuButton(
         Text(
             text = title,
             style = GameTypography.Button.copy(
-                fontSize = if (compact) 14.sp else 17.sp,
+                fontSize = if (compact) 13.sp else 16.sp,
                 color = if (primary) GameColors.TextGold else GameColors.TextPrimary
             )
         )

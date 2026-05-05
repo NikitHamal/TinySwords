@@ -40,6 +40,7 @@ object GameColors {
     val AccentBlue = Color(0xFF4a90c0)
     val AccentGreen = Color(0xFF50a050)
     val AccentRed = Color(0xFFc05050)
+    val Green = Color(0xFF6bc982)
 }
 
 object GameTypography {
@@ -60,6 +61,12 @@ object GameTypography {
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
         color = GameColors.TextPrimary
+    )
+    val SectionTitle = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
+        fontSize = 15.sp,
+        color = GameColors.TextGold
     )
     val Small = TextStyle(
         fontFamily = FontFamily.Monospace,

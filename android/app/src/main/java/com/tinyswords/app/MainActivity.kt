@@ -78,10 +78,17 @@ fun TinySwordsApp(saveSystem: SaveSystem, soundBank: SoundBank) {
 
     when (val current = screen) {
         is Screen.Title -> {
+            val hasWorlds = remember { saveSystem.listWorlds().isNotEmpty() }
             TitleScreen(
+                onQuickPlay = {
+                    val defaultSettings = WorldSettings()
+                    val meta = saveSystem.createWorldMeta("Quick Realm", defaultSettings)
+                    screen = Screen.Game(defaultSettings, meta.id)
+                },
                 onNewGame = { screen = Screen.NewGame },
                 onLoadGame = { screen = Screen.LoadGame },
-                onSettings = { screen = Screen.Settings }
+                onSettings = { screen = Screen.Settings },
+                hasExistingWorlds = hasWorlds
             )
         }
         is Screen.NewGame -> {

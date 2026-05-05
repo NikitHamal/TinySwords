@@ -25,6 +25,8 @@ import com.tinyswords.app.engine.*
 import com.tinyswords.app.game.*
 import com.tinyswords.app.game.entities.*
 import com.tinyswords.app.ui.components.*
+import com.tinyswords.app.ui.components.isTutorialCompleted
+import com.tinyswords.app.ui.components.TutorialOverlay
 import com.tinyswords.app.ui.theme.GameColors
 import com.tinyswords.app.ui.theme.GameTypography
 import kotlinx.coroutines.Dispatchers
@@ -108,6 +110,7 @@ private fun ActiveGameScreen(
     val simulation = bundle.simulation
     val renderer = bundle.renderer
     val assetManager = bundle.assetManager
+    val appContext = LocalContext.current.applicationContext
 
     var gameView by remember { mutableStateOf<GameView?>(null) }
     var firstFrameReady by remember { mutableStateOf(false) }
@@ -118,6 +121,7 @@ private fun ActiveGameScreen(
     var gameOverWinner by remember { mutableStateOf(-1) }
     var isGameOver by remember { mutableStateOf(false) }
     var volume by remember { mutableStateOf(saveSystem.loadGlobalSettings().volume) }
+    var showTutorial by remember { mutableStateOf(!isTutorialCompleted(appContext)) }
     val lifecycleOwner = LocalLifecycleOwner.current
 
     DisposableEffect(lifecycleOwner) {
@@ -291,6 +295,12 @@ private fun ActiveGameScreen(
                     )
                 }
             }
+        }
+
+        if (showTutorial && firstFrameReady && !isPaused && !isGameOver) {
+            TutorialOverlay(
+                onDismiss = { showTutorial = false }
+            )
         }
 
         if (isPaused) {

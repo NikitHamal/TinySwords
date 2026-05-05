@@ -2,9 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-  <meta name="theme-color" content="#111927">
-  <title>Tiny Swords RTS - Realm War</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0a151e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Tiny Swords RTS</title>
   <link rel="icon" type="image/png" href="assets/icons/tiny-swords-icon.png">
   <link rel="alternate icon" href="assets/icons/favicon.ico">
   <link rel="apple-touch-icon" href="assets/icons/tiny-swords-icon-192.png">
@@ -14,38 +16,40 @@
   <div id="game-shell">
     <canvas id="gameCanvas" width="1280" height="720" aria-label="Tiny Swords RTS game canvas"></canvas>
 
+    <!-- ═══ TITLE SCREEN ═══ -->
     <section id="titleScreen" class="screen title-screen">
       <div class="parallax-bg"></div>
       <div class="title-hero">
         <div class="title-card pixel-panel">
           <img class="game-logo" src="assets/icons/tiny-swords-icon.png" alt="" aria-hidden="true">
           <h1>TINY SWORDS</h1>
-          <p>Build, hunt, defend, expand, save your world, and wage realm-scale RTS wars across persistent worlds.</p>
+          <p>Build, hunt, defend, and wage realm-scale RTS wars.</p>
           <div class="title-actions">
-            <button id="btnContinue" class="big-button">Continue</button>
-            <button id="btnSinglePlayer" class="big-button primary">Single Player</button>
-            <button id="btnSettings" class="big-button">Settings</button>
+            <button id="btnQuickPlay" class="big-button primary"><b>Quick Play</b><span>Jump right in</span></button>
+            <button id="btnContinue" class="big-button"><b>Continue</b><span>Resume latest world</span></button>
+            <button id="btnSinglePlayer" class="big-button"><b>Worlds</b><span>Manage saved realms</span></button>
+            <button id="btnSettings" class="big-button"><b>Settings</b><span>Audio, graphics, controls</span></button>
           </div>
         </div>
-        
       </div>
     </section>
 
+    <!-- ═══ WORLD BROWSER ═══ -->
     <section id="worldScreen" class="screen world-screen hidden">
       <div class="screen-header">
         <button id="btnBackTitle" class="ghost">← Back</button>
         <div class="screen-header-copy">
-          <h2>Single Player</h2>
-          <p>Manage saved worlds, review their settings, and jump back into a realm.</p>
+          <h2>Your Worlds</h2>
+          <p>Manage saved worlds and jump back in.</p>
         </div>
         <button id="btnOpenCreateWorld" class="big-button compact primary">
-          <b>Create New World</b><span>Open world creation</span>
+          <b>New World</b><span>Create a realm</span>
         </button>
       </div>
       <div class="world-browser">
         <section class="pixel-panel world-list-wrap">
           <div class="section-head">
-            <h3>Your Worlds</h3>
+            <h3>Saved Worlds</h3>
             <span id="worldCountLabel" class="section-meta">0 worlds</span>
           </div>
           <div id="worldList" class="world-list"></div>
@@ -53,13 +57,13 @@
         <section class="pixel-panel world-detail-wrap">
           <div class="section-head">
             <h3>World Overview</h3>
-            <span class="section-meta">Persistent saves</span>
+            <span class="section-meta">Details & actions</span>
           </div>
           <div id="worldEmptyState" class="empty-worlds empty-worlds-large">
             <h4>No worlds yet</h4>
-            <p>Create your first realm to unlock persistent saves, large world generation, and single-player progress.</p>
+            <p>Create your first realm to begin.</p>
             <button id="btnCreateWorldFromEmpty" class="big-button compact primary">
-              <b>Create New World</b><span>Start your first realm</span>
+              <b>New World</b><span>Start your first realm</span>
             </button>
           </div>
           <div id="worldDetails" class="world-details hidden"></div>
@@ -67,28 +71,28 @@
       </div>
     </section>
 
+    <!-- ═══ CREATE WORLD ═══ -->
     <section id="createWorldScreen" class="screen create-world-screen hidden">
       <div class="screen-header create-header">
         <button id="btnBackFromCreateWorld" class="ghost">← Back</button>
         <div class="screen-header-copy">
-          <h2>Create New World</h2>
-          <p>Configure your realm, then generate it with a persistent save slot.</p>
+          <h2>New World</h2>
+          <p>Configure your realm settings.</p>
         </div>
       </div>
       <div class="create-world-layout">
         <form id="createWorldForm" class="pixel-panel create-world-form">
           <div class="section-head">
             <h3>World Settings</h3>
-            <span class="section-meta">Minecraft-style slot flow</span>
           </div>
           <div class="form-grid">
-            <label>World Name <input id="worldName" name="name" placeholder="Leave empty for an unnamed world"></label>
-            <label>Seed <input id="worldSeed" name="seed" placeholder="Leave empty for random seed"></label>
+            <label>World Name <input id="worldName" name="name" placeholder="Leave empty for random"></label>
+            <label>Seed <input id="worldSeed" name="seed" placeholder="Random seed"></label>
             <label>World Size
               <select name="size">
-                <option value="standard" selected>Standard Realm</option>
-                <option value="large">Large Realm</option>
-                <option value="massive">Massive Realm</option>
+                <option value="standard">Standard</option>
+                <option value="large" selected>Large</option>
+                <option value="massive">Massive</option>
               </select>
             </label>
             <label>Map
@@ -111,7 +115,7 @@
                 <option value="hard">Hard</option>
               </select>
             </label>
-            <label>Resource Density
+            <label>Resources
               <select name="resourceDensity">
                 <option value="sparse">Sparse</option>
                 <option value="normal" selected>Normal</option>
@@ -119,7 +123,7 @@
                 <option value="abundant">Abundant</option>
               </select>
             </label>
-            <label>Rival Realms
+            <label>Rivals
               <input id="worldRivals" name="rivals" type="range" min="0" max="4" value="4">
               <span id="worldRivalsLabel" class="range-readout">4 rivals</span>
             </label>
@@ -130,29 +134,29 @@
                 <option value="high">High Detail</option>
               </select>
             </label>
-            <label class="check"><input name="autosave" type="checkbox" checked> Autosave every 45 seconds</label>
+            <label class="check"><input name="autosave" type="checkbox" checked> Autosave</label>
           </div>
           <div class="inline-buttons">
-            <button id="btnClearName" type="button" class="ghost">Use Unnamed World</button>
-            <button id="btnRandomSeed" type="button" class="ghost">Generate Random Seed</button>
+            <button id="btnClearName" type="button" class="ghost">Random Name</button>
+            <button id="btnRandomSeed" type="button" class="ghost">Random Seed</button>
           </div>
-          <button id="btnCreateWorld" type="submit" class="big-button primary"><b>Create World</b><span>Generate terrain and enter the realm</span></button>
+          <button id="btnCreateWorld" type="submit" class="big-button primary"><b>Create World</b><span>Generate and enter realm</span></button>
         </form>
         <aside class="pixel-panel create-world-sidebar">
           <div class="section-head">
-            <h3>Generation Preview</h3>
-            <span class="section-meta">What will be created</span>
+            <h3>Preview</h3>
           </div>
           <div id="worldPreview" class="world-preview"></div>
         </aside>
       </div>
     </section>
 
+    <!-- ═══ SETTINGS ═══ -->
     <section id="settingsScreen" class="screen settings-screen hidden">
       <div class="settings-card pixel-panel">
         <button id="btnBackFromSettings" class="ghost">← Back</button>
         <h2>Settings</h2>
-        <p>These defaults apply to menus and new world creation. Existing worlds keep their own settings.</p>
+        <p>These apply globally. Existing worlds keep their own overrides.</p>
         <form id="globalSettingsForm" class="settings-form">
           <label>Graphics
             <select name="graphics">
@@ -168,6 +172,7 @@
       </div>
     </section>
 
+    <!-- ═══ GENERATION LOADER ═══ -->
     <section id="generationScreen" class="screen generation-screen hidden">
       <div class="generation-card pixel-panel">
         <h2 id="generationTitle">Generating World</h2>
@@ -176,6 +181,7 @@
       </div>
     </section>
 
+    <!-- ═══ IN-GAME HUD ═══ -->
     <div id="hud" class="screen hidden" aria-live="polite">
       <section id="topbar" class="pixel-panel">
         <div id="resources" class="resource-strip"></div>
@@ -192,24 +198,23 @@
       </section>
 
       <section id="buildMenu" class="pixel-panel hidden">
-        <div class="menu-title">Build Menu <span>B / Esc</span></div>
+        <div class="menu-title">Build <span>B / Esc</span></div>
         <div id="buildButtons"></div>
       </section>
-
 
       <section id="workerRolesPanel" class="pixel-panel worker-roles hidden" aria-live="polite">
         <div class="worker-roles-head">
           <div>
-            <span class="panel-kicker">Economy Command</span>
+            <span class="panel-kicker">Economy</span>
             <b id="workerRoleTitle">Worker Roles</b>
           </div>
-          <button id="workerRoleClose" class="close-button" title="Close worker roles">×</button>
+          <button id="workerRoleClose" class="close-button" title="Close">×</button>
         </div>
         <div id="workerRoleBody" class="worker-role-body"></div>
       </section>
 
       <section id="miniWrap" class="pixel-panel">
-        <div class="mini-head"><span>MINIMAP</span><button id="miniToggle" title="Expand minimap">M</button></div>
+        <div class="mini-head"><span>MAP</span><button id="miniToggle" title="Expand">M</button></div>
         <canvas id="miniMap" width="220" height="150" aria-label="Minimap"></canvas>
       </section>
 
@@ -232,25 +237,26 @@
       <section id="helpOverlay" class="help hidden">
         <div class="help-card pixel-panel">
           <button id="helpClose" class="close-button">×</button>
-          <h1>Tiny Swords: Realm War</h1>
-          <p>Top-down RTS. No hero unit: command workers, buildings, armies, towers and flags.</p>
+          <h1>Quick Reference</h1>
+          <p>Top-down RTS. Command workers, buildings, armies, towers and flags.</p>
           <div class="help-grid">
-            <div><b>Camera</b><br>WASD / arrows pan, mouse edge pan, wheel zoom.</div>
-            <div><b>Select</b><br>Left click one thing, drag-select army, Shift adds. Drag your own buildings to relocate them.</div>
-            <div><b>Orders</b><br>Right click ground to move, resources to harvest, enemies to attack. Towers include their own archer.</div>
-            <div><b>Build</b><br>Press B, choose a building, left click to place. Workers must construct foundations.</div>
-            <div><b>Training</b><br>Select Castle/Barracks/Archery/Monastery, then use action buttons. Number keys recall control groups once saved.</div>
-            <div><b>Rally / Flag</b><br>Select a production building and right click ground to set its flag. New units walk there.</div>
-            <div><b>Towers</b><br>Each tower arrives with exactly one built-in archer. Select any unit or tower to preview range.</div>
-            <div><b>Minimap</b><br>Click to jump camera. Press M to expand/collapse.</div>
-            <div><b>Other</b><br>Ctrl+1-9 stores control groups, 1-9 recalls them, Ctrl+A selects army, 0 selects all units.</div>
+            <div><b>Camera</b><br>WASD / arrows pan, wheel zoom, edge-pan.</div>
+            <div><b>Select</b><br>Left click or drag-select. Shift adds.</div>
+            <div><b>Orders</b><br>Right click ground to move, resources to harvest, enemies to attack.</div>
+            <div><b>Build</b><br>Press B, choose building, click to place.</div>
+            <div><b>Train</b><br>Select Castle/Barracks/Archery, use action panel.</div>
+            <div><b>Rally</b><br>Select producer, right click ground for flag.</div>
+            <div><b>Towers</b><br>Each tower has a built-in archer.</div>
+            <div><b>Minimap</b><br>Click to jump. M to expand.</div>
+            <div><b>Groups</b><br>Ctrl+1-9 save, 1-9 recall. Ctrl+A army.</div>
           </div>
         </div>
       </section>
     </div>
 
-    <div id="loading" class="pixel-panel" role="status">Loading Tiny Swords assets...</div>
+    <div id="loading" class="pixel-panel" role="status">Loading assets...</div>
   </div>
+
   <script src="js/core/config.js"></script>
   <script src="js/core/audio.js"></script>
   <script src="js/core/game-state.js"></script>
@@ -260,7 +266,9 @@
   <script src="js/systems/input.js"></script>
   <script src="js/systems/simulation.js"></script>
   <script src="js/ui/hud.js"></script>
+  <script src="js/ui/tutorial.js"></script>
   <script src="js/ui/menu.js"></script>
+  <script src="js/ui/touch-controls.js"></script>
   <script src="js/render/world-renderer.js"></script>
   <script src="js/main.js"></script>
 </body>
