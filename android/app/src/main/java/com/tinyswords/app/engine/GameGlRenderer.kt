@@ -151,6 +151,7 @@ class GameGlRenderer(private val assets: AssetManager) {
         drawSelectionLinks(state)
         drawPlacementGhost(state)
         for (d in drawables) if (d.isSky) drawEntity(state, d)
+        drawAtmosphere(state)
         drawMinimap(state, minimapExpanded)
 
         batch.end()
@@ -224,8 +225,7 @@ class GameGlRenderer(private val assets: AssetManager) {
         else if (landN && landE) { fsx = 0; fsy = 128 }
         else if (landS && landW) { fsx = 128; fsy = 0 }
         else if (landS && landE) { fsx = 0; fsy = 0 }
-        val frame = ((frameTimeNano / 185_000_000L).toInt() + ((col * 31 + row * 17) and 15)) and 15
-        val sx = frame * 192 + fsx
+        val sx = fsx
         if (sx + 64 <= foam.width && fsy + 64 <= foam.height) {
             drawTextureWorld(foam, sx, fsy, 64, 64, x, y, x + TILE, y + TILE, 198)
         }
@@ -336,8 +336,11 @@ class GameGlRenderer(private val assets: AssetManager) {
         val fKey = FACTIONS.getOrNull(unit.faction)?.key ?: "blue"
         val key = getUnitAnimKey(unit, fKey)
         val tex = textures.get(key) ?: textures.get("u_${fKey}_${unit.type}_idle")
-        val scale = def.scale * SPRITE_BOOST
-        if (unit.selected) drawSelectionOval(unit.x, unit.y, (def.radius + 8f).coerceAtLeast(16f))
+        val scale = def.scale * SPRITE_BOOST * MOBILE_WORLD_VISUAL_SCALE
+        if (unit.selected) {
+            drawCircleOutlineWorld(unit.x, unit.y, unit.range, 2f, 255, 236, 158, 88)
+            drawSelectionOval(unit.x, unit.y, (def.radius * MOBILE_WORLD_VISUAL_SCALE + 8f).coerceAtLeast(16f))
+        }
         if (tex != null) {
             val frames = (tex.width / def.fw).coerceAtLeast(1)
             val fps = unitAnimationFps(unit, key)
@@ -346,7 +349,7 @@ class GameGlRenderer(private val assets: AssetManager) {
             else drawAnchoredFrame(tex, frame * def.fw, 0, def.fw, def.fh, unit.x, unit.y, scale, unitVisualBaseline(unit.type), unit.face)
         } else {
             val color = FACTIONS.getOrNull(unit.faction)?.color ?: Color.BLUE
-            drawEllipseWorld(unit.x, unit.y, def.radius, def.radius, Color.red(color), Color.green(color), Color.blue(color), 255)
+            drawEllipseWorld(unit.x, unit.y, def.radius * MOBILE_WORLD_VISUAL_SCALE, def.radius * MOBILE_WORLD_VISUAL_SCALE, Color.red(color), Color.green(color), Color.blue(color), 255)
         }
         if (unit.hp < unit.maxHp || unit.selected) {
             val barY = unit.y - unitVisualHeight(unit.type) * scale - 8f
@@ -358,44 +361,81 @@ class GameGlRenderer(private val assets: AssetManager) {
         val def = BUILDINGS[building.type] ?: return
         val fKey = FACTIONS.getOrNull(building.faction)?.key ?: "blue"
         val tex = textures.get("b_${fKey}_${building.type}")
-        val drawX = building.x - def.w / 2f
-        val drawY = building.y - def.h + def.placeYOffset
+        val visualW = def.w * MOBILE_BUILDING_VISUAL_SCALE
+        val visualH = def.h * MOBILE_BUILDING_VISUAL_SCALE
+        val drawX = building.x - visualW / 2f
+        val drawY = building.y - visualH + def.placeYOffset
         val alpha = if (building.buildProgress < 1f) 150 else 255
-        if (tex != null) drawTextureWorld(tex, 0, 0, tex.width, tex.height, drawX, drawY, drawX + def.w, drawY + def.h, alpha)
+        if (tex != null) drawTextureWorld(tex, 0, 0, tex.width, tex.height, drawX, drawY, drawX + visualW, drawY + visualH, alpha)
         else {
             val color = FACTIONS.getOrNull(building.faction)?.color ?: Color.BLUE
-            drawWorldRect(drawX, drawY, drawX + def.w, drawY + def.h, Color.red(color), Color.green(color), Color.blue(color), alpha)
+            drawWorldRect(drawX, drawY, drawX + visualW, drawY + visualH, Color.red(color), Color.green(color), Color.blue(color), alpha)
         }
-        if (building.flash > 0f) drawWorldRect(drawX, drawY, drawX + def.w, drawY + def.h, 255, 255, 255, 96)
-        if (def.isTower && building.buildProgress >= 1f && !building.dead) drawTowerArcher(building, fKey, def)
+        if (building.flash > 0f) drawWorldRect(drawX, drawY, drawX + visualW, drawY + visualH, 255, 255, 255, 96)
+        if (defensiveArcherCount(building) > 0 && building.buildProgress >= 1f && !building.dead) drawBuildingArchers(building, fKey, def)
         if (building.selected) {
-            drawSelectionBox(drawX - 4f, drawY - 4f, drawX + def.w + 4f, drawY + def.h + 4f)
+            drawSelectionBox(drawX - 4f, drawY - 4f, drawX + visualW + 4f, drawY + visualH + 4f)
             if (building.hasRally && !def.isTower && def.trains.isNotEmpty()) {
                 val color = FACTIONS.getOrNull(building.faction)?.color ?: Color.WHITE
                 drawEllipseWorld(building.rallyX, building.rallyY, 8f, 8f, Color.red(color), Color.green(color), Color.blue(color), 230)
                 drawWorldLine(building.x, building.y, building.rallyX, building.rallyY, 2.0f, 245, 211, 125, 165)
             }
-            if (def.isTower) {
-                drawCircleOutlineWorld(building.x, building.y, def.towerRange, 2f, 255, 130, 130, 70)
-            }
+            val range = defensiveBuildingRange(building)
+            if (range > 0f) drawCircleOutlineWorld(building.x, building.y, range, 2f, 255, 236, 158, 88)
         }
         if (building.buildProgress < 1f) {
             drawProgressBar(building.x, drawY - 8f, building.buildProgress, 48f)
-        } else if (building.hp < building.maxHp || building.selected) {
+        } else if (building.hp < building.maxHp) {
             drawHpBar(building.x, drawY - 8f, building.hp.toFloat() / building.maxHp, 48f)
         }
     }
 
-    private fun drawTowerArcher(building: GameBuilding, fKey: String, towerDef: BuildingDef) {
+    private data class BuildingArcherRenderSlot(val x: Float, val y: Float, val index: Int)
+
+    private fun buildingArcherRenderSlots(building: GameBuilding, visualW: Float, visualH: Float, drawY: Float): List<BuildingArcherRenderSlot> {
+        val count = defensiveArcherCount(building)
+        if (count <= 0) return emptyList()
+        if (building.type == "castle") {
+            val pattern = when (count.coerceAtMost(3)) {
+                1 -> listOf(0.00f to 0.28f)
+                2 -> listOf(-0.23f to 0.31f, 0.23f to 0.31f)
+                else -> listOf(-0.28f to 0.32f, 0.00f to 0.24f, 0.28f to 0.32f)
+            }
+            return (0 until count).map { i ->
+                val slot = pattern[i.coerceAtMost(pattern.lastIndex)]
+                BuildingArcherRenderSlot(building.x + visualW * slot.first, drawY + visualH * slot.second, i)
+            }
+        }
+        val pattern = if (count == 1) listOf(0.00f) else listOf(-0.08f, 0.08f)
+        return (0 until count).map { i ->
+            BuildingArcherRenderSlot(building.x + visualW * pattern[i.coerceAtMost(pattern.lastIndex)], drawY + visualH * 0.36f, i)
+        }
+    }
+
+    private fun drawBuildingArchers(building: GameBuilding, fKey: String, buildingDef: BuildingDef) {
         val udef = UNITS["archer"] ?: return
-        val tex = textures.get("u_${fKey}_archer_idle") ?: return
-        val frames = (tex.width / udef.fw).coerceAtLeast(1)
-        val frame = ((frameTimeNano / 260_000_000L).toInt() + building.id) % frames
-        val scale = udef.scale * SPRITE_BOOST * 0.92f
-        // Match the web renderer: archer sits at b.y - b.h + 18, without placeYOffset
-        val topY = building.y - towerDef.h + 18f
-        val baseY = topY + unitVisualBaseline("archer") * scale
-        drawAnchoredFrame(tex, frame * udef.fw, 0, udef.fw, udef.fh, building.x + 2f, baseY, scale, unitVisualBaseline("archer"), 1)
+        val idleTex = textures.get("u_${fKey}_archer_idle") ?: return
+        val shootTex = textures.get("u_${fKey}_archer_shoot") ?: idleTex
+        val visualW = buildingDef.w * MOBILE_BUILDING_VISUAL_SCALE
+        val visualH = buildingDef.h * MOBILE_BUILDING_VISUAL_SCALE
+        val drawY = building.y - visualH + buildingDef.placeYOffset
+        val slots = buildingArcherRenderSlots(building, visualW, visualH, drawY)
+        if (slots.isEmpty()) return
+        val scale = udef.scale * SPRITE_BOOST * MOBILE_WORLD_VISUAL_SCALE * if (building.type == "castle") 0.78f else 0.86f
+        val baseline = unitVisualBaseline("archer")
+        for (slot in slots) {
+            val shooting = slot.index < building.defenderShotUntil.size && frameTimeSec < building.defenderShotUntil[slot.index]
+            val tex = if (shooting) shootTex else idleTex
+            val frames = (tex.width / udef.fw).coerceAtLeast(1)
+            val fps = if (shooting) 12f else 4f
+            val rawFrame = if (shooting) {
+                val remaining = (building.defenderShotUntil[slot.index] - frameTimeSec).coerceIn(0f, 0.52f)
+                ((1f - remaining / 0.52f) * fps).toInt()
+            } else ((frameTimeSec * fps).toInt() + building.id)
+            val frame = rawFrame.floorMod(frames)
+            val face = if (shooting && slot.index < building.defenderShotFace.size) building.defenderShotFace[slot.index] else 1
+            drawAnchoredFrame(tex, frame * udef.fw, 0, udef.fw, udef.fh, slot.x, slot.y, scale, baseline, face)
+        }
     }
 
     private fun drawResource(state: GameState, res: GameResource) {
@@ -514,6 +554,7 @@ class GameGlRenderer(private val assets: AssetManager) {
                 "hit" -> drawEllipseWorld(e.x, e.y, 4f + progress * 9f, 4f + progress * 9f, 255, 200, 50, alpha)
                 "heal" -> drawEllipseWorld(e.x, e.y - progress * 10f, 6f + progress * 14f, 6f + progress * 14f, 100, 255, 150, alpha)
                 "explosion" -> drawEllipseWorld(e.x, e.y, 10f + progress * 40f, 10f + progress * 40f, 255, 120, 30, alpha)
+                "upgrade" -> drawCircleOutlineWorld(e.x, e.y, 14f + progress * 42f, 3f, 255, 232, 136, alpha)
                 "moveMark" -> {
                     val r = (9f + progress * 15f) * e.scale
                     val cursor = textures.get("cursorAction")
@@ -522,6 +563,29 @@ class GameGlRenderer(private val assets: AssetManager) {
                         drawTextureWorld(cursor, 0, 0, cursor.width, cursor.height, e.x - size / 2f, e.y - size / 2f, e.x + size / 2f, e.y + size / 2f, alpha)
                     } else drawCircleOutlineWorld(e.x, e.y, r, 2f, 245, 211, 125, alpha)
                 }
+            }
+        }
+    }
+
+
+    private fun drawAtmosphere(state: GameState) {
+        val cycle = ((state.time % 180f) / 180f).coerceIn(0f, 1f)
+        val night = kotlin.math.max(0f, kotlin.math.cos((cycle - 0.5f) * Math.PI.toFloat() * 2f))
+        val dawn = (1f - kotlin.math.abs(cycle - 0.25f) / 0.10f).coerceIn(0f, 1f)
+        val dusk = (1f - kotlin.math.abs(cycle - 0.75f) / 0.10f).coerceIn(0f, 1f)
+        if (night > 0.02f) batch.drawRect(0f, 0f, viewW, viewH, 9, 18, 42, ((0.08f + night * 0.34f) * 255).toInt().coerceIn(0, 255))
+        val warm = kotlin.math.max(dawn, dusk)
+        if (warm > 0.02f) batch.drawRect(0f, 0f, viewW, viewH, 246, 153, 75, (warm * 31).toInt().coerceIn(0, 255))
+        val weatherT = (state.time + 11f) % 92f
+        if (weatherT < 18f) {
+            batch.drawRect(0f, 0f, viewW, viewH, 18, 34, 48, 30)
+            val rain = weatherT < 13f
+            val count = if (rain) 80 else 55
+            for (i in 0 until count) {
+                val x = ((i * 73f + state.time * if (rain) -95f else 11f) % (viewW + 80f)) - 40f
+                val y = ((i * 41f + state.time * if (rain) 610f else 68f) % (viewH + 70f)) - 35f
+                if (rain) batch.drawLine(x, y, x - 5f, y + 18f, 1f, 185, 220, 255, 125)
+                else batch.drawRect(x, y, x + 2.4f, y + 2.4f, 245, 250, 255, 160)
             }
         }
     }
@@ -552,9 +616,11 @@ class GameGlRenderer(private val assets: AssetManager) {
         val fKey = FACTIONS.getOrNull(0)?.key ?: "blue"
         val tex = textures.get("b_${fKey}_$type")
         if (tex != null) {
-            val drawX = x - def.w / 2f
-            val drawY = y - def.h + def.placeYOffset
-            drawTextureWorld(tex, 0, 0, tex.width, tex.height, drawX, drawY, drawX + def.w, drawY + def.h, if (valid) 130 else 95)
+            val visualW = def.w * MOBILE_BUILDING_VISUAL_SCALE
+            val visualH = def.h * MOBILE_BUILDING_VISUAL_SCALE
+            val drawX = x - visualW / 2f
+            val drawY = y - visualH + def.placeYOffset
+            drawTextureWorld(tex, 0, 0, tex.width, tex.height, drawX, drawY, drawX + visualW, drawY + visualH, if (valid) 130 else 95)
         }
     }
 
@@ -982,6 +1048,13 @@ class GameGlRenderer(private val assets: AssetManager) {
         val left = x - width / 2f
         drawWorldRect(left - 1f, y - 1f, left + width + 1f, y + height + 1f, 24, 22, 18, 190)
         drawWorldRect(left, y, left + width * pct.coerceIn(0f, 1f), y + height, 96, 160, 255, 255)
+    }
+
+
+    private fun Int.floorMod(divisor: Int): Int {
+        if (divisor <= 0) return 0
+        val r = this % divisor
+        return if (r < 0) r + divisor else r
     }
 
     private fun worldXToScreen(x: Float): Float = (x - camX) * zoom + viewW / 2f

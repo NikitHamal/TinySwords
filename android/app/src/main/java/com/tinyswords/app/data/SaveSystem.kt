@@ -14,7 +14,7 @@ class SaveSystem(context: Context) {
     private val gson: Gson = GsonBuilder().setPrettyPrinting().create()
 
     companion object {
-        const val SAVE_INDEX_KEY = "world_index_v2"
+        const val SAVE_INDEX_KEY = "world_index_v3"
         const val MAX_WORLDS = 48
     }
 
@@ -160,6 +160,7 @@ class SaveSystem(context: Context) {
         val x: Float, val y: Float,
         val hp: Int, val maxHp: Int,
         val buildProgress: Float,
+        val level: Int = 1,
         val rallyX: Float, val rallyY: Float, val hasRally: Boolean,
         val queue: List<TrainSlotSave>
     )
@@ -195,7 +196,7 @@ class SaveSystem(context: Context) {
             },
             buildings = state.buildings.filter { !it.dead }.map { b ->
                 BuildingSave(b.id, b.type, b.faction, b.x, b.y, b.hp, b.maxHp,
-                    b.buildProgress, b.rallyX, b.rallyY, b.hasRally,
+                    b.buildProgress, b.level, b.rallyX, b.rallyY, b.hasRally,
                     b.queue.map { TrainSlotSave(it.unitType, it.progress, it.trainTime) })
             },
             resources = state.resources.filter { !it.dead }.map { r ->
@@ -287,7 +288,9 @@ class SaveSystem(context: Context) {
         // Restore buildings
         for (bs in payload.buildings) {
             val b = GameBuilding.create(bs.type, bs.faction, bs.x, bs.y, { bs.id }, bs.buildProgress >= 1f)
+            b.level = bs.level.coerceAtLeast(1).coerceAtMost(buildingUpgradeMaxLevel(bs.type))
             b.hp = bs.hp; b.maxHp = bs.maxHp; b.buildProgress = bs.buildProgress
+            normalizeBuildingStats(b, preserveRatio = false)
             b.rallyX = bs.rallyX; b.rallyY = bs.rallyY; b.hasRally = bs.hasRally
             b.queue.addAll(bs.queue.map { TrainSlot(it.unitType, it.progress, it.trainTime) })
             state.buildings.add(b)
@@ -315,6 +318,7 @@ class SaveSystem(context: Context) {
         allEntities.addAll(state.buildings)
         allEntities.addAll(state.resources)
         val byId = allEntities.associateBy { it.id }
+        for (fid in state.factions.indices) applyFactionUnitUpgradesToAll(state, fid)
         for (u in state.units) {
             u.target = byId[u.targetId]
         }

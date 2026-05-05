@@ -228,9 +228,9 @@ Game.prototype.updateFighter = function(u, dt) {
       if (enemy) this.orderAttack(u, enemy, u.order === 'attackMove');
     }
     if (u.order === 'attack' && isAlive(u.target)) {
-      const def = UNITS[u.type];
+      const range = unitCombatRange(this, u);
       const d = dist(u, u.target);
-      if (d > def.range * .94) this.moveToward(u, u.target.x, u.target.y, dt, def.range * .82);
+      if (d > range * .94) this.moveToward(u, u.target.x, u.target.y, dt, range * .82);
       else this.attackTarget(u, u.target);
       return;
     }
@@ -273,10 +273,11 @@ Game.prototype.updateFighter = function(u, dt) {
 Game.prototype.attackTarget = function(u, target) {
     const def = UNITS[u.type];
     if (u.cd > 0) return;
+    const damage = unitCombatDamage(this, u);
     u.face = target.x >= u.x ? 1 : -1;
-    u.cd = def.cd;
-    if (u.type === 'archer') this.spawnProjectile(u.faction, u.x, u.y - 34, target, def.damage);
-    else { this.sfx.attack(this.audioGainAt(u.x, u.y)); this.damage(target, def.damage, u.faction); }
+    u.cd = unitAttackCooldown(this, u);
+    if (def.role === 'ranged') this.spawnProjectile(u.faction, u.x, u.y - 34, target, damage);
+    else { this.sfx.attack(this.audioGainAt(u.x, u.y)); this.damage(target, damage, u.faction); }
   
 };
 
@@ -419,13 +420,7 @@ Game.prototype.updateAI = function(dt) {
 };
 
 
-Game.prototype.aiThink = function(f) {
-  this.aiEconomyEmergency(f);
-  this.aiBuild(f);
-  this.aiTrain(f);
-  this.aiTactics(f);
-  this.reassignIdleWorkers(f.id);
-};
+
 
 Game.prototype.aiFrontlinePosition = function(f) {
   const target = this.pickStrategicTargetV2(f.id);
@@ -434,29 +429,7 @@ Game.prototype.aiFrontlinePosition = function(f) {
 };
 
 
-Game.prototype.aiBuild = function(f) {
-  const ownB = this.buildings.filter(b => b.faction === f.id && !b.dead);
-  const bCount = {};
-  for (const b of ownB) bCount[b.type] = (bCount[b.type] || 0) + 1;
-  const count = (t) => bCount[t] || 0;
-  const pop = this.population(f.id);
-  const candidates = [];
-  if (pop.cap - pop.used < 5) candidates.push('house');
-  if (count('barracks') < 1) candidates.push('barracks');
-  if (count('archery') < 1 && count('barracks') >= 1) candidates.push('archery');
-  if (count('tower') < 2 + Math.floor(f.aiState.expansion)) candidates.push('tower');
-  if (count('monastery') < 1 && pop.used > 12) candidates.push('monastery');
-  if (pop.used > 24 && count('barracks') < 2) candidates.push('barracks');
-  if (pop.used > 28 && count('archery') < 2) candidates.push('archery');
-  if (!candidates.length && Math.random() < .18) candidates.push(choose(['house','tower','archery','barracks']));
-  for (const t of candidates) {
-    const def = BUILDINGS[t];
-    if (!canAfford(f, def.cost)) continue;
-    const anchor = this.aiBuildAnchor(f, t);
-    const pos = this.findBuildSpot(anchor.x, anchor.y, t, f.aiState.expansion);
-    if (pos && pay(f, def.cost)) { const b = this.addBuilding(f.id, t, pos.x, pos.y, false); b.aiIntent = t; return; }
-  }
-};
+
 
 
 Game.prototype.findBuildSpot = function(cx, cy, type, ring = 0) {
@@ -472,112 +445,10 @@ Game.prototype.findBuildSpot = function(cx, cy, type, ring = 0) {
 };
 
 
-Game.prototype.aiTrain = function(f) {
-  const pop = this.population(f.id);
-  const counts = { worker: 0, warrior: 0, archer: 0, lancer: 0, monk: 0 };
-  for (const u of this.units) if (u.faction === f.id && !u.dead) counts[u.type] = (counts[u.type] || 0) + 1;
-  for (const b of this.buildings) {
-    if (b.faction !== f.id || b.dead || b.build < 1 || b.queue.length >= 2) continue;
-    const trains = BUILDINGS[b.type].trains;
-    if (!trains.length) continue;
-    let desired = null;
-    const army = counts.warrior + counts.archer + counts.lancer + counts.monk;
-    if (b.type === 'castle' && counts.worker < Math.min(16, 8 + Math.floor(army / 5))) desired = 'worker';
-    else if (b.type === 'barracks') desired = counts.lancer < counts.warrior * .35 && Math.random() < .42 ? 'lancer' : 'warrior';
-    else if (b.type === 'archery') desired = 'archer';
-    else if (b.type === 'monastery' && army > 7 && counts.monk < Math.ceil(army / 8)) desired = 'monk';
-    if (!desired) continue;
-    const def = UNITS[desired];
-    if (pop.used + def.pop > pop.cap) continue;
-    if (pay(f, def.cost)) b.queue.push({ type: desired, time: def.time });
-  }
-};
 
 
-Game.prototype.aiTactics = function(f) {
-  const diff = DIFFICULTY_PRESETS[this.worldSettings?.difficulty || 'normal'] || DIFFICULTY_PRESETS.normal;
-  const army = this.units.filter(u => u.faction === f.id && u.type !== 'worker' && !u.dead && !u.garrisoned);
-  const idleArmy = army.filter(u => u.order === 'idle' || u.order === 'move' || u.order === 'attackMove');
-  const workers = this.units.filter(u => u.faction === f.id && u.type === 'worker' && !u.dead && !u.garrisoned);
-  const threat = this.nearestThreatToBase(f.id, f.base.x, f.base.y, f.underAttack > 0 ? 1350 : 940);
 
-  if (threat && idleArmy.length) {
-    const tx = threat.x, ty = threat.y;
-    const defenders = idleArmy
-      .map(u => ({ u, d: dist2(u.x, u.y, tx, ty) }))
-      .sort((a, b) => a.d - b.d)
-      .slice(0, Math.min(idleArmy.length, f.underAttack > 0 ? 24 : 14))
-      .map(o => o.u);
-    for (const u of defenders) this.orderAttack(u, threat, false);
-    if (workers.length && f.underAttack > 1) {
-      const repairTarget = this.buildings.find(b => b.faction === f.id && !b.dead && b.hp < b.maxHp && dist2(b.x, b.y, tx, ty) < 720 * 720);
-      if (repairTarget) {
-        for (const w of workers.slice(0, 4)) { w.order = 'repair'; w.target = repairTarget; w.goal = null; this.clearUnitPath && this.clearUnitPath(w); }
-      }
-    }
-    return;
-  }
 
-  const towers = this.buildings.filter(b => b.faction === f.id && b.type === 'tower' && b.build >= 1 && b.garrison.length < BUILDINGS.tower.garrisonCap);
-  for (const tw of towers) {
-    const ar = idleArmy.find(u => u.type === 'archer' && dist2(u.x, u.y, tw.x, tw.y) < 860 * 860);
-    if (ar) this.garrisonArchers([ar], tw, true);
-  }
-
-  const armyPower = army.reduce((sum, u) => sum + (u.type === 'lancer' ? 2.1 : u.type === 'archer' ? 1.25 : u.type === 'monk' ? .85 : 1), 0);
-  f.aiState.attackTimer -= diff.aggression;
-  const stageAngle = f.aiState.rallyAngle;
-  const frontline = this.aiFrontlinePosition(f);
-  const stage = this.nearestLandPoint(
-    frontline.x + Math.cos(stageAngle) * (180 + f.aiState.expansion * 40),
-    frontline.y + Math.sin(stageAngle) * (180 + f.aiState.expansion * 40),
-    280
-  ) || frontline;
-
-  if (idleArmy.length >= Math.max(3, diff.aiSquadMin - 2)) {
-    for (const u of idleArmy.slice(0, Math.min(idleArmy.length, 12))) {
-      if (dist2(u.x, u.y, f.base.x, f.base.y) < 660 * 660) this.orderMoveFormation([u], stage.x, stage.y, true);
-    }
-  }
-
-  const wounded = army.filter(u => u.hp / u.maxHp < .35 && u.order !== 'move');
-  const archers = idleArmy.filter(u => u.type === 'archer');
-  const melee = idleArmy.filter(u => u.type === 'warrior' || u.type === 'lancer');
-  for (const u of wounded.slice(0, 5)) this.orderMoveFormation([u], f.base.x + (Math.random() - .5) * 260, f.base.y + (Math.random() - .5) * 260, false);
-
-  if (archers.length && melee.length) {
-    for (const ar of archers.slice(0, Math.min(archers.length, 6))) {
-      const escort = melee[Math.floor(Math.random() * melee.length)];
-      if (escort && dist2(ar.x, ar.y, escort.x, escort.y) > 180 * 180) this.orderMoveFormation([ar], escort.x - 18 * ar.face, escort.y + 12, true);
-    }
-  }
-
-  const shouldAttack = f.aiState.attackTimer <= 0 && armyPower >= diff.aiSquadMin;
-  if (!shouldAttack) return;
-
-  f.aiState.attackTimer = diff.aiAttackDelay + 6 + Math.random() * 10;
-  f.aiState.rallyAngle += .55 + Math.random() * .75;
-  const target = this.pickStrategicTargetV2(f.id);
-  if (!target) return;
-  f.aiState.lastTargetId = target.id;
-  const squadLimit = Math.min(idleArmy.length, Math.max(diff.aiSquadMin, 8 + Math.floor(armyPower / 2)));
-  const squad = idleArmy
-    .sort((a, b) => {
-      const roleA = a.type === 'monk' ? 2 : a.type === 'archer' ? 0 : 1;
-      const roleB = b.type === 'monk' ? 2 : b.type === 'archer' ? 0 : 1;
-      return roleA - roleB;
-    })
-    .slice(0, squadLimit);
-  for (const u of squad) this.orderAttack(u, target, true);
-  for (const monk of squad.filter(u => u.type === 'monk').slice(0, 2)) this.orderMoveFormation([monk], stage.x - 30, stage.y + 24, false);
-
-  if (Math.random() < .35 * diff.aggression) {
-    const exposed = this.units.find(u => u.faction !== f.id && !u.dead && u.type === 'worker' && this.factions[u.faction]?.alive);
-    if (exposed) {
-      for (const raider of idleArmy.filter(u => u.type !== 'monk').slice(0, 3)) this.orderAttack(raider, exposed, true);
-    }
-  }
-};
 
 Game.prototype.pickStrategicTargetV2 = function(fid) {
   let best = null, score = Infinity;
@@ -634,31 +505,9 @@ Game.prototype.pickStrategicTarget = function(fid) {
 };
 
 
-Game.prototype.population = function(fid) {
-    let used = 0, cap = 0;
-    const units = this.units;
-    for (let i = 0; i < units.length; i++) {
-      const u = units[i];
-      if (u.faction === fid && !u.dead) used += UNITS[u.type].pop;
-    }
-    const buildings = this.buildings;
-    for (let i = 0; i < buildings.length; i++) {
-      const b = buildings[i];
-      if (b.faction === fid && !b.dead && b.build >= 1) cap += BUILDINGS[b.type].pop || 0;
-    }
-    return { used, cap: Math.max(4, cap) };
-};
 
-Game.prototype.queueTrain = function(type) {
-    const buildings = this.selected.filter(e => e.entity === 'building' && e.faction === 0 && e.build >= 1 && BUILDINGS[e.type].trains.includes(type));
-    if (!buildings.length) return;
-    const f = this.factions[0], def = UNITS[type], pop = this.population(0);
-    if (pop.used + def.pop > pop.cap) { this.toast('Population cap reached. Build houses.', 1.6); this.sfx.deny(); return; }
-    if (!pay(f, def.cost)) { this.toast('Not enough resources.', 1.3); this.sfx.deny(); return; }
-    buildings.sort((a, b) => a.queue.length - b.queue.length)[0].queue.push({ type, time: def.time });
-    this.uiDirty = true;
-  
-};
+
+
 
 
 Game.prototype.stopSelected = function() {
@@ -673,18 +522,12 @@ Game.prototype.holdSelected = function() {
     this.toast('Selected units holding position.', 1.2);
   
 };
-
 Game.prototype.ungarrisonSelected = function() {
-    const towers = this.selected.filter(e => e.entity === 'building' && e.type === 'tower' && e.faction === 0);
-    for (const t of towers) {
-      for (const id of t.garrison.splice(0)) {
-        const u = this.units.find(x => x.id === id);
-        if (u && !u.dead) { u.garrisoned = null; u.x = t.x + (Math.random() - .5) * 50; u.y = t.y + 58; u.order = 'idle'; }
-      }
-    }
-    this.uiDirty = true;
-  
+  this.toast('Garrison removed: tower and castle archers are handled by upgrades.', 1.4);
+  this.sfx.deny();
 };
+
+
 
 
 Game.prototype.updateEffects = function(dt) { for (const e of this.effects) e.time -= dt; 
@@ -763,20 +606,9 @@ Game.prototype.strikeAnimal = function(u, res) {
   }
 };
 
-Game.prototype.reassignIdleWorkers = function(fid) {
-  for (const u of this.units) {
-    if (u.faction === fid && u.type === 'worker' && u.order === 'idle' && !u.dead && !u.garrisoned) {
-      this.autoGather(u);
-    }
-  }
-};
 
-Game.prototype.aiEconomyEmergency = function(f) {
-  const workers = this.units.filter(u => u.faction === f.id && u.type === 'worker' && !u.dead).length;
-  if (workers < 3) { f.res.wood += 12; f.res.gold += 12; }
-  const pop = this.population(f.id);
-  if (pop.cap - pop.used <= 1) f.aiState.expansion = Math.min(4, f.aiState.expansion + .03);
-};
+
+
 
 
 Game.prototype.run = function(ts) {
@@ -790,15 +622,10 @@ Game.prototype.run = function(ts) {
 
 
 
-// Pass 2: worker-built construction, built-in tower archers, stronger path movement, formations, attack pings, smarter AI.
+// worker-built construction, built-in tower archers, stronger path movement, formations, attack pings, smarter AI.
 Game.prototype.normalizeTowerStats = function(b) {
   if (!b || b.type !== 'tower') return;
-  const hp = UNITS.archer.hp;
-  if (b.maxHp !== hp) {
-    const pct = b.maxHp ? clamp(b.hp / b.maxHp, 0, 1) : 1;
-    b.maxHp = hp;
-    b.hp = Math.max(1, Math.ceil(hp * pct));
-  }
+  normalizeBuildingStats(b, true);
   b.garrison = [];
   b.builtInArcher = true;
 };
@@ -811,63 +638,14 @@ Game.prototype.hasActiveBuilder = function(b) {
   return false;
 };
 
-Game.prototype.assignBuildersTo = function(b, fid, maxBuilders = 2, preferSelected = false) {
-  if (!b || b.dead) return 0;
-  const chosen = [];
-  const chosenSet = new Set();
-  // Collect existing builders
-  for (let i = 0; i < this.units.length; i++) {
-    const u = this.units[i];
-    if (u.faction === fid && u.type === 'worker' && !u.dead && u.order === 'repair' && u.target === b) {
-      chosenSet.add(u);
-      chosen.push(u);
-    }
-  }
-  // Add selected workers if preferSelected
-  if (preferSelected) {
-    for (let i = 0; i < this.selected.length; i++) {
-      const u = this.selected[i];
-      if (u && u.entity === 'unit' && u.faction === fid && u.type === 'worker' && !u.dead && !chosenSet.has(u)) {
-        chosenSet.add(u);
-        chosen.push(u);
-      }
-    }
-  }
-  // Find additional workers from pool, sorted by distance (idle first)
-  if (chosen.length < maxBuilders) {
-    const pool = [];
-    for (let i = 0; i < this.units.length; i++) {
-      const u = this.units[i];
-      if (u.faction === fid && u.type === 'worker' && !u.dead && !chosenSet.has(u)) {
-        pool.push(u);
-      }
-    }
-    pool.sort((a, c) => {
-      const idleA = a.order === 'idle' ? -800000 : 0;
-      const idleC = c.order === 'idle' ? -800000 : 0;
-      return dist2(a.x, a.y, b.x, b.y) + idleA - (dist2(c.x, c.y, b.x, b.y) + idleC);
-    });
-    for (let i = 0; i < pool.length && chosen.length < maxBuilders; i++) {
-      chosen.push(pool[i]);
-    }
-  }
-  let count = 0;
-  const limit = Math.min(chosen.length, maxBuilders);
-  for (let i = 0; i < limit; i++) {
-    const u = chosen[i];
-    this.clearUnitPath && this.clearUnitPath(u);
-    u.order = 'repair'; u.target = b; u.goal = null; u.carry = null; u.gather = 0; u.hold = false;
-    count++;
-  }
-  return count;
-};
+
 
 
 Game.prototype.updateBuildings = function(dt) {
   if (this._shouldRebuildSpatial || !this.buildingBuckets) this.rebuildBuildingSpatialIndex && this.rebuildBuildingSpatialIndex();
   for (const b of this.buildings) {
     if (b.dead) continue;
-    if (b.type === 'tower') this.normalizeTowerStats(b);
+    normalizeBuildingStats(b, false);
     b.flash = Math.max(0, b.flash - dt * 3);
     b.cd = Math.max(0, (b.cd || 0) - dt);
     if (b.build < 1) continue;
@@ -881,20 +659,81 @@ Game.prototype.updateBuildings = function(dt) {
         if (b.faction === 0) this.uiDirty = true;
       }
     }
-    if (b.type === 'tower') this.towerAttack(b, dt);
+    if (defensiveArcherCount(b) > 0) this.defensiveBuildingAttack(b, dt);
     if (b.type === 'monastery') this.passiveHeal(b, dt);
   }
 };
 
 
-Game.prototype.towerAttack = function(b, dt) {
-  if (!b || b.dead || b.build < 1) return;
-  if (b.cd > 0) return;
-  const target = this.nearestEnemy({ x: b.x, y: b.y, faction: b.faction }, BUILDINGS.tower.range, true);
-  if (!target) return;
-  b.cd = UNITS.archer.cd * .92;
-  this.spawnProjectile(b.faction, b.x, b.y - b.h * .72, target, UNITS.archer.damage);
+Game.prototype.defensiveBuildingProjectileOrigin = function(b, slotIndex, count) {
+  const renderMetrics = this.getBuildingDrawMetrics ? this.getBuildingDrawMetrics(b) : null;
+  if (renderMetrics && this.getDefensiveArcherSlots) {
+    const slot = this.getDefensiveArcherSlots(b, renderMetrics)[slotIndex];
+    if (slot) return { x: slot.x, y: slot.y - 26 };
+  }
+  const offset = (slotIndex - (count - 1) / 2) * (b.type === 'castle' ? 38 : 18);
+  const yOffset = b.type === 'castle' ? b.h * .72 : b.h * .64;
+  return { x: b.x + offset, y: b.y - yOffset };
 };
+
+Game.prototype.defensiveBuildingCandidates = function(b, range) {
+  const out = [];
+  const rangeSq = range * range;
+  const unitCandidates = this.nearbyUnits ? this.nearbyUnits(b.x, b.y, range) : this.units;
+  for (const u of unitCandidates) {
+    if (!u || u.dead || u.faction === b.faction || u.garrisoned || !this.factions[u.faction]?.alive) continue;
+    if (dist2(b.x, b.y, u.x, u.y) <= rangeSq) out.push(u);
+  }
+  const buildingCandidates = this.nearbyBuildings ? this.nearbyBuildings(b.x, b.y, range) : this.buildings;
+  for (const target of buildingCandidates) {
+    if (!target || target.dead || target.faction === b.faction || !this.factions[target.faction]?.alive) continue;
+    if (dist2(b.x, b.y, target.x, target.y) <= rangeSq) out.push(target);
+  }
+  return out;
+};
+
+Game.prototype.pickDefensiveTarget = function(origin, candidates, used) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const target of candidates) {
+    if (used.has(target.id)) continue;
+    const d = dist2(origin.x, origin.y, target.x, target.y);
+    if (d < bestDist) { bestDist = d; best = target; }
+  }
+  if (best) return best;
+  for (const target of candidates) {
+    const d = dist2(origin.x, origin.y, target.x, target.y);
+    if (d < bestDist) { bestDist = d; best = target; }
+  }
+  return best;
+};
+
+Game.prototype.defensiveBuildingAttack = function(b, dt) {
+  if (!b || b.dead || b.build < 1) return;
+  const count = defensiveArcherCount(b);
+  const range = defensiveBuildingRange(b);
+  if (count <= 0 || range <= 0) return;
+  if (b.cd > 0) return;
+
+  const candidates = this.defensiveBuildingCandidates(b, range);
+  if (!candidates.length) return;
+
+  const damage = defensiveBuildingDamage(b);
+  const used = new Set();
+  b.defenderShots = b.defenderShots || [];
+  let fired = 0;
+  for (let i = 0; i < count; i++) {
+    const origin = this.defensiveBuildingProjectileOrigin(b, i, count);
+    const target = this.pickDefensiveTarget(origin, candidates, used);
+    if (!target) break;
+    used.add(target.id);
+    this.spawnProjectile(b.faction, origin.x, origin.y, target, damage);
+    b.defenderShots[i] = { until: this.time + 0.52, face: target.x >= origin.x ? 1 : -1 };
+    fired++;
+  }
+  if (fired) b.cd = defensiveBuildingCooldown(b);
+};
+Game.prototype.towerAttack = function(b, dt) { this.defensiveBuildingAttack(b, dt); };
 
 Game.prototype.updateUnits = function(dt) {
   if (this._shouldRebuildSpatial || !this.unitBuckets) this.rebuildUnitSpatialIndex();
@@ -1093,30 +932,7 @@ Game.prototype.cleanup = function() {
   }
 };
 
-Game.prototype.update = function(dt) {
-  this.time += dt;
-  if (this.toastTimer > 0) { this.toastTimer -= dt; if (this.toastTimer <= 0) HUD.message.classList.add('hidden'); }
-  this.updateCamera(dt);
-  if (!this.paused) {
-    this._spatialTimer = (this._spatialTimer || 0) - dt;
-    this._shouldRebuildSpatial = this._spatialTimer <= 0 || !this.unitBuckets || !this.resourceBuckets || !this.buildingBuckets;
-    if (this._shouldRebuildSpatial) {
-      const perf = this.worldSettings && this.worldSettings.graphics === 'performance';
-      this._spatialTimer = (this.worldSettings && this.worldSettings.graphics === 'performance') ? .20 : .08;
-    }
-    this.updateBuildings(dt);
-    this.updateResources(dt);
-    this.updateUnits(dt);
-    this.updateProjectiles(dt);
-    this.updateEffects(dt);
-    this.updateAI(dt);
-    this.autosaveIfDue && this.autosaveIfDue(dt);
-    this.cleanup();
-    this._shouldRebuildSpatial = false;
-  }
-  this.uiTimer -= dt;
-  if (this.uiDirty || this.uiTimer <= 0) { this.renderUI(); this.uiTimer = .25; this.uiDirty = false; }
-};
+
 
 Game.prototype.repairSelected = function() {
   const target = this.selected.find(e => e.entity === 'building' && e.faction === 0 && (e.hp < e.maxHp || e.build < 1));
@@ -1131,36 +947,7 @@ Game.prototype.repairSelected = function() {
 Game.prototype.finishGarrison = function() { return false; };
 Game.prototype.updateGarrisonUnit = function(u) { if (u) { u.order = 'idle'; u.garrisoned = null; u.target = null; } };
 
-Game.prototype.aiBuild = function(f) {
-  const ownB = this.buildings.filter(b => b.faction === f.id && !b.dead);
-  const bCount = {};
-  for (const b of ownB) bCount[b.type] = (bCount[b.type] || 0) + 1;
-  const count = (t) => bCount[t] || 0;
-  const pop = this.population(f.id);
-  const candidates = [];
-  if (pop.cap - pop.used < 5) candidates.push('house');
-  if (count('barracks') < 1) candidates.push('barracks');
-  if (count('archery') < 1 && count('barracks') >= 1) candidates.push('archery');
-  if (count('tower') < 2 + Math.floor(f.aiState.expansion * 1.4)) candidates.push('tower');
-  if (pop.used > 22 && count('castle') < 2 && f.res.wood > BUILDINGS.castle.cost.wood && f.res.gold > BUILDINGS.castle.cost.gold) candidates.push('castle');
-  if (count('monastery') < 1 && pop.used > 12) candidates.push('monastery');
-  if (pop.used > 24 && count('barracks') < 2) candidates.push('barracks');
-  if (pop.used > 28 && count('archery') < 2) candidates.push('archery');
-  if (!candidates.length && Math.random() < .22) candidates.push(choose(['house','tower','archery','barracks']));
-  for (const t of candidates) {
-    const def = BUILDINGS[t];
-    if (!canAfford(f, def.cost)) continue;
-    const anchor = this.aiBuildAnchor(f, t);
-    const pos = this.findBuildSpot(anchor.x, anchor.y, t, f.aiState.expansion);
-    if (pos && pay(f, def.cost)) {
-      const b = this.addBuilding(f.id, t, pos.x, pos.y, false);
-      b.aiIntent = t;
-      this.assignBuildersTo(b, f.id, t === 'castle' ? 5 : t === 'tower' ? 2 : 3, false);
-      f.aiState.expansion = Math.min(5, f.aiState.expansion + (t === 'castle' ? .65 : .12));
-      return;
-    }
-  }
-};
+
 
 Game.prototype.aiBuildAnchor = function(f, type) {
   if (type === 'tower') return this.aiFrontlinePosition(f);
@@ -1185,52 +972,7 @@ Game.prototype.aiSecondBaseAnchor = function(f) {
   return best ? { x: best.x + (Math.random() - .5) * 220, y: best.y + (Math.random() - .5) * 220 } : null;
 };
 
-Game.prototype.aiTactics = function(f) {
-  const diff = DIFFICULTY_PRESETS[this.worldSettings?.difficulty || 'normal'] || DIFFICULTY_PRESETS.normal;
-  // Single pass over units to classify army/idle/workers — avoids 3× filter allocations
-  const army = [], idleArmy = [], workers = [];
-  for (let i = 0; i < this.units.length; i++) {
-    const u = this.units[i];
-    if (u.dead || u.faction !== f.id) continue;
-    if (u.type === 'worker') { workers.push(u); continue; }
-    army.push(u);
-    if (u.order === 'idle' || u.order === 'move' || u.order === 'attackMove') idleArmy.push(u);
-  }
-  const threat = this.nearestThreatToBase(f.id, f.base.x, f.base.y, f.underAttack > 0 ? 1350 : 940);
-  if (threat && idleArmy.length) {
-    const tx = threat.x, ty = threat.y;
-    const defenders = idleArmy.map(u => ({ u, d: dist2(u.x, u.y, tx, ty) })).sort((a, b) => a.d - b.d).slice(0, Math.min(idleArmy.length, f.underAttack > 0 ? 24 : 14)).map(o => o.u);
-    for (const u of defenders) this.orderAttack(u, threat, false);
-    const repairTarget = this.buildings.find(b => b.faction === f.id && !b.dead && b.hp < b.maxHp && dist2(b.x, b.y, tx, ty) < 720 * 720);
-    if (repairTarget) this.assignBuildersTo(repairTarget, f.id, 4, false);
-    return;
-  }
-  for (const b of this.buildings) if (b.faction === f.id && !b.dead && b.build < 1 && !this.hasActiveBuilder(b)) this.assignBuildersTo(b, f.id, b.type === 'castle' ? 5 : 3, false);
-  const armyPower = army.reduce((sum, u) => sum + (u.type === 'lancer' ? 2.1 : u.type === 'archer' ? 1.25 : u.type === 'monk' ? .85 : 1), 0);
-  f.aiState.attackTimer -= diff.aggression;
-  const frontline = this.aiFrontlinePosition(f);
-  const stage = this.nearestLandPoint(frontline.x + Math.cos(f.aiState.rallyAngle) * (180 + f.aiState.expansion * 40), frontline.y + Math.sin(f.aiState.rallyAngle) * (180 + f.aiState.expansion * 40), 280) || frontline;
-  if (idleArmy.length >= Math.max(3, diff.aiSquadMin - 2)) for (const u of idleArmy.slice(0, Math.min(idleArmy.length, 12))) if (dist2(u.x, u.y, f.base.x, f.base.y) < 760 * 760) this.orderMoveFormation([u], stage.x, stage.y, true);
-  // Single pass for wounded
-  let woundedCount = 0;
-  for (let i = 0; i < army.length && woundedCount < 5; i++) {
-    const u = army[i];
-    if (u.hp / u.maxHp < .35 && u.order !== 'move') {
-      this.orderMoveFormation([u], f.base.x + (Math.random() - .5) * 260, f.base.y + (Math.random() - .5) * 260, false);
-      woundedCount++;
-    }
-  }
-  this.aiHarassEconomy(f, idleArmy, diff);
-  if (f.aiState.attackTimer > 0 || armyPower < diff.aiSquadMin) return;
-  f.aiState.attackTimer = diff.aiAttackDelay + 6 + Math.random() * 10;
-  f.aiState.rallyAngle += .55 + Math.random() * .75;
-  const target = this.pickStrategicTargetV2(f.id);
-  if (!target) return;
-  f.aiState.lastTargetId = target.id;
-  const squadLimit = Math.min(idleArmy.length, Math.max(diff.aiSquadMin, 8 + Math.floor(armyPower / 2)));
-  const squad = this.formationOrderedUnits(idleArmy, 'split').slice(0, squadLimit);
-  for (const u of squad) this.orderAttack(u, target, true);
-};
+
 
 Game.prototype.aiHarassEconomy = function(f, idleArmy, diff) {
   if (!idleArmy.length || Math.random() > .28 * diff.aggression) return;
@@ -1247,7 +989,7 @@ Game.prototype.aiHarassEconomy = function(f, idleArmy, diff) {
 };
 
 
-// Pass 2: no-garrison spatial index override for old saved worlds.
+// no-garrison spatial index override for old saved worlds.
 Game.prototype.rebuildUnitSpatialIndex = function() {
   const bucketSize = 72;
   this.unitBucketSize = bucketSize;
@@ -1273,7 +1015,7 @@ Game.prototype.rebuildUnitSpatialIndex = function() {
 };
 
 
-// Pass 2: monk heal animation override.
+// monk heal animation override.
 Game.prototype.updateMonk = function(u, dt) {
   u.healAnim = Math.max(0, (u.healAnim || 0) - dt);
   const ally = this.lowestHurtAlly(u, UNITS.monk.range);
@@ -1293,7 +1035,7 @@ Game.prototype.updateMonk = function(u, dt) {
 };
 
 
-// Pass 3: cargo-safe workers, robust building approach points, and economy role assignment.
+// cargo-safe workers, robust building approach points, and economy role assignment.
 
 
 Game.prototype.workerNearBuilding = function(u, b, extra = 34) {
@@ -1390,7 +1132,7 @@ Game.prototype.assignWorkersRole = function(role, scope = 'selected') {
 
 
 
-// Pass 3: keep explicit Auto Balance workers in auto mode instead of converting them to the current resource.
+// keep explicit Auto Balance workers in auto mode instead of converting them to the current resource.
 Game.prototype.autoGather = function(u) {
   if (!u || u.dead || u.type !== 'worker') return;
   const f = this.factions[u.faction];
@@ -1400,7 +1142,7 @@ Game.prototype.autoGather = function(u) {
 };
 
 
-// Pass 4: worker delivery, close construction approach, and cargo-safe job switching.
+// worker delivery, close construction approach, and cargo-safe job switching.
 Game.prototype.entityById = function(id) {
   if (id === undefined || id === null) return null;
   for (const b of this.buildings) if (b.id === id && !b.dead) return b;
@@ -1784,7 +1526,7 @@ Game.prototype.isBlocked = function(x, y, u) {
 var DECOR_SPECS_bush1_cache = DECOR_SPECS.bush1 || { shadow: [18, 5] };
 
 
-// Pass 4: placement should honor only grass-contact footprints, not roof silhouettes.
+// placement should honor only grass-contact footprints, not roof silhouettes.
 Game.prototype.placementIssue = function(type, x, y, ignoreBuilding = null) {
   const def = BUILDINGS[type];
   if (!def) return 'Unknown building.';
@@ -1822,7 +1564,7 @@ Game.prototype.canPlace = function(type, x, y, ignoreBuilding = null) {
 };
 
 
-// Pass 5: performance-oriented AI summaries, adaptive spatial cadence, and population-safe training queues.
+// performance-oriented AI summaries, adaptive spatial cadence, and population-safe training queues.
 Game.prototype.queuedPopulation = function(fid) {
   let queued = 0;
   for (let i = 0; i < this.buildings.length; i++) {
@@ -1865,7 +1607,8 @@ Game.prototype.buildFactionOverview = function(fid) {
     view.buildingCounts[b.type] = (view.buildingCounts[b.type] || 0) + 1;
     if (b.build >= 1) {
       view.finishedBuildings.push(b);
-      view.pop.cap += (BUILDINGS[b.type] && BUILDINGS[b.type].pop) || 0;
+      normalizeBuildingStats(b, false);
+      view.pop.cap += buildingPopulationCapacity(b);
       if (b.hp < b.maxHp) view.damagedBuildings.push(b);
       if (b.type === 'tower') view.towers.push(b);
     } else {
@@ -1950,7 +1693,7 @@ Game.prototype.aiTrain = function(f, overview = this.buildFactionOverview(f.id))
     if (!def) continue;
     if (projectedPop + def.pop > pop.cap) continue;
     if (!pay(f, def.cost)) continue;
-    b.queue.push({ type: desired, time: def.time });
+    b.queue.push({ type: desired, time: buildingTrainTime(b, desired) });
     projectedPop += def.pop;
     counts[desired] = (counts[desired] || 0) + 1;
   }
@@ -2021,7 +1764,8 @@ Game.prototype.queueTrain = function(type) {
   const projected = pop.used + this.queuedPopulation(0);
   if (projected + def.pop > pop.cap) { this.toast('Population cap reached. Build houses.', 1.6); this.sfx.deny(); return; }
   if (!pay(f, def.cost)) { this.toast('Not enough resources.', 1.3); this.sfx.deny(); return; }
-  buildings.sort((a, b) => a.queue.length - b.queue.length)[0].queue.push({ type, time: def.time });
+  const producer = buildings.sort((a, b) => a.queue.length - b.queue.length)[0];
+  producer.queue.push({ type, time: buildingTrainTime(producer, type) });
   this.uiDirty = true;
 };
 
@@ -2040,6 +1784,7 @@ Game.prototype.getSpatialRefreshInterval = function() {
 
 Game.prototype.update = function(dt) {
   this.time += dt;
+  if (this.updateAtmosphere) this.updateAtmosphere(dt);
   if (this.toastTimer > 0) { this.toastTimer -= dt; if (this.toastTimer <= 0) HUD.message.classList.add('hidden'); }
   this.updateCamera(dt);
   if (!this.paused) {

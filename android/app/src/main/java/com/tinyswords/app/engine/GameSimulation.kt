@@ -225,6 +225,7 @@ class GameSimulation(val state: GameState) {
         for (u in state.units) {
             if (u.dead || u.garrisoned) continue
 
+            applyFactionUnitUpgrades(state, u, preserveRatio = false)
             u.animTime += dt
             u.cd = max(0f, u.cd - dt)
             u.flash = max(0f, u.flash - dt)

@@ -152,7 +152,8 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
         }
         for (b in buildings) {
             if (b.faction == factionId && !b.dead && b.buildProgress >= 1f) {
-                cap += (BUILDINGS[b.type]?.pop ?: 0)
+                normalizeBuildingStats(b, preserveRatio = false)
+                cap += buildingPopulationCapacity(b)
             }
         }
         return Pair(used, cap)

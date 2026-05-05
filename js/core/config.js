@@ -273,8 +273,7 @@ const BUILDINGS = {
   monastery: { label: 'Monastery', file: 'Monastery.png', scale: 0.46, w: 102, h: 106, hp: 420, pop: 0, cost: { wood: 120, gold: 165, food: 0 }, time: 24, trains: ['monk'], key: 'M', icon: 'iconMonastery' }
 };
 
-// Pass 4 collision footprint calibration: placement/pathing now use the visible grass-contact base,
-// not the tall roof silhouette. This removes false "Blocked by Monastery" placement failures.
+// Collision footprint calibration: placement/pathing use the visible grass-contact base, not tall roof silhouettes.
 Object.assign(BUILDINGS.castle, { placeW: 152, placeH: 58, placeYOffset: 38 });
 Object.assign(BUILDINGS.house, { placeW: 66, placeH: 38, placeYOffset: 24 });
 Object.assign(BUILDINGS.barracks, { placeW: 84, placeH: 46, placeYOffset: 28 });
@@ -290,8 +289,7 @@ const UNITS = {
   monk: { label: 'Monk', role: 'healer', hp: 64, speed: 70, range: 215, damage: -16, cd: 1.1, cost: { wood: 25, gold: 110, food: 1 }, time: 14, pop: 1, fw: 192, fh: 192, scale: 0.34, radius: 12, icon: 'iconMonk', hotkey: '5' }
 };
 
-// Pass 3 render calibration: the Tiny Swords lancer sheet has a 320px frame with the horse/soldier
-// painted high inside the frame. These offsets align its actual feet with gameplay selection/targeting.
+// Lancer sprite calibration: the 320px sheet paints the horse high in-frame, so draw offset keeps feet aligned.
 UNITS.lancer.scale = 0.40;
 UNITS.lancer.radius = 18;
 UNITS.lancer.drawYOffset = 27;
@@ -318,6 +316,7 @@ const ICON_PATHS = {
   iconBuild: BASE + 'UI Elements/UI Elements/Icons/Icon_08.png',
   iconRally: BASE + 'UI Elements/UI Elements/Ribbons/SmallRibbons.png',
   iconRepair: BASE + 'Terrain/Resources/Tools/Tool_04.png',
+  iconUpgrade: BASE + 'UI Elements/UI Elements/Icons/Icon_10.png',
   iconGarrison: BASE + 'UI Elements/UI Elements/Icons/Icon_05.png'
 };
 

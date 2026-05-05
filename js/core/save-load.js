@@ -1,10 +1,10 @@
 // Persistent world-slot and save/load support.
 'use strict';
 
-const SAVE_SCHEMA_VERSION = 2;
-const SAVE_INDEX_KEY = 'tinyswords.world.index.v2';
-const SAVE_SETTINGS_KEY = 'tinyswords.global.settings.v2';
-const SAVE_PREFIX = 'tinyswords.world.v2.';
+const SAVE_SCHEMA_VERSION = 3;
+const SAVE_INDEX_KEY = 'tinyswords.world.index.v3';
+const SAVE_SETTINGS_KEY = 'tinyswords.global.settings.v3';
+const SAVE_PREFIX = 'tinyswords.world.v3.';
 
 const TinySwordsStorage = {
   safeRead(key, fallback) {
@@ -168,7 +168,9 @@ Game.prototype.applySavePayload = function(payload) {
     }
   }
   if (Array.isArray(payload.buildings)) this.buildings = hydrate(payload.buildings);
+  for (const b of this.buildings) normalizeBuildingStats(b, false);
   if (Array.isArray(payload.units)) this.units = hydrate(payload.units);
+  for (const u of this.units) normalizeUnitStats(this, u, false);
   if (Array.isArray(payload.resources)) this.resources = hydrate(payload.resources);
   if (Array.isArray(payload.decor)) this.decor = hydrate(payload.decor);
   const all = [...this.units, ...this.buildings, ...this.resources, ...this.decor];

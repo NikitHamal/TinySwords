@@ -291,6 +291,12 @@ private fun ActiveGameScreen(
                                 val building = gameState.selected.firstOrNull() as? GameBuilding
                                 if (building != null) simulation.economy.trainUnit(building, unitType)
                             }
+                        },
+                        onUpgrade = {
+                            gameView?.runCommand {
+                                val building = gameState.selected.firstOrNull() as? GameBuilding
+                                if (building != null) simulation.economy.upgradeBuilding(building)
+                            }
                         }
                     )
                 }

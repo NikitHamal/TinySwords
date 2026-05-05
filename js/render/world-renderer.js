@@ -1,4 +1,4 @@
-// Canvas renderer: terrain, animated water, entities, FX, minimap.
+// Canvas renderer: terrain, static water, entities, FX, minimap.
 Game.prototype.draw = function () {
   ctx.clearRect(0, 0, VIEW_W, VIEW_H);
   ctx.fillStyle = '#143340';
@@ -11,6 +11,7 @@ Game.prototype.draw = function () {
   this.drawPlacementGhost();
   this.drawBuildingDragGhost();
   ctx.restore();
+  if (this.drawAtmosphereOverlay) this.drawAtmosphereOverlay();
   this.drawScreenOverlays();
   this.drawMinimap();
 };
@@ -209,7 +210,7 @@ Game.prototype.drawWaterTile = function (tx, ty, x, y) {
       else if (landS && landW) { fsx = 128; fsy = 0; }
       else if (landS && landE) { fsx = 0; fsy = 0; }
 
-      const foamFrame = (Math.floor(this.time * 5.4 + ((tx * 31 + ty * 17) & 15)) & 15);
+      const foamFrame = ((tx * 31 + ty * 17) & 3);
       ctx.globalAlpha = .78;
       ctx.drawImage(assets.waterFoam, foamFrame * 192 + fsx, fsy, 64, 64, x, y, TILE, TILE);
       ctx.globalAlpha = 1;
@@ -218,11 +219,9 @@ Game.prototype.drawWaterTile = function (tx, ty, x, y) {
 
   const n = (tx * 31 + ty * 17 + 731) & 1023;
   if (n < 389) {
-    const phase = this.time * 1.35 + tx * .73 + ty * .41;
-    const shimmer = (Math.sin(phase) + 1) * .5;
-    ctx.globalAlpha = .055 + shimmer * .065;
+    ctx.globalAlpha = .075;
     ctx.fillStyle = '#d8fff6';
-    ctx.fillRect(x + 8 + ((n * 31 + (this.time * 7 | 0)) % 28), y + 12 + n % 34, 18 + (tx + ty) % 18, 2);
+    ctx.fillRect(x + 8 + ((n * 31) % 28), y + 12 + n % 34, 18 + (tx + ty) % 18, 2);
     ctx.globalAlpha = 1;
   }
   if (n > 921) {
@@ -548,7 +547,7 @@ Game.prototype.getBuildingDrawMetrics = function (b) {
 
 Game.prototype.drawBuilding = function (b) {
   const def = BUILDINGS[b.type];
-  if (b.type === 'tower' && this.normalizeTowerStats) this.normalizeTowerStats(b);
+  normalizeBuildingStats(b, false);
   const metrics = this.getBuildingDrawMetrics ? this.getBuildingDrawMetrics(b) : (() => { const fallbackImg = assets[`b_${faction(b.faction).key}_${b.sprite || b.type}`] || assets[`b_${faction(b.faction).key}_${b.type}`]; return { img: fallbackImg, w: b.w, h: b.h, drawY: b.y - b.h / 2, barY: b.y - b.h * 1.02 }; })();
   const img = metrics.img;
   this.drawShadow(b.x, b.y + b.h * .18, b.w * .50, b.h * .18);
@@ -559,30 +558,75 @@ Game.prototype.drawBuilding = function (b) {
   else if (b.hp < b.maxHp) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
   if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
   if (b.rally && b.faction === 0 && this.selected.includes(b)) this.drawRallyFlag(b.rally.x, b.rally.y, faction(b.faction).color);
-  if (b.type === 'tower' && b.build >= 1) {
-    const fKey = faction(b.faction).key;
-    const archerImg = assets[`u_${fKey}_archer_idle`];
-    if (archerImg) {
-      const scale = UNITS.archer.scale * SPRITE_BOOST * .92;
-      const fw = UNITS.archer.fw, fh = UNITS.archer.fh;
-      const frames = Math.max(1, Math.floor(archerImg.width / fw));
-      const fr = Math.floor(this.time * 4) % frames;
-      const w = fw * scale, h = fh * scale;
-      ctx.drawImage(archerImg, fr * fw, 0, fw, fh, b.x - w / 2 + 2, b.y - b.h + 18, w, h);
+  if (defensiveArcherCount(b) > 0) this.drawDefensiveArchers(b, metrics);
+};
+
+
+Game.prototype.getDefensiveArcherSlots = function (b, metrics) {
+  const count = defensiveArcherCount(b);
+  if (count <= 0) return [];
+  const slots = [];
+  if (b.type === 'castle') {
+    const patterns = {
+      1: [{ x: 0.00, y: 0.28 }],
+      2: [{ x: -0.23, y: 0.31 }, { x: 0.23, y: 0.31 }],
+      3: [{ x: -0.28, y: 0.32 }, { x: 0.00, y: 0.24 }, { x: 0.28, y: 0.32 }]
+    };
+    const pattern = patterns[Math.min(3, count)] || patterns[3];
+    for (let i = 0; i < count; i++) {
+      const slot = pattern[Math.min(i, pattern.length - 1)];
+      slots.push({
+        x: b.x + metrics.w * slot.x,
+        y: metrics.drawY + metrics.h * slot.y,
+        index: i
+      });
     }
+    return slots;
+  }
+
+  const towerPattern = count === 1 ? [0] : [-0.08, 0.08];
+  for (let i = 0; i < count; i++) {
+    slots.push({
+      x: b.x + metrics.w * towerPattern[Math.min(i, towerPattern.length - 1)],
+      y: metrics.drawY + metrics.h * 0.36,
+      index: i
+    });
+  }
+  return slots;
+};
+
+Game.prototype.drawDefensiveArchers = function (b, metrics) {
+  const fKey = faction(b.faction).key;
+  const idleImg = assets[`u_${fKey}_archer_idle`];
+  const shootImg = assets[`u_${fKey}_archer_attack`] || idleImg;
+  if (!idleImg) return;
+  const slots = this.getDefensiveArcherSlots(b, metrics || this.getBuildingDrawMetrics(b));
+  const scale = UNITS.archer.scale * SPRITE_BOOST * (b.type === 'castle' ? .78 : .86);
+  const fw = UNITS.archer.fw, fh = UNITS.archer.fh;
+  const baseline = 136;
+  for (const slot of slots) {
+    const shot = b.defenderShots && b.defenderShots[slot.index];
+    const shooting = shot && shot.until > this.time;
+    const img = shooting ? shootImg : idleImg;
+    const frames = Math.max(1, Math.floor(img.width / fw));
+    const fps = shooting ? 12 : 4;
+    const fr = Math.floor((shooting ? (1 - (shot.until - this.time) / 0.52) : this.time) * fps) % frames;
+    const face = shooting ? shot.face || 1 : 1;
+    this.drawSpriteFrameAnchored(img, fr * fw, 0, fw, fh, slot.x, slot.y, scale, baseline, { flip: face });
   }
 };
+
 
 Game.prototype.drawUnit = function (u) {
   const f = faction(u.faction);
   const def = UNITS[u.type];
   let anim = 'idle';
   if (u.order === 'move' || u.order === 'attackMove' || (u.carry && u.order !== 'idle')) anim = 'run';
-  if (u.order === 'attack' && u.target) anim = dist(u, u.target) > def.range + 8 ? 'run' : 'attack';
+  if (u.order === 'attack' && u.target) anim = dist(u, u.target) > unitCombatRange(this, u) + 8 ? 'run' : 'attack';
   if (u.type === 'monk' && (u.order === 'heal' || u.healAnim > 0)) anim = 'attack';
   if (u.type === 'worker' && u.order === 'harvest' && !u.carry) anim = (u.gather > 0 || u.huntSwing > 0) ? (u.target && u.target.type === 'gold' ? 'mine' : 'chop') : 'run';
   if (u.type === 'worker' && u.order === 'repair' && u.target) anim = 'build';
-  if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= def.range + 8) anim = 'fight';
+  if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= unitCombatRange(this, u) + 8) anim = 'fight';
 
   let key = `u_${f.key}_${u.type}_${anim}`;
   if (u.type === 'worker') {
@@ -917,7 +961,7 @@ Game.prototype.drawMinimap = function () {
 };
 
 
-// Pass 3: sprite-foot anchoring. Lancer sheets are painted high in their 320px frames, so the
+// sprite-foot anchoring. Lancer sheets are painted high in their 320px frames, so the
 // unit is drawn lower while keeping the logical hit/selection point at the feet.
 Game.prototype.drawRangeCircle = function (x, y, r, color) {
   if (!r || r <= 0) return;
@@ -929,8 +973,8 @@ Game.prototype.drawRangeCircle = function (x, y, r, color) {
 
 Game.prototype.drawSelectedRanges = function () {
   for (const e of this.selected.filter(isAlive)) {
-    if (e.entity === 'building' && e.type === 'tower') this.drawRangeCircle(e.x, e.y, BUILDINGS.tower.range, faction(e.faction).color);
-    if (e.entity === 'unit') this.drawRangeCircle(e.x, e.y, UNITS[e.type].range, faction(e.faction).color);
+    if (e.entity === 'building') this.drawRangeCircle(e.x, e.y, defensiveBuildingRange(e), faction(e.faction).color);
+    if (e.entity === 'unit') this.drawRangeCircle(e.x, e.y, unitCombatRange(this, e), faction(e.faction).color);
   }
 };
 
@@ -940,11 +984,11 @@ Game.prototype.drawUnitPerf = function (u) {
   const def = UNITS[u.type];
   let anim = 'idle';
   if (u.order === 'move' || u.order === 'attackMove' || (u.carry && u.order !== 'idle')) anim = 'run';
-  if (u.order === 'attack' && u.target) anim = dist(u, u.target) > def.range + 8 ? 'run' : 'attack';
+  if (u.order === 'attack' && u.target) anim = dist(u, u.target) > unitCombatRange(this, u) + 8 ? 'run' : 'attack';
   if (u.type === 'monk' && (u.order === 'heal' || u.healAnim > 0)) anim = 'attack';
   if (u.type === 'worker' && u.order === 'harvest' && !u.carry) anim = (u.gather > 0 || u.huntSwing > 0) ? (u.target && u.target.type === 'gold' ? 'mine' : 'chop') : 'run';
   if (u.type === 'worker' && u.order === 'repair' && u.target) anim = 'build';
-  if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= def.range + 8) anim = 'fight';
+  if (u.type === 'worker' && u.order === 'attack' && u.target && dist(u, u.target) <= unitCombatRange(this, u) + 8) anim = 'fight';
 
   let key = `u_${f.key}_${u.type}_${anim}`;
   if (u.type === 'worker') {
@@ -984,7 +1028,7 @@ Game.prototype.drawUnitPerf = function (u) {
 
 Game.prototype.drawBuildingPerf = function (b) {
   const def = BUILDINGS[b.type];
-  if (b.type === 'tower' && this.normalizeTowerStats) this.normalizeTowerStats(b);
+  normalizeBuildingStats(b, false);
   const metrics = this.getBuildingDrawMetrics(b);
   const img = metrics.img;
   if (img) { ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1; ctx.drawImage(img, Math.round(b.x - metrics.w / 2), Math.round(metrics.drawY), Math.round(metrics.w), Math.round(metrics.h)); ctx.globalAlpha = 1; }
@@ -992,18 +1036,7 @@ Game.prototype.drawBuildingPerf = function (b) {
   if (b.build < 1) this.drawProgress(b.x, metrics.barY + 5, b.build, '#e8c965');
   else if (b.hp < b.maxHp) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
   if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
-  if (b.type === 'tower' && b.build >= 1) {
-    const fKey = faction(b.faction).key;
-    const archerImg = assets[`u_${fKey}_archer_idle`];
-    if (archerImg) {
-      const scale = UNITS.archer.scale * SPRITE_BOOST * .92;
-      const fw = UNITS.archer.fw, fh = UNITS.archer.fh;
-      const frames = Math.max(1, Math.floor(archerImg.width / fw));
-      const fr = Math.floor(this.time * 4) % frames;
-      const w = fw * scale, h = fh * scale;
-      ctx.drawImage(archerImg, fr * fw, 0, fw, fh, b.x - w / 2 + 2, b.y - b.h + 18, w, h);
-    }
-  }
+  if (defensiveArcherCount(b) > 0) this.drawDefensiveArchers(b, metrics);
 };
 
 Game.prototype.drawResourcePerf = function (r) {

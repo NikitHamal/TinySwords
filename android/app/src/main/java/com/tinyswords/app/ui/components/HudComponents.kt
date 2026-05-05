@@ -179,10 +179,12 @@ fun SelectionPanel(
             }
             first is GameBuilding -> {
                 val def = BUILDINGS[first.type] ?: return
+                val maxLevel = buildingUpgradeMaxLevel(first.type)
+                val title = if (maxLevel > 1) "${def.label} Lv.${first.level}/${maxLevel}" else def.label
                 AssetIcon(buildingIconPath(first.type), GameColors.TextGold, Modifier.size(28.dp))
                 Column {
                     Text(
-                        text = def.label,
+                        text = title,
                         style = GameTypography.Heading.copy(fontSize = 11.sp)
                     )
                     if (first.buildProgress < 1f) {
@@ -253,6 +255,7 @@ fun ActionDock(
     onHold: () -> Unit,
     onBuildMenu: () -> Unit,
     onTrain: (String) -> Unit,
+    onUpgrade: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val hasUnits = selected.any { it is GameUnit && it.faction == 0 }
@@ -296,6 +299,12 @@ fun ActionDock(
         if (hasBuilding) {
             val building = selected.first() as GameBuilding
             val bdef = BUILDINGS[building.type]
+            if (upgradeCostFor(building) != null) {
+                MinimalIconButton(
+                    iconPath = "Tiny Swords (Free Pack)/UI Elements/UI Elements/Icons/Icon_10.png",
+                    onClick = onUpgrade
+                )
+            }
             if (bdef != null && bdef.trains.isNotEmpty()) {
                 for (unitType in bdef.trains) {
                     UNITS[unitType] ?: continue

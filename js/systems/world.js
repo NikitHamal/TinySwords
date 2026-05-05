@@ -105,97 +105,7 @@ Game.prototype.generateWorld = function() {
   this.pruneInvalidWorldObjects();
 };
 
-Game.prototype.generateTerrain = function() {
-  this.landCols = Math.ceil(WORLD_W / TILE);
-  this.landRows = Math.ceil(WORLD_H / TILE);
-  const cols = this.landCols, rows = this.landRows;
-  this.landMap = new Uint8Array(cols * rows);
-  this.groundVariant = new Uint8Array(cols * rows);
 
-  const setLand = (tx, ty, v = 1) => {
-    if (tx >= 0 && ty >= 0 && tx < cols && ty < rows) this.landMap[ty * cols + tx] = v;
-  };
-  const paintEllipse = (cx, cy, rx, ry, v = 1, wobble = .08) => {
-    const minX = Math.floor((cx - rx) / TILE) - 2, maxX = Math.ceil((cx + rx) / TILE) + 2;
-    const minY = Math.floor((cy - ry) / TILE) - 2, maxY = Math.ceil((cy + ry) / TILE) + 2;
-    for (let ty = minY; ty <= maxY; ty++) for (let tx = minX; tx <= maxX; tx++) {
-      const x = tx * TILE + TILE / 2, y = ty * TILE + TILE / 2;
-      const n = (rngHash(tx, ty, 902) - .5) * wobble + Math.sin((tx * 1.7 + ty * .9) * .55) * wobble * .22;
-      const d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2;
-      if (d < 1 + n) setLand(tx, ty, v);
-    }
-  };
-  const paintLine = (a, b, width, v = 1, bend = 0) => {
-    const steps = Math.ceil(Math.hypot(a.x - b.x, a.y - b.y) / (TILE * .32));
-    for (let i = 0; i <= steps; i++) {
-      const t = i / Math.max(1, steps);
-      const wob = Math.sin(t * Math.PI * 2) * bend;
-      const x = a.x + (b.x - a.x) * t + Math.cos(t * Math.PI * 3.2) * wob;
-      const y = a.y + (b.y - a.y) * t + Math.sin(t * Math.PI * 2.1) * wob;
-      paintEllipse(x, y, width, width * .74, v, .035);
-    }
-  };
-
-  const center = { x: WORLD_W / 2, y: WORLD_H / 2 };
-  for (const f of FACTIONS) {
-    const sideX = f.base.x < center.x ? 1 : -1;
-    const sideY = f.base.y < center.y ? 1 : -1;
-    paintEllipse(f.base.x, f.base.y + 24, 1080, 760, 1, .055);
-    paintEllipse(f.base.x + sideX * 470, f.base.y + sideY * 410, 650, 440, 1, .075);
-  }
-
-  paintEllipse(center.x, center.y, 1500, 1080, 1, .07);
-  paintEllipse(center.x - 1600, center.y - 360, 760, 500, 1, .08);
-  paintEllipse(center.x + 1600, center.y + 360, 780, 520, 1, .08);
-  paintEllipse(center.x - 1600, center.y + 360, 760, 500, 1, .08);
-  paintEllipse(center.x + 1600, center.y - 360, 780, 520, 1, .08);
-
-  for (const f of FACTIONS) paintLine(f.base, center, 220, 1, 124);
-  paintLine(FACTIONS[0].base, FACTIONS[1].base, 175, 1, 180);
-  paintLine(FACTIONS[2].base, FACTIONS[3].base, 175, 1, 180);
-  paintLine(FACTIONS[0].base, FACTIONS[2].base, 165, 1, 135);
-  paintLine(FACTIONS[1].base, FACTIONS[3].base, 165, 1, 135);
-  paintLine(FACTIONS[0].base, FACTIONS[3].base, 135, 1, 170);
-  paintLine(FACTIONS[1].base, FACTIONS[2].base, 135, 1, 170);
-
-  const satellites = [
-    [.08,.50,380,260], [.18,.26,430,285], [.18,.74,430,285], [.31,.14,480,310], [.31,.86,480,310],
-    [.50,.08,360,240], [.50,.92,380,250], [.69,.14,480,310], [.69,.86,480,310], [.82,.26,430,285],
-    [.82,.74,430,285], [.92,.50,400,270], [.38,.34,430,285], [.62,.66,450,300], [.38,.66,430,285],
-    [.62,.34,450,300], [.50,.28,360,240], [.50,.72,360,240]
-  ];
-  for (const [px, py, rx, ry] of satellites) paintEllipse(WORLD_W * px, WORLD_H * py, rx, ry, 1, .12);
-
-  const coves = [
-    [.06,.10,440,330], [.20,.07,390,270], [.43,.13,400,270], [.57,.87,420,280], [.80,.07,430,295], [.94,.25,430,340],
-    [.06,.74,410,320], [.20,.94,470,300], [.43,.87,390,270], [.57,.13,420,285], [.80,.94,470,300], [.94,.75,430,340],
-    [.35,.43,400,285], [.65,.57,470,320], [.35,.57,420,300], [.65,.43,470,320], [.50,.50,310,220]
-  ];
-  for (const [px, py, rx, ry] of coves) paintEllipse(WORLD_W * px, WORLD_H * py, rx, ry, 0, .09);
-
-  for (let pass = 0; pass < 2; pass++) {
-    const src = this.landMap.slice();
-    for (let ty = 1; ty < rows - 1; ty++) for (let tx = 1; tx < cols - 1; tx++) {
-      const idx = ty * cols + tx;
-      let n = 0;
-      for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) if (src[(ty + oy) * cols + tx + ox]) n++;
-      if (src[idx] && n <= 3) this.landMap[idx] = 0;
-      if (!src[idx] && n >= 7) this.landMap[idx] = 1;
-    }
-  }
-
-  for (const f of FACTIONS) {
-    paintEllipse(f.base.x, f.base.y + 20, 1120, 790, 1, .02);
-    paintLine(f.base, center, 190, 1, 82);
-  }
-  paintEllipse(center.x, center.y, 1370, 970, 1, .035);
-
-  const landAt = (tx, ty) => tx >= 0 && ty >= 0 && tx < cols && ty < rows && this.landMap[ty * cols + tx] === 1;
-  for (let ty = 0; ty < rows; ty++) for (let tx = 0; tx < cols; tx++) {
-    const wetEdge = landAt(tx, ty) && (!landAt(tx, ty - 1) || !landAt(tx, ty + 1) || !landAt(tx - 1, ty) || !landAt(tx + 1, ty)) ? 1 : 0;
-    this.groundVariant[ty * cols + tx] = Math.floor(rngHash(tx, ty, wetEdge ? 1619 : 919) * 24) + wetEdge * 40;
-  }
-};
 
 Game.prototype.randomLandPoint = function(margin = 0) {
   for (let i = 0; i < 780; i++) {
@@ -340,10 +250,11 @@ Game.prototype.tooCloseResource = function(x, y, radius, candidate = null) {
 
 Game.prototype.addBuilding = function(fid, type, x, y, complete = false) {
   const def = BUILDINGS[type];
+  const maxHp = buildingMaxHpFor(type, 1);
   const b = {
     id: gid++, entity: 'building', faction: fid, type, x, y,
     w: def.w, h: def.h, r: Math.max(def.w, def.h) * .46,
-    hp: complete ? def.hp : Math.max(12, Math.min(def.hp, def.hp * .28)), maxHp: def.hp,
+    hp: complete ? maxHp : Math.max(12, Math.min(maxHp, maxHp * .28)), maxHp, level: 1,
     build: complete ? 1 : 0, buildTime: def.time, queue: [], rally: (def.trains && def.trains.length) ? { x: x, y: y + 190 } : null,
     sprite: type === 'house' ? choose(['house','house2','house3']) : type,
     cd: Math.random(), garrison: [], dead: false, flash: 0, aiIntent: null
@@ -368,6 +279,7 @@ Game.prototype.addUnit = function(fid, type, x, y) {
     stuck: 0, lastWaterBounce: 0, pathProbe: 0, path: null, pathGoal: null, pathIndex: 0, pathVersion: 0, pathRetry: 0, huntSwing: 0,
     scanTimer: Math.random() * 0.22
   };
+  normalizeUnitStats(this, u, false);
   this.units.push(u);
   this.unitBuckets = null;
   this._shouldRebuildSpatial = true;
@@ -402,7 +314,7 @@ Game.prototype.spawnFaction = function(f) {
 };
 
 
-// Pass 4: selectable production map layouts.
+// Selectable production map layouts.
 Game.prototype.generateTerrain = function() {
   this.landCols = Math.ceil(WORLD_W / TILE);
   this.landRows = Math.ceil(WORLD_H / TILE);

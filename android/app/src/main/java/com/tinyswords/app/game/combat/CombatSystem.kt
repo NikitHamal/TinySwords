@@ -105,43 +105,89 @@ class CombatSystem(private val state: GameState) {
 
         val tx = target.x
         attacker.face = if (tx >= attacker.x) 1 else -1
-        attacker.cd = def.cd
+        attacker.cd = attacker.maxCd
 
         if (def.role == "ranged") {
-            spawnProjectile(attacker.faction, attacker.x, attacker.y, target, def.damage)
+            spawnProjectile(attacker.faction, attacker.x, attacker.y, target, attacker.damage)
         } else if (def.role == "healer") {
-            applyDamage(target, def.damage, attacker.faction) // Negative = heal
+            applyDamage(target, attacker.damage, attacker.faction) // Negative = heal
         } else {
-            applyDamage(target, def.damage, attacker.faction)
+            applyDamage(target, attacker.damage, attacker.faction)
         }
     }
 
+    private fun defensiveProjectileOrigin(building: GameBuilding, index: Int, count: Int): Pair<Float, Float> {
+        val def = BUILDINGS[building.type]
+        val offset = (index - (count - 1) / 2f) * if (building.type == "castle") 38f else 18f
+        val yOffset = if (building.type == "castle") (def?.h ?: 132f) * 0.68f else (def?.h ?: 96f) * 0.62f
+        return Pair(building.x + offset, building.y - yOffset)
+    }
+
+    private fun defensiveCandidates(building: GameBuilding, range: Float): List<GameEntity> {
+        val candidates = ArrayList<GameEntity>(12)
+        val rangeSquared = range * range
+        for (u in state.unitIndex.queryRange(building.x, building.y, range)) {
+            if (u.dead || u.faction == building.faction || u.garrisoned) continue
+            if (!state.factions[u.faction].alive) continue
+            if (dist2(building.x, building.y, u.x, u.y) <= rangeSquared) candidates.add(u)
+        }
+        for (b in state.buildingIndex.queryRange(building.x, building.y, range)) {
+            if (b.dead || b.faction == building.faction) continue
+            if (!state.factions[b.faction].alive) continue
+            if (dist2(building.x, building.y, b.x, b.y) <= rangeSquared) candidates.add(b)
+        }
+        return candidates
+    }
+
+    private fun pickDefensiveTarget(originX: Float, originY: Float, candidates: List<GameEntity>, usedIds: Set<Int>): GameEntity? {
+        var best: GameEntity? = null
+        var bestDist = Float.MAX_VALUE
+        for (target in candidates) {
+            if (target.id in usedIds) continue
+            val d = dist2(originX, originY, target.x, target.y)
+            if (d < bestDist) {
+                bestDist = d
+                best = target
+            }
+        }
+        if (best != null) return best
+        for (target in candidates) {
+            val d = dist2(originX, originY, target.x, target.y)
+            if (d < bestDist) {
+                bestDist = d
+                best = target
+            }
+        }
+        return best
+    }
+
     fun updateTowerCombat(building: GameBuilding, dt: Float) {
-        if (!building.type.equals("tower") || building.buildProgress < 1f || building.dead) return
-        val bdef = BUILDINGS["tower"] ?: return
+        if (building.buildProgress < 1f || building.dead) return
+        val archerCount = defensiveArcherCount(building)
+        val range = defensiveBuildingRange(building)
+        if (archerCount <= 0 || range <= 0f) return
 
         building.towerCd -= dt
         if (building.towerCd > 0f) return
 
-        // Find nearest enemy in range
-        val rangeSquared = bdef.towerRange * bdef.towerRange
-        var bestTarget: GameUnit? = null
-        var bestDist = Float.MAX_VALUE
+        val candidates = defensiveCandidates(building, range)
+        if (candidates.isEmpty()) return
 
-        for (u in state.unitIndex.queryRange(building.x, building.y, bdef.towerRange)) {
-            if (u.dead || u.faction == building.faction || u.garrisoned) continue
-            if (!state.factions[u.faction].alive) continue
-            val d = dist2(building.x, building.y, u.x, u.y)
-            if (d < rangeSquared && d < bestDist) {
-                bestDist = d
-                bestTarget = u
+        val damage = defensiveBuildingDamage(building)
+        val usedIds = HashSet<Int>(archerCount)
+        var fired = 0
+        for (index in 0 until archerCount) {
+            val origin = defensiveProjectileOrigin(building, index, archerCount)
+            val target = pickDefensiveTarget(origin.first, origin.second, candidates, usedIds) ?: break
+            usedIds.add(target.id)
+            spawnProjectile(building.faction, origin.first, origin.second + 34f, target, damage)
+            if (index < building.defenderShotUntil.size) {
+                building.defenderShotUntil[index] = state.time + 0.52f
+                building.defenderShotFace[index] = if (target.x >= origin.first) 1 else -1
             }
+            fired++
         }
-
-        if (bestTarget != null) {
-            building.towerCd = 1.18f // Archer cooldown
-            spawnProjectile(building.faction, building.x, building.y - 40f, bestTarget, 12) // Archer damage
-        }
+        if (fired > 0) building.towerCd = defensiveBuildingCooldown(building)
     }
 
     fun updateMonasteryHeal(building: GameBuilding, dt: Float) {

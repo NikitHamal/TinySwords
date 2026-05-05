@@ -120,8 +120,12 @@ class GameBuilding : GameEntity() {
     var garrison: MutableList<GameUnit> = mutableListOf()
     var selected: Boolean = false
 
-    // Tower specifics
+    var level: Int = 1
+
+    // Defensive archer volley state. These are transient render hints, not save data.
     var towerCd: Float = 0f
+    var defenderShotUntil: FloatArray = FloatArray(4)
+    var defenderShotFace: IntArray = IntArray(4) { 1 }
 
     // Monastery healing
     var healCd: Float = 0f
@@ -135,8 +139,10 @@ class GameBuilding : GameEntity() {
                 this.faction = factionId
                 this.x = x
                 this.y = y
-                hp = if (built) def.hp else 1
-                maxHp = def.hp
+                val maxBuildingHp = buildingMaxHpFor(type, 1)
+                level = 1
+                hp = if (built) maxBuildingHp else 1
+                maxHp = maxBuildingHp
                 buildProgress = if (built) 1f else 0f
                 buildTime = def.buildTime
             }

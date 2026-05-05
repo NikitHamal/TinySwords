@@ -52,6 +52,9 @@ class GameView @JvmOverloads constructor(
     private var touchStartTime = 0L
     private var isDragging = false
     private var isPanning = false
+    private var lastTapTime = 0L
+    private var lastTapType: String? = null
+    private var lastTapFaction = -1
 
     private var pinchActive = false
     private var pinchStartDist = 0f
@@ -363,7 +366,12 @@ class GameView @JvmOverloads constructor(
     }
 
     private fun handlePointerUp(event: MotionEvent) {
-        if (event.pointerCount <= 2) pinchActive = false
+        if (event.pointerCount <= 2) {
+            pinchActive = false
+            isDragging = false
+            isPanning = false
+            primaryPointerId = event.getPointerId((0 until event.pointerCount).firstOrNull { event.getPointerId(it) != event.getPointerId(event.actionIndex) } ?: 0)
+        }
     }
 
     private fun handleTap(wx: Float, wy: Float) {
@@ -387,6 +395,10 @@ class GameView @JvmOverloads constructor(
         }
 
         val entity = findEntityAt(wx, wy)
+        if (entity is GameUnit && entity.faction == 0 && registerDoubleTapSelection(entity)) {
+            post { onSelectionChanged() }
+            return
+        }
         if (entity != null && state.selected.size == 1 && state.selected[0] === entity) {
             clearSelectionLocked()
             attackMoveArmed = false
@@ -466,8 +478,8 @@ class GameView @JvmOverloads constructor(
 
     private fun findEntityAt(wx: Float, wy: Float): GameEntity? {
         var bestUnit: GameUnit? = null
-        var bestUnitDist = 34f * 34f
-        state.unitIndex.queryRect(wx - 48f, wy - 48f, wx + 48f, wy + 48f, unitTapQueryBuffer)
+        var bestUnitDist = 44f * 44f
+        state.unitIndex.queryRect(wx - 60f, wy - 60f, wx + 60f, wy + 60f, unitTapQueryBuffer)
         for (u in unitTapQueryBuffer) {
             if (u.dead || u.garrisoned) continue
             val d = dist2(wx, wy, u.x, u.y)
@@ -484,10 +496,12 @@ class GameView @JvmOverloads constructor(
         for (b in buildingTapQueryBuffer) {
             if (b.dead) continue
             val def = BUILDINGS[b.type] ?: continue
-            val left = b.x - def.w / 2f - 10f
-            val right = b.x + def.w / 2f + 10f
-            val top = b.y - def.h + def.placeYOffset - 8f
-            val bottom = b.y + def.placeYOffset + 12f
+            val visualW = def.w * MOBILE_BUILDING_VISUAL_SCALE
+            val visualH = def.h * MOBILE_BUILDING_VISUAL_SCALE
+            val left = b.x - visualW / 2f - 16f
+            val right = b.x + visualW / 2f + 16f
+            val top = b.y - visualH + def.placeYOffset - 14f
+            val bottom = b.y + def.placeYOffset + 18f
             if (wx in left..right && wy in top..bottom) {
                 val sort = b.y + def.h * 0.34f
                 if (sort > bestBuildingSort) {
@@ -520,6 +534,30 @@ class GameView @JvmOverloads constructor(
         if (building.type == "tower") return false
         val def = BUILDINGS[building.type] ?: return false
         return def.trains.isNotEmpty()
+    }
+
+    private fun registerDoubleTapSelection(unit: GameUnit): Boolean {
+        val now = System.currentTimeMillis()
+        val sameType = lastTapType == unit.type && lastTapFaction == unit.faction && now - lastTapTime <= 340L
+        lastTapTime = now
+        lastTapType = unit.type
+        lastTapFaction = unit.faction
+        if (!sameType) return false
+        clearSelectionLocked()
+        val cam = state.camera
+        val left = cam.x - (surfaceW / 2f) / cam.zoom - 28f
+        val right = cam.x + (surfaceW / 2f) / cam.zoom + 28f
+        val top = cam.y - (surfaceH / 2f) / cam.zoom - 28f
+        val bottom = cam.y + (surfaceH / 2f) / cam.zoom + 28f
+        for (u in state.units) {
+            if (u.dead || u.garrisoned || u.faction != unit.faction || u.type != unit.type) continue
+            if (u.x in left..right && u.y in top..bottom) {
+                u.selected = true
+                state.selected.add(u)
+            }
+        }
+        haptic(20)
+        return state.selected.isNotEmpty()
     }
 
     private fun selectSingle(entity: GameEntity) {

@@ -7,13 +7,15 @@ const val VIEW_W = 1280f
 const val VIEW_H = 720f
 const val TILE = 64f
 const val SPRITE_BOOST = 1.08f
+const val MOBILE_WORLD_VISUAL_SCALE = 1.16f
+const val MOBILE_BUILDING_VISUAL_SCALE = 1.18f
 const val CLOUD_BOOST = 3.0f
 const val MAX_DT = 1f / 24f
 const val PATH_CELL = 32f
 
 // ── Camera ──
-const val CAMERA_MIN_ZOOM = 0.72f
-const val CAMERA_MAX_ZOOM = 1.32f
+const val CAMERA_MIN_ZOOM = 0.66f
+const val CAMERA_MAX_ZOOM = 1.50f
 const val CAMERA_ZOOM_SPEED = 8f
 const val CAMERA_PAN_SPEED = 520f
 

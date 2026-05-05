@@ -43,13 +43,14 @@ class EconomySystem(private val state: GameState) {
         if (used + queuedPopulation(building.faction) + udef.pop > cap) return false
 
         faction.pay(udef.costWood, udef.costGold, udef.costFood)
-        building.queue.add(TrainSlot(unitType, 0f, udef.trainTime))
+        building.queue.add(TrainSlot(unitType, 0f, buildingTrainTime(building, unitType)))
         return true
     }
 
     private fun spawnTrainedUnit(building: GameBuilding, unitType: String) {
         val spawn = findTrainingSpawnPoint(building, unitType)
         val unit = GameUnit.create(unitType, building.faction, spawn.first, spawn.second, state::nextId)
+        applyFactionUnitUpgrades(state, unit, preserveRatio = false)
         state.units.add(unit)
         state.rebuildEntityIndex()
 
@@ -196,6 +197,22 @@ class EconomySystem(private val state: GameState) {
         val aleft = ax - aw / 2; val aright = ax + aw / 2; val atop = ay - ah / 2; val abottom = ay + ah / 2
         val bleft = bx - bw / 2; val bright = bx + bw / 2; val btop = by - bh / 2; val bbottom = by + bh / 2
         return aleft < bright && aright > bleft && atop < bbottom && abottom > btop
+    }
+
+    fun upgradeBuilding(building: GameBuilding): Boolean {
+        if (building.dead || building.faction !in state.factions.indices || building.buildProgress < 1f) return false
+        val cost = upgradeCostFor(building) ?: return false
+        val faction = state.factions[building.faction]
+        if (!faction.canAfford(cost.wood, cost.gold, cost.food)) return false
+        faction.pay(cost.wood, cost.gold, cost.food)
+        building.level = (building.level + 1).coerceAtMost(buildingUpgradeMaxLevel(building.type))
+        normalizeBuildingStats(building, preserveRatio = false)
+        // A completed upgrade is a full structural refit. Fill HP to the new max
+        // so upgraded buildings do not show accidental world HP bars.
+        building.hp = building.maxHp
+        applyFactionUnitUpgradesToAll(state, building.faction)
+        state.effects.add(GameEffect("upgrade", building.x, building.y - (BUILDINGS[building.type]?.h ?: 80f) * 0.45f, maxTime = 0.9f))
+        return true
     }
 
     fun nearestDropoff(factionId: Int, x: Float, y: Float): GameBuilding? {

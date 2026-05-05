@@ -1,4 +1,4 @@
-// Boot after every system has patched Game.prototype.
+// Boot after all gameplay systems are registered.
 loadImages(IMAGE_PATHS).then(() => {
   document.body.classList.add('ready');
   HUD.root.classList.add('hidden');
