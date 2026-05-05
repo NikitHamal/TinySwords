@@ -29,36 +29,39 @@ class WorldGenerator(private val state: GameState) {
         state.landRows = tileRows
         state.landMap = ByteArray(tileCols * tileRows)
 
-        // Base: all water
         state.landMap.fill(0)
 
-        // Faction base positions based on map preset
         val bases = getFactionBases()
+        val areaScale = WORLD_PRESETS[state.settings.size]?.areaScale ?: 1f
+        val landScale = sqrt(areaScale).coerceAtLeast(1f)
 
-        // Paint land around each base
         for (base in bases) {
-            paintEllipse(base.first, base.second, 2800f + rng.nextFloat() * 600f, 2200f + rng.nextFloat() * 500f)
+            paintEllipse(
+                base.first,
+                base.second,
+                (2850f + rng.nextFloat() * 700f) * landScale,
+                (2250f + rng.nextFloat() * 580f) * landScale
+            )
         }
 
-        // Central landmass connector
-        val cx = worldW / 2
-        val cy = worldH / 2
-        paintEllipse(cx, cy, 2400f + rng.nextFloat() * 800f, 1800f + rng.nextFloat() * 600f)
+        val cx = worldW / 2f
+        val cy = worldH / 2f
+        paintEllipse(cx, cy, (2550f + rng.nextFloat() * 900f) * landScale, (1950f + rng.nextFloat() * 650f) * landScale)
 
-        // Connect bases to center with land bridges
         for (base in bases) {
-            paintLine(base.first, base.second, cx, cy, 400f + rng.nextFloat() * 200f)
+            paintLine(base.first, base.second, cx, cy, (430f + rng.nextFloat() * 230f) * landScale)
         }
 
-        // Satellite islands
-        val islands = (3 + rng.nextInt(4)) * state.resourceDensity.toInt().coerceAtLeast(1)
+        // Rich/abundant used to be truncated with toInt(), so they produced the same number of islands.
+        // Scale islands with density and map area so larger/richer worlds actually feel larger/richer.
+        val islands = ((4 + rng.nextInt(5)) * state.resourceDensity * landScale).roundToInt().coerceAtLeast(5)
         repeat(islands) {
-            val ix = 400f + rng.nextFloat() * (worldW - 800f)
-            val iy = 400f + rng.nextFloat() * (worldH - 800f)
-            paintEllipse(ix, iy, 600f + rng.nextFloat() * 400f, 500f + rng.nextFloat() * 300f)
+            val margin = (500f * landScale).coerceAtMost(min(worldW, worldH) * 0.18f)
+            val ix = margin + rng.nextFloat() * (worldW - margin * 2f)
+            val iy = margin + rng.nextFloat() * (worldH - margin * 2f)
+            paintEllipse(ix, iy, (650f + rng.nextFloat() * 520f) * landScale, (520f + rng.nextFloat() * 390f) * landScale)
         }
 
-        // Smooth edges (2 passes cellular automata)
         repeat(2) { smoothLandmap() }
     }
 
@@ -127,8 +130,8 @@ class WorldGenerator(private val state: GameState) {
                 var closestDist = Float.MAX_VALUE
 
                 for (i in 0 until activeFactions) {
-                    val bx = bases.getOrNull(i)?.first ?: (worldW / 2)
-                    val by = bases.getOrNull(i)?.second ?: (worldH / 2)
+                    val bx = bases.getOrNull(i)?.first ?: (worldW / 2f)
+                    val by = bases.getOrNull(i)?.second ?: (worldH / 2f)
                     val d = (tx - bx) * (tx - bx) + (ty - by) * (ty - by)
                     if (d < closestDist) {
                         closestDist = d
@@ -159,15 +162,14 @@ class WorldGenerator(private val state: GameState) {
             }
         }
 
-        // Mark buildings as blocked
         for (b in state.buildings) {
             if (b.dead) continue
             val def = BUILDINGS[b.type] ?: continue
             val pad = 10f
-            val left = b.x - def.placeW / 2 - pad
-            val right = b.x + def.placeW / 2 + pad
-            val top = b.y - def.placeH / 2 - pad
-            val bottom = b.y + def.placeH / 2 + pad
+            val left = b.x - def.placeW / 2f - pad
+            val right = b.x + def.placeW / 2f + pad
+            val top = b.y - def.placeH / 2f - pad
+            val bottom = b.y + def.placeH / 2f + pad
 
             val c0 = (left / PATH_CELL).toInt().coerceAtLeast(0)
             val c1 = (right / PATH_CELL).toInt().coerceAtMost(pc - 1)
@@ -178,7 +180,6 @@ class WorldGenerator(private val state: GameState) {
             }
         }
 
-        // Mark non-depleted static resources
         for (res in state.resources) {
             if (res.dead || res.depleted || res.isAnimal) continue
             val col = (res.x / PATH_CELL).toInt()
@@ -195,16 +196,49 @@ class WorldGenerator(private val state: GameState) {
         rebuildPathGrid()
     }
 
+    private fun nearestSafeLandPoint(x: Float, y: Float, maxRadius: Float = 260f, probeRadius: Float = 30f): Pair<Float, Float>? {
+        if (state.isSafeLand(x, y, probeRadius)) return Pair(x, y)
+        var r = 32f
+        while (r <= maxRadius) {
+            val steps = max(10, (r / 18f).roundToInt())
+            for (i in 0 until steps) {
+                val a = (i.toFloat() / steps) * 2f * PI.toFloat()
+                val px = x + cos(a) * r
+                val py = y + sin(a) * r
+                if (state.isSafeLand(px, py, probeRadius)) return Pair(px, py)
+            }
+            r += 32f
+        }
+        return null
+    }
+
+    private fun randomLandPoint(margin: Float = 420f, attempts: Int = 700, probeRadius: Float = 34f): Pair<Float, Float>? {
+        val safeMargin = margin.coerceAtMost(min(worldW, worldH) * 0.22f)
+        repeat(attempts) {
+            val x = safeMargin + rng.nextFloat() * (worldW - safeMargin * 2f)
+            val y = safeMargin + rng.nextFloat() * (worldH - safeMargin * 2f)
+            if (state.isSafeLand(x, y, probeRadius)) return Pair(x, y)
+        }
+        return null
+    }
+
     private fun spawnFactions() {
         val bases = getFactionBases()
         val activeFactions = (1 + state.settings.rivals).coerceAtMost(5)
 
+        fun addBuiltBuilding(type: String, factionId: Int, x: Float, y: Float) {
+            val def = BUILDINGS[type] ?: return
+            val p = nearestSafeLandPoint(x, y, 320f, max(def.placeW, def.placeH) * 0.28f) ?: Pair(x, y)
+            state.buildings.add(GameBuilding.create(type, factionId, p.first, p.second, state::nextId))
+        }
+
         for (i in 0 until activeFactions) {
             val (bx, by) = bases[i]
             val f = state.factions[i]
-            f.wood = 200f
-            f.gold = 200f
-            f.food = 10f
+            val aiMult = if (i == 0) 1f else state.difficulty.aiResourceMult
+            f.wood = if (i == 0) 420f else 500f * aiMult
+            f.gold = if (i == 0) 340f else 430f * aiMult
+            f.food = if (i == 0) 12f else 14f * aiMult
             f.alive = true
 
             if (i > 0) {
@@ -212,39 +246,52 @@ class WorldGenerator(private val state: GameState) {
                 f.aiState.economyBias = rng.nextFloat()
             }
 
-            // Castle
-            val castle = GameBuilding.create("castle", i, bx, by, state::nextId)
-            state.buildings.add(castle)
+            addBuiltBuilding("castle", i, bx, by)
+            addBuiltBuilding("house", i, bx - 210f, by + 84f)
+            addBuiltBuilding("house", i, bx + 205f, by + 92f)
+            addBuiltBuilding("barracks", i, bx - 160f, by - 190f)
+            addBuiltBuilding("tower", i, bx + 160f, by + 200f)
+            if (i > 0) addBuiltBuilding("archery", i, bx + 185f, by - 176f)
 
-            // Starting house
-            val house = GameBuilding.create("house", i, bx + 120f, by - 60f, state::nextId)
-            state.buildings.add(house)
-
-            // Starting workers (3)
-            repeat(3) { w ->
-                val angle = (w.toFloat() / 3f) * 2f * PI.toFloat()
-                val ux = bx + cos(angle) * 60f
-                val uy = by + sin(angle) * 60f + 40f
-                val worker = GameUnit.create("worker", i, ux, uy, state::nextId)
+            val workerCount = if (i == 0) 5 else 6
+            repeat(workerCount) { w ->
+                val angle = (w.toFloat() / workerCount) * 2f * PI.toFloat()
+                val p = nearestSafeLandPoint(
+                    bx + cos(angle) * (95f + rng.nextFloat() * 50f),
+                    by + 170f + rng.nextFloat() * 115f,
+                    300f,
+                    18f
+                ) ?: Pair(bx + cos(angle) * 105f, by + 190f)
+                val worker = GameUnit.create("worker", i, p.first, p.second, state::nextId)
                 worker.workerRole = when (w) {
-                    0, 1 -> WorkerRole.WOOD
-                    else -> WorkerRole.GOLD
+                    0, 1, 2 -> WorkerRole.WOOD
+                    3 -> WorkerRole.GOLD
+                    else -> WorkerRole.FOOD
                 }
                 state.units.add(worker)
             }
 
-            // Starting warrior
-            val warrior = GameUnit.create("warrior", i, bx - 40f, by + 50f, state::nextId)
-            state.units.add(warrior)
+            val military = if (i == 0) {
+                listOf("archer", "warrior", "warrior")
+            } else {
+                listOf("archer", "warrior", "warrior", "archer", "warrior")
+            }
+            military.forEachIndexed { m, type ->
+                val p = nearestSafeLandPoint(
+                    bx + 130f + rng.nextFloat() * 135f,
+                    by - 130f + m * 48f + (rng.nextFloat() - 0.5f) * 34f,
+                    300f,
+                    20f
+                ) ?: Pair(bx + 150f + m * 22f, by - 80f + m * 42f)
+                state.units.add(GameUnit.create(type, i, p.first, p.second, state::nextId))
+            }
 
-            // Center camera on player base
             if (i == 0) {
                 state.camera.x = bx
                 state.camera.y = by
             }
         }
 
-        // Mark dead factions that aren't in play
         for (i in activeFactions until 5) {
             state.factions[i].alive = false
         }
@@ -254,77 +301,143 @@ class WorldGenerator(private val state: GameState) {
         val bases = getFactionBases()
         val activeFactions = (1 + state.settings.rivals).coerceAtMost(5)
         val density = state.resourceDensity
+        val areaScale = WORLD_PRESETS[state.settings.size]?.areaScale ?: 1f
+        val graphicsScale = when (state.settings.safeGraphics()) {
+            "performance" -> 0.82f
+            "high" -> 1.12f
+            else -> 1f
+        }
+        val activeBases = bases.take(activeFactions)
+        val animalKinds = listOf("deer", "boar", "hare", "fox", "grouse", "sheep", "sheep")
 
-        // Per-base resources
-        for (i in 0 until activeFactions) {
-            val (bx, by) = bases[i]
-
-            // Trees around base (southwest bias)
-            repeat((34 * density).toInt()) {
-                val angle = PI.toFloat() + rng.nextFloat() * PI.toFloat() * 0.8f - 0.4f * PI.toFloat()
-                val dist = 280f + rng.nextFloat() * 600f
-                val rx = bx + cos(angle) * dist
-                val ry = by + sin(angle) * dist
-                if (rx > 100f && rx < worldW - 100f && ry > 100f && ry < worldH - 100f && state.isLand(rx, ry)) {
-                    state.resources.add(GameResource.createTree(rx, ry, rng.nextInt(4), state::nextId))
-                }
-            }
-
-            // Gold near base (northeast bias)
-            repeat((12 * density).toInt()) {
-                val angle = -PI.toFloat() * 0.25f + rng.nextFloat() * PI.toFloat() * 0.5f
-                val dist = 300f + rng.nextFloat() * 500f
-                val rx = bx + cos(angle) * dist
-                val ry = by + sin(angle) * dist
-                if (rx > 100f && rx < worldW - 100f && ry > 100f && ry < worldH - 100f && state.isLand(rx, ry)) {
-                    state.resources.add(GameResource.createGold(rx, ry, rng.nextInt(6), state::nextId))
-                }
-            }
-
-            // Animals near base (northwest bias)
-            repeat((12 * density).toInt()) {
-                val angle = PI.toFloat() * 0.75f + rng.nextFloat() * PI.toFloat() * 0.5f
-                val dist = 350f + rng.nextFloat() * 500f
-                val rx = bx + cos(angle) * dist
-                val ry = by + sin(angle) * dist
-                if (rx > 100f && rx < worldW - 100f && ry > 100f && ry < worldH - 100f && state.isLand(rx, ry)) {
-                    val kinds = listOf("deer", "boar", "hare", "fox", "grouse", "sheep", "sheep")
-                    state.resources.add(GameResource.createAnimal(kinds[rng.nextInt(kinds.size)], rx, ry, state::nextId))
-                }
+        fun tooCloseToBase(x: Float, y: Float, minDist: Float): Boolean {
+            val minD2 = minDist * minDist
+            return activeBases.any { base ->
+                val dx = x - base.first
+                val dy = y - base.second
+                dx * dx + dy * dy < minD2
             }
         }
 
-        // Neutral resource clusters
-        val neutralClusters = (8 * density * (WORLD_PRESETS[state.settings.size]?.areaScale ?: 1f)).toInt()
-        repeat(neutralClusters) {
-            val cx = 600f + rng.nextFloat() * (worldW - 1200f)
-            val cy = 600f + rng.nextFloat() * (worldH - 1200f)
-            if (state.isLand(cx, cy)) {
-                // Small tree cluster
-                repeat(6 + rng.nextInt(8)) {
-                    val ox = cx + (rng.nextFloat() - 0.5f) * 400f
-                    val oy = cy + (rng.nextFloat() - 0.5f) * 300f
-                    if (state.isLand(ox, oy)) {
-                        state.resources.add(GameResource.createTree(ox, oy, rng.nextInt(4), state::nextId))
-                    }
-                }
-                // Some gold
-                repeat(2 + rng.nextInt(3)) {
-                    val ox = cx + (rng.nextFloat() - 0.5f) * 300f
-                    val oy = cy + (rng.nextFloat() - 0.5f) * 200f
-                    if (state.isLand(ox, oy)) {
-                        state.resources.add(GameResource.createGold(ox, oy, rng.nextInt(6), state::nextId))
-                    }
-                }
+        fun tooCloseToResource(x: Float, y: Float, minDist: Float): Boolean {
+            val minD2 = minDist * minDist
+            return state.resources.any { res ->
+                if (res.dead || res.depleted) return@any false
+                val dx = x - res.x
+                val dy = y - res.y
+                dx * dx + dy * dy < minD2
             }
+        }
+
+        fun addResource(type: ResourceType, x: Float, y: Float): Boolean {
+            if (!state.isSafeLand(x, y, 22f)) return false
+            val spacing = when (type) {
+                ResourceType.TREE -> 42f
+                ResourceType.GOLD -> 54f
+                ResourceType.FOOD -> 50f
+            }
+            if (tooCloseToResource(x, y, spacing)) return false
+            val resource = when (type) {
+                ResourceType.TREE -> GameResource.createTree(x, y, rng.nextInt(4), state::nextId)
+                ResourceType.GOLD -> GameResource.createGold(x, y, rng.nextInt(6), state::nextId)
+                ResourceType.FOOD -> GameResource.createAnimal(animalKinds[rng.nextInt(animalKinds.size)], x, y, state::nextId)
+            }
+            state.resources.add(resource)
+            return true
+        }
+
+        fun addCluster(type: ResourceType, cx: Float, cy: Float, count: Int, spreadX: Float, spreadY: Float) {
+            var placed = 0
+            val attempts = count * 8
+            repeat(attempts) {
+                if (placed >= count) return@repeat
+                val ox = cx + (rng.nextFloat() - 0.5f) * spreadX
+                val oy = cy + (rng.nextFloat() - 0.5f) * spreadY
+                if (addResource(type, ox, oy)) placed++
+            }
+        }
+
+        // Base-adjacent resources keep the opening fair, but counts now scale visibly with density.
+        for (i in 0 until activeFactions) {
+            val (bx, by) = bases[i]
+            val treeCount = (46f * density).roundToInt()
+            val goldCount = (17f * density).roundToInt()
+            val foodCount = (16f * density).roundToInt()
+
+            repeat(treeCount) {
+                val angle = PI.toFloat() + rng.nextFloat() * PI.toFloat() * 0.95f - 0.48f * PI.toFloat()
+                val dist = 300f + rng.nextFloat() * 780f
+                addResource(ResourceType.TREE, bx + cos(angle) * dist, by + sin(angle) * dist)
+            }
+            repeat(goldCount) {
+                val angle = -PI.toFloat() * 0.3f + rng.nextFloat() * PI.toFloat() * 0.62f
+                val dist = 340f + rng.nextFloat() * 690f
+                addResource(ResourceType.GOLD, bx + cos(angle) * dist, by + sin(angle) * dist)
+            }
+            repeat(foodCount) {
+                val angle = PI.toFloat() * 0.68f + rng.nextFloat() * PI.toFloat() * 0.68f
+                val dist = 390f + rng.nextFloat() * 760f
+                addResource(ResourceType.FOOD, bx + cos(angle) * dist, by + sin(angle) * dist)
+            }
+        }
+
+        // Neutral deposits were previously too few and only created trees/gold. Fill the whole landmass.
+        val neutralClusters = (52f * areaScale * density * graphicsScale).roundToInt().coerceAtLeast((24f * density).roundToInt())
+        repeat(neutralClusters) { c ->
+            val center = randomLandPoint(480f, 900, 34f) ?: return@repeat
+            if (tooCloseToBase(center.first, center.second, 620f)) return@repeat
+            val roll = rngHash(c, center.first.toInt(), center.second.toInt())
+            when {
+                roll < 0.58 -> addCluster(
+                    ResourceType.TREE,
+                    center.first,
+                    center.second,
+                    (9 + rng.nextInt(8) + density * 3f).roundToInt(),
+                    460f,
+                    340f
+                )
+                roll < 0.82 -> addCluster(
+                    ResourceType.GOLD,
+                    center.first,
+                    center.second,
+                    (4 + rng.nextInt(5) + density * 1.4f).roundToInt(),
+                    360f,
+                    280f
+                )
+                else -> addCluster(
+                    ResourceType.FOOD,
+                    center.first,
+                    center.second,
+                    (5 + rng.nextInt(5) + density * 1.8f).roundToInt(),
+                    420f,
+                    320f
+                )
+            }
+        }
+
+        // A light scatter pass makes exploration rewarding instead of leaving huge barren stretches.
+        val scatter = (42f * areaScale * density * graphicsScale).roundToInt()
+        repeat(scatter) { i ->
+            val point = randomLandPoint(360f, 520, 28f) ?: return@repeat
+            if (tooCloseToBase(point.first, point.second, 520f)) return@repeat
+            val type = when (i % 7) {
+                0 -> ResourceType.GOLD
+                1, 2 -> ResourceType.FOOD
+                else -> ResourceType.TREE
+            }
+            addResource(type, point.first, point.second)
         }
     }
 
     private fun spawnDecor() {
         val areaScale = WORLD_PRESETS[state.settings.size]?.areaScale ?: 1f
+        val graphicsScale = when (state.settings.safeGraphics()) {
+            "performance" -> 0.7f
+            "high" -> 1.25f
+            else -> 1f
+        }
 
-        // Bushes (passable)
-        repeat((60 * areaScale).toInt()) {
+        repeat((80f * areaScale * graphicsScale).roundToInt()) {
             val x = rng.nextFloat() * worldW
             val y = rng.nextFloat() * worldH
             if (state.isLand(x, y)) {
@@ -332,8 +445,7 @@ class WorldGenerator(private val state: GameState) {
             }
         }
 
-        // Rocks (solid)
-        repeat((30 * areaScale).toInt()) {
+        repeat((38f * areaScale * graphicsScale).roundToInt()) {
             val x = rng.nextFloat() * worldW
             val y = rng.nextFloat() * worldH
             if (state.isLand(x, y)) {
@@ -341,15 +453,13 @@ class WorldGenerator(private val state: GameState) {
             }
         }
 
-        // Clouds (sky layer)
-        repeat((20 * areaScale).toInt()) {
+        repeat((20f * areaScale * graphicsScale).roundToInt()) {
             val x = rng.nextFloat() * worldW
             val y = rng.nextFloat() * worldH
             state.decor.add(GameDecor.create("cloud${1 + rng.nextInt(8)}", x, y, state::nextId))
         }
 
-        // Water rocks
-        repeat((20 * areaScale).toInt()) {
+        repeat((20f * areaScale * graphicsScale).roundToInt()) {
             val x = rng.nextFloat() * worldW
             val y = rng.nextFloat() * worldH
             if (state.isWater(x, y)) {
@@ -359,48 +469,70 @@ class WorldGenerator(private val state: GameState) {
     }
 
     fun getFactionBases(): List<Pair<Float, Float>> {
-        val margin = 1200f
-        val cx = worldW / 2
-        val cy = worldH / 2
-
-        return when (state.settings.mapStyle) {
+        val ratios = when (state.settings.mapStyle) {
             "archipelago" -> listOf(
-                Pair(margin, margin),
-                Pair(worldW - margin, margin),
-                Pair(margin, worldH - margin),
-                Pair(worldW - margin, worldH - margin),
-                Pair(cx, cy)
+                Pair(0.22f, 0.2f),
+                Pair(0.78f, 0.22f),
+                Pair(0.22f, 0.78f),
+                Pair(0.78f, 0.78f),
+                Pair(0.5f, 0.5f)
             )
             "twinrivers" -> listOf(
-                Pair(margin, cy),
-                Pair(worldW - margin, cy),
-                Pair(cx, margin),
-                Pair(cx, worldH - margin),
-                Pair(cx, cy)
+                Pair(0.12f, 0.52f),
+                Pair(0.88f, 0.48f),
+                Pair(0.5f, 0.16f),
+                Pair(0.5f, 0.84f),
+                Pair(0.5f, 0.5f)
             )
             "fourcorners" -> listOf(
-                Pair(margin, margin),
-                Pair(worldW - margin, margin),
-                Pair(worldW - margin, worldH - margin),
-                Pair(margin, worldH - margin),
-                Pair(cx, cy)
+                Pair(0.135f, 0.155f),
+                Pair(0.865f, 0.155f),
+                Pair(0.865f, 0.845f),
+                Pair(0.135f, 0.845f),
+                Pair(0.5f, 0.5f)
+            )
+            "kingroad" -> listOf(
+                Pair(0.5f, 0.14f),
+                Pair(0.5f, 0.86f),
+                Pair(0.18f, 0.5f),
+                Pair(0.82f, 0.5f),
+                Pair(0.5f, 0.5f)
             )
             "spiral" -> listOf(
-                Pair(cx, margin),
-                Pair(worldW - margin, cy),
-                Pair(cx, worldH - margin),
-                Pair(margin, cy),
-                Pair(cx, cy)
+                Pair(0.5f, 0.14f),
+                Pair(0.84f, 0.36f),
+                Pair(0.68f, 0.84f),
+                Pair(0.22f, 0.68f),
+                Pair(0.5f, 0.5f)
             )
-            else -> { // crossroads, kingroad, goldrush, highlands
-                listOf(
-                    Pair(margin, worldH - margin),
-                    Pair(worldW - margin, margin),
-                    Pair(margin, margin),
-                    Pair(worldW - margin, worldH - margin),
-                    Pair(cx, cy)
-                )
-            }
+            "goldrush" -> listOf(
+                Pair(0.16f, 0.18f),
+                Pair(0.84f, 0.18f),
+                Pair(0.18f, 0.82f),
+                Pair(0.82f, 0.82f),
+                Pair(0.5f, 0.5f)
+            )
+            "highlands" -> listOf(
+                Pair(0.18f, 0.18f),
+                Pair(0.82f, 0.22f),
+                Pair(0.24f, 0.78f),
+                Pair(0.78f, 0.76f),
+                Pair(0.5f, 0.5f)
+            )
+            else -> listOf(
+                Pair(0.135f, 0.155f),
+                Pair(0.865f, 0.155f),
+                Pair(0.135f, 0.845f),
+                Pair(0.865f, 0.845f),
+                Pair(0.5f, 0.5f)
+            )
+        }
+        val margin = min(900f, min(worldW, worldH) * 0.12f)
+        return ratios.map { ratio ->
+            Pair(
+                (worldW * ratio.first).coerceIn(margin, worldW - margin),
+                (worldH * ratio.second).coerceIn(margin, worldH - margin)
+            )
         }
     }
 }

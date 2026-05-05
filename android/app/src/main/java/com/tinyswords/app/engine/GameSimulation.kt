@@ -53,6 +53,7 @@ class GameSimulation(val state: GameState) {
         // Update all systems
         processPathRequests()
         updateResources(clampedDt)
+        maybeRespawnResources(clampedDt)
         updateUnits(clampedDt)
         economy.updateBuildings(clampedDt)
         updateBuildingCombat(clampedDt)
@@ -83,6 +84,75 @@ class GameSimulation(val state: GameState) {
                 updateAnimal(res, dt)
             }
         }
+    }
+
+
+    private fun maybeRespawnResources(dt: Float) {
+        state.resourceRespawnTimer -= dt
+        if (state.resourceRespawnTimer > 0f) return
+        val performanceMode = state.settings.safeGraphics() == "performance"
+        state.resourceRespawnTimer = if (performanceMode) 24f else 16f
+
+        val areaScale = WORLD_PRESETS[state.settings.size]?.areaScale ?: 1f
+        val density = state.resourceDensity
+        val targetTrees = (250f * areaScale * density).roundToInt()
+        val targetGold = (82f * areaScale * density).roundToInt()
+        val targetFood = (82f * areaScale * density).roundToInt()
+
+        var trees = 0
+        var gold = 0
+        var food = 0
+        for (r in state.resources) {
+            if (r.dead || r.depleted) continue
+            when (r.type) {
+                ResourceType.TREE -> trees++
+                ResourceType.GOLD -> gold++
+                ResourceType.FOOD -> food++
+            }
+        }
+
+        val treeNeed = targetTrees - trees
+        val goldNeed = targetGold - gold
+        val foodNeed = targetFood - food
+        if (treeNeed <= 0 && goldNeed <= 0 && foodNeed <= 0) return
+
+        val type = when {
+            treeNeed >= goldNeed && treeNeed >= foodNeed -> ResourceType.TREE
+            goldNeed >= foodNeed -> ResourceType.GOLD
+            else -> ResourceType.FOOD
+        }
+        val maxAdds = if (performanceMode) 2 else 4
+        var added = 0
+        repeat(maxAdds) {
+            if (spawnNeutralResource(type)) added++
+        }
+        if (added > 0) {
+            state.rebuildSpatialIndices()
+            if (type != ResourceType.FOOD) worldGenerator.rebuildPathGrid()
+        }
+    }
+
+    private fun spawnNeutralResource(type: ResourceType): Boolean {
+        val bases = worldGenerator.getFactionBases().take((1 + state.settings.rivals).coerceAtMost(5))
+        repeat(110) {
+            val x = 420f + Math.random().toFloat() * (state.worldW - 840f).coerceAtLeast(1f)
+            val y = 420f + Math.random().toFloat() * (state.worldH - 840f).coerceAtLeast(1f)
+            if (!state.isSafeLand(x, y, 28f)) return@repeat
+            if (bases.any { base -> dist2(x, y, base.first, base.second) < 560f * 560f }) return@repeat
+            if (state.buildingIndex.queryRange(x, y, 220f).any { !it.dead }) return@repeat
+            if (state.resourceIndex.queryRange(x, y, 84f).any { !it.dead && !it.depleted }) return@repeat
+            val resource = when (type) {
+                ResourceType.TREE -> GameResource.createTree(x, y, (Math.random() * 4.0).toInt(), state::nextId)
+                ResourceType.GOLD -> GameResource.createGold(x, y, (Math.random() * 6.0).toInt(), state::nextId)
+                ResourceType.FOOD -> {
+                    val animals = arrayOf("deer", "boar", "hare", "fox", "grouse", "sheep", "sheep")
+                    GameResource.createAnimal(animals[(Math.random() * animals.size).toInt().coerceIn(0, animals.lastIndex)], x, y, state::nextId)
+                }
+            }
+            state.resources.add(resource)
+            return true
+        }
+        return false
     }
 
     private fun updateAnimal(res: GameResource, dt: Float) {

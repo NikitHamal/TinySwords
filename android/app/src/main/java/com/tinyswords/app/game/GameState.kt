@@ -76,6 +76,7 @@ class GameState(val settings: WorldSettings = WorldSettings()) {
 
     // Spatial indices
     var spatialRebuildTimer: Float = 0f
+    var resourceRespawnTimer: Float = 18f
     val unitIndex = SpatialIndex<GameUnit>(UNIT_BUCKET_SIZE)
     val resourceIndex = SpatialIndex<GameResource>(RESOURCE_BUCKET_SIZE)
     val buildingIndex = SpatialIndex<GameBuilding>(BUILDING_BUCKET_SIZE)

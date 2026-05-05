@@ -859,7 +859,8 @@ Game.prototype.buildMinimapTerrainCache = function () {
 
 Game.prototype.getMinimapEntityLayer = function (w, h) {
   const key = `${w}x${h}:${this.resources.length}:${this.buildings.length}:${this.units.length}:${this.attackPings ? this.attackPings.length : 0}`;
-  if (this._minimapEntityCanvas && this._minimapEntityKey === key && this.time - this._minimapEntityTime < .16) return this._minimapEntityCanvas;
+  const ttl = this.worldSettings && this.worldSettings.graphics === 'performance' ? .28 : .16;
+  if (this._minimapEntityCanvas && this._minimapEntityKey === key && this.time - this._minimapEntityTime < ttl) return this._minimapEntityCanvas;
   const c = this._minimapEntityCanvas || (typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : document.createElement('canvas'));
   if (c.width !== w) c.width = w;
   if (c.height !== h) c.height = h;
@@ -867,9 +868,10 @@ Game.prototype.getMinimapEntityLayer = function (w, h) {
   ec.imageSmoothingEnabled = false;
   ec.clearRect(0, 0, w, h);
   const sx = w / WORLD_W, sy = h / WORLD_H;
-  for (let i = 0; i < this.resources.length; i++) {
+  const resourceStep = this.resources.length > 1800 ? 5 : this.resources.length > 1200 ? 4 : this.resources.length > 760 ? 3 : this.resources.length > 420 ? 2 : 1;
+  for (let i = 0; i < this.resources.length; i += resourceStep) {
     const r = this.resources[i];
-    if (r.dead) continue;
+    if (r.dead || r.depleted) continue;
     ec.fillStyle = r.type === 'gold' ? '#e8ca4d' : r.type === 'tree' ? '#366f3f' : '#e8a765';
     ec.fillRect(r.x * sx, r.y * sy, 1.8, 1.8);
   }

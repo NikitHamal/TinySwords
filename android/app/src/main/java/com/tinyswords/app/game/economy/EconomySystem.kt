@@ -4,7 +4,7 @@ import com.tinyswords.app.game.*
 import com.tinyswords.app.game.entities.*
 import com.tinyswords.app.util.dist
 import com.tinyswords.app.util.dist2
-import kotlin.math.min
+import kotlin.math.*
 
 class EconomySystem(private val state: GameState) {
 
@@ -48,28 +48,92 @@ class EconomySystem(private val state: GameState) {
     }
 
     private fun spawnTrainedUnit(building: GameBuilding, unitType: String) {
-        val spawnX: Float
-        val spawnY: Float
+        val spawn = findTrainingSpawnPoint(building, unitType)
+        val unit = GameUnit.create(unitType, building.faction, spawn.first, spawn.second, state::nextId)
+        state.units.add(unit)
+        state.rebuildEntityIndex()
 
-        if (building.hasRally) {
-            spawnX = building.x
-            spawnY = building.y + 30f
+        // Units should visibly leave the castle/barracks instead of appearing inside the footprint.
+        val exit = if (building.hasRally) {
+            Pair(building.rallyX, building.rallyY)
         } else {
-            spawnX = building.x + (Math.random().toFloat() - 0.5f) * 30f
-            spawnY = building.y + 40f
+            findSpawnExitPoint(building, spawn.first, spawn.second)
         }
-
-        val unit = GameUnit.create(unitType, building.faction, spawnX, spawnY, state::nextId)
-
-        // If rally point is set, give move order
-        if (building.hasRally) {
+        if (exit != null) {
             unit.order = UnitOrder.MOVE
-            unit.goalX = building.rallyX
-            unit.goalY = building.rallyY
+            unit.goalX = exit.first
+            unit.goalY = exit.second
             unit.hasGoal = true
         }
+    }
 
-        state.units.add(unit)
+    private fun findTrainingSpawnPoint(building: GameBuilding, unitType: String): Pair<Float, Float> {
+        val bdef = BUILDINGS[building.type] ?: return Pair(building.x, building.y + 70f)
+        val radius = UNITS[unitType]?.radius ?: 12f
+        val rallyDx = if (building.hasRally) building.rallyX - building.x else 0f
+        val rallyDy = if (building.hasRally) building.rallyY - building.y else 1f
+        val rallyLen = sqrt(rallyDx * rallyDx + rallyDy * rallyDy).coerceAtLeast(0.001f)
+        val preferred = Pair(rallyDx / rallyLen, rallyDy / rallyLen)
+        val directions = listOf(
+            preferred,
+            Pair(0f, 1f),
+            Pair(0.75f, 0.65f),
+            Pair(-0.75f, 0.65f),
+            Pair(1f, 0f),
+            Pair(-1f, 0f),
+            Pair(0f, -1f),
+            Pair(0.7f, -0.7f),
+            Pair(-0.7f, -0.7f)
+        ).distinctBy { Pair((it.first * 10f).roundToInt(), (it.second * 10f).roundToInt()) }
+
+        val baseGapX = bdef.placeW / 2f + radius + 18f
+        val baseGapY = bdef.placeH / 2f + radius + 22f
+        val extraSteps = floatArrayOf(0f, 24f, 48f, 80f, 120f, 168f, 224f)
+        for (extra in extraSteps) {
+            for ((dx, dy) in directions) {
+                val len = sqrt(dx * dx + dy * dy).coerceAtLeast(0.001f)
+                val nx = dx / len
+                val ny = dy / len
+                val x = building.x + nx * (baseGapX + extra)
+                val y = building.y + ny * (baseGapY + extra)
+                if (isSpawnClear(x, y, radius)) return Pair(x, y)
+            }
+        }
+        return Pair(building.x, building.y + bdef.placeH / 2f + radius + 34f)
+    }
+
+    private fun findSpawnExitPoint(building: GameBuilding, spawnX: Float, spawnY: Float): Pair<Float, Float>? {
+        val dx = spawnX - building.x
+        val dy = spawnY - building.y
+        val len = sqrt(dx * dx + dy * dy).coerceAtLeast(0.001f)
+        val nx = dx / len
+        val ny = dy / len
+        val distances = floatArrayOf(48f, 78f, 116f, 156f)
+        for (distAway in distances) {
+            val x = spawnX + nx * distAway
+            val y = spawnY + ny * distAway
+            if (state.isSafeLand(x, y, 18f)) return Pair(x, y)
+        }
+        return null
+    }
+
+    private fun isSpawnClear(x: Float, y: Float, radius: Float): Boolean {
+        if (!state.isSafeLand(x, y, radius + 3f)) return false
+        for (b in state.buildings) {
+            if (b.dead) continue
+            val bd = BUILDINGS[b.type] ?: continue
+            val pad = radius + 8f
+            if (x > b.x - bd.placeW / 2f - pad && x < b.x + bd.placeW / 2f + pad &&
+                y > b.y - bd.placeH / 2f - pad && y < b.y + bd.placeH / 2f + pad) {
+                return false
+            }
+        }
+        for (r in state.resourceIndex.queryRange(x, y, radius + 44f)) {
+            if (!r.dead && !r.depleted && dist2(x, y, r.x, r.y) < (radius + 28f) * (radius + 28f)) {
+                return false
+            }
+        }
+        return true
     }
 
     private fun queuedPopulation(factionId: Int): Int {

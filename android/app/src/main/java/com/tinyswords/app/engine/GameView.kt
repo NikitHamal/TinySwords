@@ -72,6 +72,9 @@ class GameView @JvmOverloads constructor(
     private var originalBuildingY = 0f
     private val buildingDragQueryBuffer = ArrayList<GameBuilding>(32)
     private val resourceDragQueryBuffer = ArrayList<GameResource>(64)
+    private val unitTapQueryBuffer = ArrayList<GameUnit>(80)
+    private val buildingTapQueryBuffer = ArrayList<GameBuilding>(64)
+    private val resourceTapQueryBuffer = ArrayList<GameResource>(96)
 
     private val vibrator: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
         (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
@@ -416,7 +419,7 @@ class GameView @JvmOverloads constructor(
             return
         }
 
-        if (selectedBuilding != null && selectedBuilding.faction == 0 && !selectedBuilding.dead) {
+        if (selectedBuilding != null && canSetRally(selectedBuilding)) {
             if (entity == null || (entity is GameResource) || (entity is GameUnit && entity.faction != 0) || (entity is GameBuilding && entity.faction != 0)) {
                 selectedBuilding.rallyX = wx
                 selectedBuilding.rallyY = wy
@@ -451,7 +454,7 @@ class GameView @JvmOverloads constructor(
             return
         }
         val selectedBuilding = state.selected.firstOrNull() as? GameBuilding
-        if (selectedBuilding != null && selectedBuilding.faction == 0) {
+        if (selectedBuilding != null && canSetRally(selectedBuilding)) {
             selectedBuilding.rallyX = wx
             selectedBuilding.rallyY = wy
             selectedBuilding.hasRally = true
@@ -464,7 +467,8 @@ class GameView @JvmOverloads constructor(
     private fun findEntityAt(wx: Float, wy: Float): GameEntity? {
         var bestUnit: GameUnit? = null
         var bestUnitDist = 34f * 34f
-        for (u in state.units) {
+        state.unitIndex.queryRect(wx - 48f, wy - 48f, wx + 48f, wy + 48f, unitTapQueryBuffer)
+        for (u in unitTapQueryBuffer) {
             if (u.dead || u.garrisoned) continue
             val d = dist2(wx, wy, u.x, u.y)
             if (d < bestUnitDist) {
@@ -474,19 +478,30 @@ class GameView @JvmOverloads constructor(
         }
         if (bestUnit != null) return bestUnit
 
-        for (b in state.buildings.asReversed()) {
+        var bestBuilding: GameBuilding? = null
+        var bestBuildingSort = -Float.MAX_VALUE
+        state.buildingIndex.queryRect(wx - 260f, wy - 260f, wx + 260f, wy + 260f, buildingTapQueryBuffer)
+        for (b in buildingTapQueryBuffer) {
             if (b.dead) continue
             val def = BUILDINGS[b.type] ?: continue
             val left = b.x - def.w / 2f - 10f
             val right = b.x + def.w / 2f + 10f
             val top = b.y - def.h + def.placeYOffset - 8f
             val bottom = b.y + def.placeYOffset + 12f
-            if (wx in left..right && wy in top..bottom) return b
+            if (wx in left..right && wy in top..bottom) {
+                val sort = b.y + def.h * 0.34f
+                if (sort > bestBuildingSort) {
+                    bestBuildingSort = sort
+                    bestBuilding = b
+                }
+            }
         }
+        if (bestBuilding != null) return bestBuilding
 
         var bestRes: GameResource? = null
         var bestResDist = 48f * 48f
-        for (r in state.resources) {
+        state.resourceIndex.queryRect(wx - 110f, wy - 110f, wx + 110f, wy + 110f, resourceTapQueryBuffer)
+        for (r in resourceTapQueryBuffer) {
             if (r.dead || r.depleted) continue
             val ix = resourceInteractionX(r)
             val iy = resourceInteractionY(r)
@@ -498,6 +513,13 @@ class GameView @JvmOverloads constructor(
             }
         }
         return bestRes
+    }
+
+    private fun canSetRally(building: GameBuilding): Boolean {
+        if (building.faction != 0 || building.dead || building.buildProgress < 1f) return false
+        if (building.type == "tower") return false
+        val def = BUILDINGS[building.type] ?: return false
+        return def.trains.isNotEmpty()
     }
 
     private fun selectSingle(entity: GameEntity) {
