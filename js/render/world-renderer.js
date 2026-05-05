@@ -555,7 +555,6 @@ Game.prototype.drawBuilding = function (b) {
   else { ctx.fillStyle = faction(b.faction).color; ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
   if (b.flash > 0) { ctx.fillStyle = `rgba(255,255,255,${b.flash * .25})`; ctx.fillRect(b.x - b.w / 2, b.y - b.h, b.w, b.h); }
   if (b.build < 1) this.drawProgress(b.x, metrics.barY + 5, b.build, '#e8c965');
-  else if (b.hp < b.maxHp) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
   if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
   if (b.rally && b.faction === 0 && this.selected.includes(b)) this.drawRallyFlag(b.rally.x, b.rally.y, faction(b.faction).color);
   if (defensiveArcherCount(b) > 0) this.drawDefensiveArchers(b, metrics);
@@ -565,31 +564,46 @@ Game.prototype.drawBuilding = function (b) {
 Game.prototype.getDefensiveArcherSlots = function (b, metrics) {
   const count = defensiveArcherCount(b);
   if (count <= 0) return [];
+  metrics = metrics || this.getBuildingDrawMetrics(b);
   const slots = [];
+  const drift = (index, strengthX, strengthY) => {
+    const shot = b.defenderShots && b.defenderShots[index];
+    if (shot && shot.until > this.time) return { x: 0, y: 0 };
+    const seed = b.id * 1.731 + index * 2.417;
+    return {
+      x: Math.sin(this.time * 0.72 + seed) * strengthX + Math.sin(this.time * 0.31 + seed * 1.8) * strengthX * 0.45,
+      y: Math.cos(this.time * 0.58 + seed) * strengthY
+    };
+  };
+
   if (b.type === 'castle') {
     const patterns = {
-      1: [{ x: 0.00, y: 0.28 }],
-      2: [{ x: -0.23, y: 0.31 }, { x: 0.23, y: 0.31 }],
-      3: [{ x: -0.28, y: 0.32 }, { x: 0.00, y: 0.24 }, { x: 0.28, y: 0.32 }]
+      1: [{ x: 0.00, y: 0.215 }],
+      2: [{ x: -0.20, y: 0.245 }, { x: 0.20, y: 0.245 }],
+      3: [{ x: -0.25, y: 0.255 }, { x: 0.00, y: 0.205 }, { x: 0.25, y: 0.255 }]
     };
     const pattern = patterns[Math.min(3, count)] || patterns[3];
     for (let i = 0; i < count; i++) {
       const slot = pattern[Math.min(i, pattern.length - 1)];
+      const d = drift(i, 4.2, 1.6);
       slots.push({
-        x: b.x + metrics.w * slot.x,
-        y: metrics.drawY + metrics.h * slot.y,
-        index: i
+        x: b.x + metrics.w * slot.x + d.x,
+        y: metrics.drawY + metrics.h * slot.y + d.y,
+        index: i,
+        clipBelow: metrics.drawY + metrics.h * (slot.y + 0.070) + 5
       });
     }
     return slots;
   }
 
-  const towerPattern = count === 1 ? [0] : [-0.08, 0.08];
+  const towerPattern = count === 1 ? [0] : [-0.075, 0.075];
   for (let i = 0; i < count; i++) {
+    const d = drift(i, 2.0, 0.9);
     slots.push({
-      x: b.x + metrics.w * towerPattern[Math.min(i, towerPattern.length - 1)],
-      y: metrics.drawY + metrics.h * 0.36,
-      index: i
+      x: b.x + metrics.w * towerPattern[Math.min(i, towerPattern.length - 1)] + d.x,
+      y: metrics.drawY + metrics.h * 0.295 + d.y,
+      index: i,
+      clipBelow: metrics.drawY + metrics.h * 0.395
     });
   }
   return slots;
@@ -601,7 +615,7 @@ Game.prototype.drawDefensiveArchers = function (b, metrics) {
   const shootImg = assets[`u_${fKey}_archer_attack`] || idleImg;
   if (!idleImg) return;
   const slots = this.getDefensiveArcherSlots(b, metrics || this.getBuildingDrawMetrics(b));
-  const scale = UNITS.archer.scale * SPRITE_BOOST * (b.type === 'castle' ? .78 : .86);
+  const scale = UNITS.archer.scale * SPRITE_BOOST * (b.type === 'castle' ? .58 : .66);
   const fw = UNITS.archer.fw, fh = UNITS.archer.fh;
   const baseline = 136;
   for (const slot of slots) {
@@ -610,9 +624,19 @@ Game.prototype.drawDefensiveArchers = function (b, metrics) {
     const img = shooting ? shootImg : idleImg;
     const frames = Math.max(1, Math.floor(img.width / fw));
     const fps = shooting ? 12 : 4;
-    const fr = Math.floor((shooting ? (1 - (shot.until - this.time) / 0.52) : this.time) * fps) % frames;
+    const fr = Math.floor((shooting ? (1 - (shot.until - this.time) / 0.52) : this.time + b.id * .07 + slot.index * .33) * fps) % frames;
     const face = shooting ? shot.face || 1 : 1;
+
+    ctx.save();
+    if (slot.clipBelow) {
+      const clipW = fw * scale * 0.86;
+      const clipTop = slot.y - baseline * scale - 4;
+      ctx.beginPath();
+      ctx.rect(slot.x - clipW / 2, clipTop, clipW, Math.max(12, slot.clipBelow - clipTop));
+      ctx.clip();
+    }
     this.drawSpriteFrameAnchored(img, fr * fw, 0, fw, fh, slot.x, slot.y, scale, baseline, { flip: face });
+    ctx.restore();
   }
 };
 
@@ -679,9 +703,21 @@ Game.prototype.drawProjectile = function (p) {
   const img = assets[`${f.key}Arrow`] || assets.blueArrow;
   const target = p.target || p;
   const a = Math.atan2((target.y - 20) - p.y, target.x - p.x);
-  ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(a);
-  if (img) ctx.drawImage(img, -10, -5, 28, 10);
-  else { ctx.strokeStyle = '#f4e7a8'; ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(10, 0); ctx.stroke(); }
+  ctx.save();
+  ctx.translate(Math.round(p.x), Math.round(p.y));
+  ctx.rotate(a);
+  if (img) {
+    // Crop the transparent 64x64 sheet to the actual arrow silhouette. Drawing
+    // the whole frame as a flat strip made volleys look like stray HP bars.
+    ctx.drawImage(img, 8, 23, 48, 18, -17, -6, 34, 12);
+  } else {
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#0b111c';
+    ctx.beginPath(); ctx.moveTo(-10, 0); ctx.lineTo(10, 0); ctx.stroke();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#f4e7a8';
+    ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(9, 0); ctx.stroke();
+  }
   ctx.restore();
 };
 
@@ -1034,7 +1070,6 @@ Game.prototype.drawBuildingPerf = function (b) {
   if (img) { ctx.globalAlpha = b.build < 1 ? .58 + .36 * b.build : 1; ctx.drawImage(img, Math.round(b.x - metrics.w / 2), Math.round(metrics.drawY), Math.round(metrics.w), Math.round(metrics.h)); ctx.globalAlpha = 1; }
   else { ctx.fillStyle = faction(b.faction).color; ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h); }
   if (b.build < 1) this.drawProgress(b.x, metrics.barY + 5, b.build, '#e8c965');
-  else if (b.hp < b.maxHp) this.drawHpBar(b.x, metrics.barY, b.hp / b.maxHp, b.faction, 54);
   if (b.selected || this.selected.includes(b)) this.drawSelectionRect(b.x, b.y, b.w, b.h, faction(b.faction).color);
   if (defensiveArcherCount(b) > 0) this.drawDefensiveArchers(b, metrics);
 };

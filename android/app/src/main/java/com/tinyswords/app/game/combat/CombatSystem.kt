@@ -118,9 +118,24 @@ class CombatSystem(private val state: GameState) {
 
     private fun defensiveProjectileOrigin(building: GameBuilding, index: Int, count: Int): Pair<Float, Float> {
         val def = BUILDINGS[building.type]
-        val offset = (index - (count - 1) / 2f) * if (building.type == "castle") 38f else 18f
-        val yOffset = if (building.type == "castle") (def?.h ?: 132f) * 0.68f else (def?.h ?: 96f) * 0.62f
-        return Pair(building.x + offset, building.y - yOffset)
+        val visualScale = MOBILE_BUILDING_VISUAL_SCALE
+        if (building.type == "castle") {
+            val visualW = (def?.w ?: 180f) * visualScale
+            val visualH = (def?.h ?: 132f) * visualScale
+            val drawY = building.y - visualH + (def?.placeYOffset ?: 0f)
+            val pattern = when (count.coerceAtMost(3)) {
+                1 -> listOf(0.00f to 0.215f)
+                2 -> listOf(-0.20f to 0.245f, 0.20f to 0.245f)
+                else -> listOf(-0.25f to 0.255f, 0.00f to 0.205f, 0.25f to 0.255f)
+            }
+            val slot = pattern[index.coerceAtMost(pattern.lastIndex)]
+            return Pair(building.x + visualW * slot.first, drawY + visualH * slot.second - 16f)
+        }
+        val visualW = (def?.w ?: 60f) * visualScale
+        val visualH = (def?.h ?: 96f) * visualScale
+        val drawY = building.y - visualH + (def?.placeYOffset ?: 0f)
+        val pattern = if (count == 1) listOf(0.00f) else listOf(-0.075f, 0.075f)
+        return Pair(building.x + visualW * pattern[index.coerceAtMost(pattern.lastIndex)], drawY + visualH * 0.295f - 20f)
     }
 
     private fun defensiveCandidates(building: GameBuilding, range: Float): List<GameEntity> {

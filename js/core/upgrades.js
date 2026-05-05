@@ -81,14 +81,20 @@ function buildingMaxHpFor(type, level = 1) {
 }
 function normalizeBuildingStats(building, preserveRatio = true) {
   if (!building || !BUILDINGS[building.type]) return building;
-  const oldMax = Number(building.maxHp) || BUILDINGS[building.type].hp;
-  const oldHp = Number(building.hp) || oldMax;
+  const oldMax = Math.max(1, Number(building.maxHp) || BUILDINGS[building.type].hp);
+  const oldHp = clamp(Number(building.hp) || oldMax, 0, oldMax);
   building.level = buildingLevel(building);
   const nextMax = buildingMaxHpFor(building.type, building.level);
+  const wasStructurallyFull = building.build >= 1 && oldHp >= oldMax - 1;
   building.maxHp = nextMax;
   if (preserveRatio) {
     const ratio = oldMax > 0 ? clamp(oldHp / oldMax, 0, 1) : 1;
     building.hp = clamp(Math.max(building.build < 1 ? oldHp : 1, Math.round(nextMax * ratio)), 0, nextMax);
+  } else if (wasStructurallyFull && nextMax > oldMax) {
+    // Old saves and level migrations often have hp equal to the old max. Treat
+    // that as healthy rather than damaged, otherwise every upgraded building
+    // renders a fake floating HP bar forever.
+    building.hp = nextMax;
   } else {
     building.hp = clamp(oldHp, 0, nextMax);
   }

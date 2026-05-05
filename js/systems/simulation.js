@@ -669,10 +669,10 @@ Game.prototype.defensiveBuildingProjectileOrigin = function(b, slotIndex, count)
   const renderMetrics = this.getBuildingDrawMetrics ? this.getBuildingDrawMetrics(b) : null;
   if (renderMetrics && this.getDefensiveArcherSlots) {
     const slot = this.getDefensiveArcherSlots(b, renderMetrics)[slotIndex];
-    if (slot) return { x: slot.x, y: slot.y - 26 };
+    if (slot) return { x: slot.x, y: slot.y - (b.type === 'castle' ? 16 : 20) };
   }
-  const offset = (slotIndex - (count - 1) / 2) * (b.type === 'castle' ? 38 : 18);
-  const yOffset = b.type === 'castle' ? b.h * .72 : b.h * .64;
+  const offset = (slotIndex - (count - 1) / 2) * (b.type === 'castle' ? 34 : 15);
+  const yOffset = b.type === 'castle' ? b.h * .83 : b.h * .76;
   return { x: b.x + offset, y: b.y - yOffset };
 };
 

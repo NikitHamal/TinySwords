@@ -385,30 +385,39 @@ class GameGlRenderer(private val assets: AssetManager) {
         }
         if (building.buildProgress < 1f) {
             drawProgressBar(building.x, drawY - 8f, building.buildProgress, 48f)
-        } else if (building.hp < building.maxHp) {
-            drawHpBar(building.x, drawY - 8f, building.hp.toFloat() / building.maxHp, 48f)
         }
     }
 
     private data class BuildingArcherRenderSlot(val x: Float, val y: Float, val index: Int)
+
+    private fun defenderIdleDrift(building: GameBuilding, index: Int, strengthX: Float, strengthY: Float): Pair<Float, Float> {
+        val shooting = index < building.defenderShotUntil.size && frameTimeSec < building.defenderShotUntil[index]
+        if (shooting) return Pair(0f, 0f)
+        val seed = building.id * 1.731f + index * 2.417f
+        val dx = sin(frameTimeSec * 0.72f + seed) * strengthX + sin(frameTimeSec * 0.31f + seed * 1.8f) * strengthX * 0.45f
+        val dy = cos(frameTimeSec * 0.58f + seed) * strengthY
+        return Pair(dx, dy)
+    }
 
     private fun buildingArcherRenderSlots(building: GameBuilding, visualW: Float, visualH: Float, drawY: Float): List<BuildingArcherRenderSlot> {
         val count = defensiveArcherCount(building)
         if (count <= 0) return emptyList()
         if (building.type == "castle") {
             val pattern = when (count.coerceAtMost(3)) {
-                1 -> listOf(0.00f to 0.28f)
-                2 -> listOf(-0.23f to 0.31f, 0.23f to 0.31f)
-                else -> listOf(-0.28f to 0.32f, 0.00f to 0.24f, 0.28f to 0.32f)
+                1 -> listOf(0.00f to 0.215f)
+                2 -> listOf(-0.20f to 0.245f, 0.20f to 0.245f)
+                else -> listOf(-0.25f to 0.255f, 0.00f to 0.205f, 0.25f to 0.255f)
             }
             return (0 until count).map { i ->
                 val slot = pattern[i.coerceAtMost(pattern.lastIndex)]
-                BuildingArcherRenderSlot(building.x + visualW * slot.first, drawY + visualH * slot.second, i)
+                val drift = defenderIdleDrift(building, i, 4.2f, 1.6f)
+                BuildingArcherRenderSlot(building.x + visualW * slot.first + drift.first, drawY + visualH * slot.second + drift.second, i)
             }
         }
-        val pattern = if (count == 1) listOf(0.00f) else listOf(-0.08f, 0.08f)
+        val pattern = if (count == 1) listOf(0.00f) else listOf(-0.075f, 0.075f)
         return (0 until count).map { i ->
-            BuildingArcherRenderSlot(building.x + visualW * pattern[i.coerceAtMost(pattern.lastIndex)], drawY + visualH * 0.36f, i)
+            val drift = defenderIdleDrift(building, i, 2.0f, 0.9f)
+            BuildingArcherRenderSlot(building.x + visualW * pattern[i.coerceAtMost(pattern.lastIndex)] + drift.first, drawY + visualH * 0.295f + drift.second, i)
         }
     }
 
@@ -421,7 +430,7 @@ class GameGlRenderer(private val assets: AssetManager) {
         val drawY = building.y - visualH + buildingDef.placeYOffset
         val slots = buildingArcherRenderSlots(building, visualW, visualH, drawY)
         if (slots.isEmpty()) return
-        val scale = udef.scale * SPRITE_BOOST * MOBILE_WORLD_VISUAL_SCALE * if (building.type == "castle") 0.78f else 0.86f
+        val scale = udef.scale * SPRITE_BOOST * MOBILE_WORLD_VISUAL_SCALE * if (building.type == "castle") 0.58f else 0.66f
         val baseline = unitVisualBaseline("archer")
         for (slot in slots) {
             val shooting = slot.index < building.defenderShotUntil.size && frameTimeSec < building.defenderShotUntil[slot.index]
@@ -536,10 +545,10 @@ class GameGlRenderer(private val assets: AssetManager) {
             val fKey = FACTIONS.getOrNull(p.factionId)?.key ?: "blue"
             val arrow = textures.get("u_${fKey}_arrow")
             if (arrow != null) {
-                val s = 0.25f
-                drawRotatedTextureWorld(arrow, 0, 0, arrow.width, arrow.height, p.x, p.y, arrow.width * s, arrow.height * s, p.angle, 255)
+                drawRotatedTextureWorld(arrow, 8, 23, 48, 18, p.x, p.y, 34f, 12f, p.angle, 255)
             } else {
-                drawWorldLine(p.x, p.y, p.x - cos(p.angle) * 12f, p.y - sin(p.angle) * 12f, 2.4f, 74, 48, 32, 255)
+                drawWorldLine(p.x, p.y, p.x - cos(p.angle) * 10f, p.y - sin(p.angle) * 10f, 2.0f, 74, 48, 32, 255)
+                drawWorldLine(p.x, p.y, p.x - cos(p.angle) * 9f, p.y - sin(p.angle) * 9f, 1.0f, 244, 231, 168, 255)
             }
         }
     }

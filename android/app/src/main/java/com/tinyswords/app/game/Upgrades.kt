@@ -103,10 +103,13 @@ fun normalizeBuildingStats(building: GameBuilding, preserveRatio: Boolean = true
     val oldHp = building.hp.coerceIn(0, oldMax)
     building.level = upgradeLevel(building)
     val nextMax = buildingMaxHpFor(building.type, building.level)
+    val wasStructurallyFull = building.buildProgress >= 1f && oldHp >= oldMax - 1
     building.maxHp = nextMax
     building.hp = if (preserveRatio) {
         val ratio = oldHp.toFloat() / oldMax.toFloat()
         (nextMax * ratio).roundToInt().coerceIn(if (building.buildProgress < 1f) 0 else 1, nextMax)
+    } else if (wasStructurallyFull && nextMax > oldMax) {
+        nextMax
     } else {
         oldHp.coerceIn(0, nextMax)
     }
