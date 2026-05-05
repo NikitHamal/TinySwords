@@ -779,31 +779,26 @@ Game.prototype.moveToward = function(u, x, y, dt, stop = 6) {
   if (step <= .001) return false;
   let nx = u.x + pdx / pd * step;
   let ny = u.y + pdy / pd * step;
-  if (this.isBlocked(nx, ny, u)) {
-    const angle = Math.atan2(pdy, pdx);
-    let found = false;
-    const bias = (u.pathProbe || 0) % 2 ? -1 : 1;
-    const turns = [Math.PI / 8 * bias, -Math.PI / 8 * bias, Math.PI / 4 * bias, -Math.PI / 4 * bias, Math.PI / 2, -Math.PI / 2, Math.PI * .75, -Math.PI * .75];
-    for (const turn of turns) {
-      const a = angle + turn;
-      const tx2 = u.x + Math.cos(a) * step;
-      const ty2 = u.y + Math.sin(a) * step;
-      if (!this.isBlocked(tx2, ty2, u)) { nx = tx2; ny = ty2; found = true; break; }
+
+  if (!this.isBlocked(nx, ny, u)) {
+    u.x = nx;
+    u.y = ny;
+    u.stuck = 0;
+  } else if (!this.isBlocked(nx, u.y, u)) {
+    u.x = nx;
+    u.stuck = 0;
+  } else if (!this.isBlocked(u.x, ny, u)) {
+    u.y = ny;
+    u.stuck = 0;
+  } else {
+    u.stuck = (u.stuck || 0) + dt;
+    if (u.stuck > 0.36) {
+      this.clearUnitPath && this.clearUnitPath(u);
+      u.pathRetry = 0;
+      u.stuck = 0;
     }
-    if (!found) {
-      u.stuck = (u.stuck || 0) + dt;
-      if (u.stuck > .36) {
-        u.pathProbe = (u.pathProbe || 0) + 1;
-        this.clearUnitPath && this.clearUnitPath(u);
-        u.pathRetry = 0;
-        const p = this.nearestLandPoint(u.x + (Math.random() - .5) * 72, u.y + (Math.random() - .5) * 72, 160);
-        if (p && !this.isBlocked(p.x, p.y, u)) { u.x = p.x; u.y = p.y; }
-        u.stuck = .08;
-      }
-      return false;
-    }
-  } else u.stuck = 0;
-  u.x = nx; u.y = ny; u.face = pdx >= 0 ? 1 : -1;
+  }
+  u.face = pdx >= 0 ? 1 : -1;
   return false;
 };
 

@@ -189,12 +189,19 @@ Game.prototype.clearUnitPath = function(u) {
 };
 
 Game.prototype.isSegmentWalkable = function(u, ax, ay, bx, by, samples = 9) {
+  if (!this.pathGrid || this.pathGridVersion !== (this.navVersion || 1)) this.buildPathGrid();
   const steps = Math.max(2, samples);
-  for (let i = 1; i <= steps; i++) {
+  for (let i = 0; i <= steps; i++) {
     const t = i / steps;
     const px = ax + (bx - ax) * t;
     const py = ay + (by - ay) * t;
-    if (this.isBlocked(px, py, u)) return false;
+    if (this.isWater(px, py)) return false;
+    const cell = this.worldToPathCell(px, py);
+    if (cell.x >= 0 && cell.x < this.pathCols && cell.y >= 0 && cell.y < this.pathRows) {
+      if (this.pathGrid[cell.y * this.pathCols + cell.x] === 1) return false;
+    } else {
+      return false;
+    }
   }
   return true;
 };
